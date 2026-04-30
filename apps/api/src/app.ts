@@ -8,11 +8,12 @@ import { analyzeRepo } from "@open-maintainer/analyzer";
 import {
   type ModelArtifactContent,
   buildArtifactSynthesisPrompt,
-  buildContextSynthesisPrompt,
+  buildRepoFactsSynthesisPrompt,
   createContextArtifacts,
   deterministicContextOutput,
   parseModelArtifactContent,
-  parseStructuredContextOutput,
+  parseStructuredRepoFacts,
+  structuredContextOutputFromRepoFacts,
 } from "@open-maintainer/context";
 import { checkDatabase, checkRedis, store } from "@open-maintainer/db";
 import {
@@ -294,15 +295,20 @@ export function buildApp() {
     let modelArtifacts: ModelArtifactContent | undefined;
     if (provider) {
       try {
-        const prompt = buildContextSynthesisPrompt(profile);
-        const completion = await buildProvider(provider).complete(prompt);
-        output = parseStructuredContextOutput(completion.text);
+        const modelProvider = buildProvider(provider);
+        const repoFiles = store.repoFiles.get(repoId) ?? [];
+        const factsPrompt = buildRepoFactsSynthesisPrompt({
+          profile,
+          files: repoFiles,
+        });
+        const factsCompletion = await modelProvider.complete(factsPrompt);
+        const repoFacts = parseStructuredRepoFacts(factsCompletion.text);
+        output = structuredContextOutputFromRepoFacts(profile, repoFacts);
         const artifactPrompt = buildArtifactSynthesisPrompt({
           profile,
-          files: store.repoFiles.get(repoId) ?? [],
+          repoFacts,
         });
-        const artifactCompletion =
-          await buildProvider(provider).complete(artifactPrompt);
+        const artifactCompletion = await modelProvider.complete(artifactPrompt);
         modelArtifacts = parseModelArtifactContent(artifactCompletion.text);
       } catch (error) {
         store.updateRun(run.id, {

@@ -97,10 +97,103 @@ describe("MVP API", () => {
         const content =
           providerCalls.length === 1
             ? JSON.stringify({
-                summary: "LLM summary for the demo repository.",
-                qualityRules: ["Use Bun and inspect repo evidence."],
-                commands: ["test: bun test"],
-                notes: ["No special risks in the demo fixture."],
+                summary:
+                  "demo-org/demo-repo is a Bun TypeScript repository inferred from the analyzed profile.",
+                evidenceMap: [
+                  {
+                    claim: "Bun commands are available.",
+                    evidence: ["package.json"],
+                    confidence: "observed",
+                  },
+                ],
+                repositoryMap: [
+                  {
+                    path: "apps",
+                    purpose: "Application workspace paths.",
+                    evidence: ["architecturePathGroups"],
+                    confidence: "inferred",
+                  },
+                ],
+                commands: [
+                  {
+                    name: "test",
+                    command: "bun test",
+                    scope: "tests",
+                    source: "package.json",
+                    purpose: "Run tests.",
+                    confidence: "observed",
+                  },
+                ],
+                setup: {
+                  requirements: [
+                    {
+                      claim: "Use Bun for dependency and script commands.",
+                      evidence: ["packageManager"],
+                      confidence: "observed",
+                    },
+                  ],
+                  unknowns: ["No environment example was detected."],
+                },
+                architecture: {
+                  observed: [],
+                  inferred: [
+                    {
+                      claim: "Application paths appear under apps.",
+                      evidence: ["architecturePathGroups"],
+                      confidence: "inferred",
+                    },
+                  ],
+                  unknowns: ["Detailed data flow was not detected."],
+                },
+                changeRules: {
+                  safeEditZones: [],
+                  carefulEditZones: [
+                    {
+                      claim:
+                        "Lockfiles require dependency-change justification.",
+                      evidence: ["lockfiles"],
+                      confidence: "inferred",
+                    },
+                  ],
+                  doNotEditWithoutExplicitInstruction: [],
+                  unknowns: ["Ownership boundaries were not detected."],
+                },
+                testingStrategy: {
+                  locations: [],
+                  commands: [
+                    {
+                      name: "test",
+                      command: "bun test",
+                      scope: "tests",
+                      source: "package.json",
+                      purpose: "Run tests.",
+                      confidence: "observed",
+                    },
+                  ],
+                  namingConventions: [],
+                  regressionExpectations: [
+                    "Add regression tests for behavior changes.",
+                  ],
+                  unknowns: ["Test naming conventions were not detected."],
+                },
+                validation: {
+                  canonicalCommand: {
+                    name: "test",
+                    command: "bun test",
+                    scope: "tests",
+                    source: "package.json",
+                    purpose: "Run tests.",
+                    confidence: "observed",
+                  },
+                  scopedCommands: [],
+                  unknowns: [],
+                },
+                prRules: ["Include test evidence in PR notes."],
+                knownPitfalls: [],
+                generatedFiles: [],
+                highRiskAreas: [],
+                documentationAlignment: [],
+                unknowns: ["No PR template was detected."],
               })
             : JSON.stringify({
                 agentsMd:

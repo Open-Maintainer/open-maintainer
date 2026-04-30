@@ -10,14 +10,18 @@ import {
   type ArtifactModel,
   type ContextArtifactTarget,
   buildArtifactSynthesisPrompt,
+  buildRepoFactsSynthesisPrompt,
   createContextArtifacts,
   defaultArtifactTargets,
   deterministicContextOutput,
   modelArtifactContentJsonSchema,
   parseModelArtifactContent,
+  parseStructuredRepoFacts,
   planArtifactWrites,
   profileFingerprint,
   renderReadinessReport,
+  structuredContextOutputFromRepoFacts,
+  structuredRepoFactsJsonSchema,
 } from "@open-maintainer/context";
 
 type CliOptions = {
@@ -266,7 +270,7 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
   const artifacts = createContextArtifacts({
     repoId: "local",
     profile,
-    output: deterministicContextOutput(profile),
+    output: modelArtifacts?.output ?? deterministicContextOutput(profile),
     ...(modelArtifacts ? { modelArtifacts: modelArtifacts.content } : {}),
     modelProvider: modelArtifacts?.provider ?? null,
     model: modelArtifacts?.model ?? null,
@@ -369,7 +373,7 @@ async function generateModelArtifacts(input: {
       "--model requires --allow-write because repository content will be sent to the selected CLI backend.",
     );
   }
-  const prompt = buildArtifactSynthesisPrompt({
+  const factsPrompt = buildRepoFactsSynthesisPrompt({
     profile: input.profile,
     files: input.files,
   });
@@ -377,34 +381,62 @@ async function generateModelArtifacts(input: {
     const model =
       input.options.llmModel ?? process.env.OPEN_MAINTAINER_CODEX_MODEL;
     console.log(
+      `codex: analyzing repo evidence${model ? ` with ${model}` : ""}`,
+    );
+    const factsCompletion = await buildCodexCliProvider({
+      cwd: input.repoRoot,
+      ...(model ? { model } : {}),
+      outputSchema: structuredRepoFactsJsonSchema,
+    }).complete(factsPrompt);
+    const repoFacts = parseStructuredRepoFacts(factsCompletion.text);
+    const artifactPrompt = buildArtifactSynthesisPrompt({
+      profile: input.profile,
+      repoFacts,
+    });
+    console.log(
       `codex: generating artifact content${model ? ` with ${model}` : ""}`,
     );
-    const completion = await buildCodexCliProvider({
+    const artifactCompletion = await buildCodexCliProvider({
       cwd: input.repoRoot,
       ...(model ? { model } : {}),
       outputSchema: modelArtifactContentJsonSchema,
-    }).complete(prompt);
+    }).complete(artifactPrompt);
     return {
       provider: "Codex CLI",
-      model: completion.model,
-      content: parseModelArtifactContent(completion.text),
+      model: artifactCompletion.model,
+      output: structuredContextOutputFromRepoFacts(input.profile, repoFacts),
+      content: parseModelArtifactContent(artifactCompletion.text),
     };
   }
   if (input.options.model === "claude") {
     const model =
       input.options.llmModel ?? process.env.OPEN_MAINTAINER_CLAUDE_MODEL;
     console.log(
+      `claude: analyzing repo evidence${model ? ` with ${model}` : ""}`,
+    );
+    const factsCompletion = await buildClaudeCliProvider({
+      cwd: input.repoRoot,
+      ...(model ? { model } : {}),
+      outputSchema: structuredRepoFactsJsonSchema,
+    }).complete(factsPrompt);
+    const repoFacts = parseStructuredRepoFacts(factsCompletion.text);
+    const artifactPrompt = buildArtifactSynthesisPrompt({
+      profile: input.profile,
+      repoFacts,
+    });
+    console.log(
       `claude: generating artifact content${model ? ` with ${model}` : ""}`,
     );
-    const completion = await buildClaudeCliProvider({
+    const artifactCompletion = await buildClaudeCliProvider({
       cwd: input.repoRoot,
       ...(model ? { model } : {}),
       outputSchema: modelArtifactContentJsonSchema,
-    }).complete(prompt);
+    }).complete(artifactPrompt);
     return {
       provider: "Claude CLI",
-      model: completion.model,
-      content: parseModelArtifactContent(completion.text),
+      model: artifactCompletion.model,
+      output: structuredContextOutputFromRepoFacts(input.profile, repoFacts),
+      content: parseModelArtifactContent(artifactCompletion.text),
     };
   }
   throw new Error("Unknown model backend.");
