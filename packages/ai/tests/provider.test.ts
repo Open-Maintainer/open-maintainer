@@ -1,7 +1,11 @@
+import { chmod, mkdtemp, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertGenerationAllowed,
+  buildCodexCliProvider,
   buildProvider,
   createProviderConfig,
   testProviderConnection,
@@ -59,5 +63,35 @@ describe("AI providers", () => {
     expect(result.text).toBe("ok");
     expect(bodies.join("\n")).not.toContain("repo profile");
     expect(bodies.join("\n")).not.toContain("source code");
+  });
+
+  it("runs Codex CLI provider through a schema-constrained output file", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "codex-provider-test-"),
+    );
+    const command = path.join(directory, "fake-codex.js");
+    await writeFile(
+      command,
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+const outputIndex = process.argv.indexOf("--output-last-message");
+const outputPath = process.argv[outputIndex + 1];
+fs.writeFileSync(outputPath, JSON.stringify({ ok: true, source: "codex" }));
+`,
+    );
+    await chmod(command, 0o755);
+
+    const result = await buildCodexCliProvider({
+      command,
+      cwd: directory,
+      outputSchema: {
+        type: "object",
+        required: ["ok", "source"],
+        properties: { ok: { type: "boolean" }, source: { type: "string" } },
+      },
+    }).complete({ system: "Return JSON.", user: "Use schema." });
+
+    expect(JSON.parse(result.text)).toEqual({ ok: true, source: "codex" });
+    expect(result.model).toBe("codex-cli");
   });
 });

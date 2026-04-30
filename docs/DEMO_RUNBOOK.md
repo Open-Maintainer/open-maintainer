@@ -1,12 +1,12 @@
 # Open Maintainer Demo Runbook
 
-This runbook shows the CLI-first MVP demo from a fresh checkout. The real artifact-generation demo uses an OpenAI-compatible model provider with explicit repo-content consent. It does not require GitHub OAuth, Postgres, Redis, or Docker, and it does not mutate the Open Maintainer source repository.
+This runbook shows the CLI-first MVP demo from a fresh checkout. The real artifact-generation demo uses Codex CLI with explicit repo-content consent. It does not require GitHub OAuth, Postgres, Redis, Docker, or a separate OpenAI API key, and it does not mutate the Open Maintainer source repository.
 
 ## Prerequisites
 
 - Bun 1.1 or newer
 - A local checkout of `ametel01/open-maintainer`
-- An OpenAI-compatible provider for artifact generation, such as a local gateway, Ollama-compatible server, vLLM-compatible server, or hosted OpenAI-compatible endpoint
+- Codex CLI installed and logged in
 
 Start from the repository root:
 
@@ -36,17 +36,21 @@ MVP smoke passed: 53/100 -> 79/100
 
 The smoke gate uses explicit deterministic mode to validate plumbing without network access. It is not the content-quality demo. For real files, run the LLM-backed manual demo below.
 
-## Configure Provider
+## Configure Codex
 
-Set provider details in the shell that will run generation:
+Confirm Codex is available:
 
 ```sh
-export OPEN_MAINTAINER_PROVIDER_BASE_URL="http://localhost:11434/v1"
-export OPEN_MAINTAINER_MODEL="your-model"
-export OPEN_MAINTAINER_API_KEY="dev"
+codex --version
 ```
 
-Use the base URL, model, and key for your provider. Generation will fail unless you also pass `--allow-repo-content-provider`; that flag is the explicit consent that lets Open Maintainer send scanned repository content to the provider.
+Generation uses `codex exec` in read-only mode and writes schema-constrained JSON back to Open Maintainer. Generation fails unless you also pass `--allow-repo-content-provider`; that flag is the explicit consent that lets Open Maintainer send scanned repository content to Codex.
+
+Optionally choose a Codex model:
+
+```sh
+export OPEN_MAINTAINER_CODEX_MODEL="gpt-5.3-codex"
+```
 
 ## Manual Demo
 
@@ -82,7 +86,7 @@ Generate the full MVP context artifact set with the LLM:
 
 ```sh
 bun run cli generate "$DEMO_REPO" \
-  --llm \
+  --codex \
   --allow-repo-content-provider \
   --targets agents,copilot,cursor,skills,profile,report,config
 ```
@@ -143,7 +147,7 @@ Generation preserves existing context files by default. Run generation a second 
 
 ```sh
 bun run cli generate "$DEMO_REPO" \
-  --llm \
+  --codex \
   --allow-repo-content-provider \
   --targets agents,copilot,cursor,skills,profile,report,config
 ```
@@ -152,7 +156,7 @@ Expected output includes `skip:` entries for files that already exist. Use `--fo
 
 ```sh
 bun run cli generate "$DEMO_REPO" \
-  --llm \
+  --codex \
   --allow-repo-content-provider \
   --targets agents,copilot,cursor,skills,profile,report,config \
   --force
@@ -168,12 +172,23 @@ HORIZON_REPO="/Users/alexmetelli/source/horizon-starknet"
 bun run cli audit "$HORIZON_REPO"
 
 bun run cli generate "$HORIZON_REPO" \
-  --llm \
+  --codex \
   --allow-repo-content-provider \
   --targets agents,copilot,cursor,skills,profile,report,config \
   --force
 
 bun run cli doctor "$HORIZON_REPO"
+```
+
+To override the Codex model for one run:
+
+```sh
+bun run cli generate "$HORIZON_REPO" \
+  --codex \
+  --codex-model "gpt-5.3-codex" \
+  --allow-repo-content-provider \
+  --targets agents,copilot,cursor,skills,profile,report,config \
+  --force
 ```
 
 ## Optional Dashboard Smoke

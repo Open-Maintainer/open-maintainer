@@ -2,7 +2,7 @@
 
 Open Maintainer audits a repository for agent readiness, generates repo-specific context files, and can open a context PR through a GitHub App.
 
-The primary MVP demo is CLI-first and uses an explicit model provider for generated context files:
+The primary MVP demo is CLI-first and uses Codex for generated context files:
 
 ```text
 audit repo -> show readiness score -> generate context -> doctor -> dry-run PR summary
@@ -40,10 +40,7 @@ DEMO_REPO="$(mktemp -d)"
 cp -R tests/fixtures/low-context-ts/. "$DEMO_REPO"
 
 bun run cli audit "$DEMO_REPO"
-OPEN_MAINTAINER_PROVIDER_BASE_URL="http://localhost:11434/v1" \
-OPEN_MAINTAINER_MODEL="your-model" \
-OPEN_MAINTAINER_API_KEY="dev" \
-bun run cli generate "$DEMO_REPO" --llm --allow-repo-content-provider --targets agents,copilot,cursor,skills,profile,report,config
+bun run cli generate "$DEMO_REPO" --codex --allow-repo-content-provider --targets agents,copilot,cursor,skills,profile,report,config
 bun run cli doctor "$DEMO_REPO"
 bun run cli pr "$DEMO_REPO" --create
 ```
@@ -65,7 +62,7 @@ bun run cli pr "$DEMO_REPO" --create
 - `.open-maintainer/report.md`
 - `.open-maintainer.yml`
 
-Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Model synthesis is optional and repo content is never sent to a provider unless a configured provider has repo-content consent enabled; the CLI demo runs deterministically without a provider.
+Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Repo content is sent to Codex only when `--allow-repo-content-provider` is present; offline deterministic mode is reserved for smoke tests.
 
 ## GitHub Action Audit Mode
 

@@ -28,6 +28,27 @@ export const ModelArtifactContentSchema = z.object({
 });
 export type ModelArtifactContent = z.infer<typeof ModelArtifactContentSchema>;
 
+export const modelArtifactContentJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "agentsMd",
+    "copilotInstructions",
+    "cursorRule",
+    "repoOverviewSkill",
+    "testingWorkflowSkill",
+    "prReviewSkill",
+  ],
+  properties: {
+    agentsMd: { type: "string", minLength: 80 },
+    copilotInstructions: { type: "string", minLength: 80 },
+    cursorRule: { type: "string", minLength: 80 },
+    repoOverviewSkill: { type: "string", minLength: 80 },
+    testingWorkflowSkill: { type: "string", minLength: 80 },
+    prReviewSkill: { type: "string", minLength: 80 },
+  },
+} as const;
+
 export type ContextSourceFile = {
   path: string;
   content: string;

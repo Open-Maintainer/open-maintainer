@@ -1,3 +1,7 @@
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type {
   ModelProviderConfig,
   ModelProviderKind,
@@ -25,6 +29,14 @@ export type CompletionOutput = {
 export interface ModelProvider {
   complete(input: CompletionInput): Promise<CompletionOutput>;
 }
+
+export type CodexCliProviderOptions = {
+  command?: string;
+  cwd: string;
+  model?: string;
+  outputSchema?: unknown;
+  timeoutMs?: number;
+};
 
 export type ProviderSettingsInput = {
   kind: ModelProviderKind;
@@ -117,6 +129,64 @@ export function buildProvider(config: ModelProviderConfig): ModelProvider {
   };
 }
 
+export function buildCodexCliProvider(
+  options: CodexCliProviderOptions,
+): ModelProvider {
+  return {
+    async complete(input) {
+      const workdir = await mkdtemp(
+        path.join(tmpdir(), "open-maintainer-codex-"),
+      );
+      const outputPath = path.join(workdir, "last-message.txt");
+      const schemaPath = path.join(workdir, "schema.json");
+      try {
+        const args = [
+          "exec",
+          "--sandbox",
+          "read-only",
+          "--ephemeral",
+          "--skip-git-repo-check",
+          "--cd",
+          options.cwd,
+          "--output-last-message",
+          outputPath,
+        ];
+        if (options.model) {
+          args.push("--model", options.model);
+        }
+        if (options.outputSchema) {
+          await writeFile(schemaPath, JSON.stringify(options.outputSchema));
+          args.push("--output-schema", schemaPath);
+        }
+        args.push("-");
+
+        const prompt = [
+          input.system,
+          "",
+          "Return the final answer only. If an output schema is provided, return JSON that satisfies it.",
+          "",
+          input.user,
+        ].join("\n");
+        const result = await runProcess({
+          command: options.command ?? "codex",
+          args,
+          stdin: prompt,
+          timeoutMs: options.timeoutMs ?? 300_000,
+        });
+        const text = await readFile(outputPath, "utf8").catch(
+          () => result.stdout,
+        );
+        return {
+          text: text.trim(),
+          model: options.model ?? "codex-cli",
+        };
+      } finally {
+        await rm(workdir, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
 export async function testProviderConnection(
   provider: ModelProvider,
 ): Promise<CompletionOutput> {
@@ -139,4 +209,44 @@ function encryptForLocalDev(value: string): string {
 
 function decryptForLocalDev(value: string): string {
   return Buffer.from(value, "base64").toString("utf8");
+}
+
+async function runProcess(input: {
+  command: string;
+  args: string[];
+  stdin: string;
+  timeoutMs: number;
+}): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(input.command, input.args, {
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error(`Codex CLI timed out after ${input.timeoutMs}ms.`));
+    }, input.timeoutMs);
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
+    child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      reject(error);
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      const stdoutText = Buffer.concat(stdout).toString("utf8");
+      const stderrText = Buffer.concat(stderr).toString("utf8");
+      if (code !== 0) {
+        reject(
+          new Error(
+            `Codex CLI exited with code ${code}.\n${stderrText || stdoutText}`,
+          ),
+        );
+        return;
+      }
+      resolve({ stdout: stdoutText, stderr: stderrText });
+    });
+    child.stdin.end(input.stdin);
+  });
 }

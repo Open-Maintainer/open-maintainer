@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   assertProviderConsent,
+  buildCodexCliProvider,
   buildProvider,
   createProviderConfig,
 } from "@open-maintainer/ai";
@@ -13,6 +14,7 @@ import {
   createContextArtifacts,
   defaultArtifactTargets,
   deterministicContextOutput,
+  modelArtifactContentJsonSchema,
   parseModelArtifactContent,
   planArtifactWrites,
   profileFingerprint,
@@ -28,8 +30,10 @@ type CliOptions = {
   reportPath: string | null;
   noProfileWrite: boolean;
   llm: boolean;
+  codex: boolean;
   deterministic: boolean;
   allowRepoContentProvider: boolean;
+  codexModel: string | null;
   providerBaseUrl: string | null;
   providerModel: string | null;
   providerApiKey: string | null;
@@ -52,6 +56,8 @@ Options:
   --report-path <path>                  Write audit report to a custom path
   --no-profile-write                    Skip .open-maintainer/profile.json writes during audit
   --llm                                 Use an OpenAI-compatible model to generate artifact bodies
+  --codex                               Use Codex CLI as the LLM provider for artifact bodies
+  --codex-model <model>                 Optional Codex CLI model override
   --deterministic                       Use template-only artifact generation for offline smoke tests
   --allow-repo-content-provider         Required with --llm; permits sending scanned repo content to the provider
   --provider-base-url <url>             OpenAI-compatible base URL, or OPEN_MAINTAINER_PROVIDER_BASE_URL
@@ -150,12 +156,13 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
   const profile = createProfileFromFiles(repoRoot, files);
   if (!options.llm && !options.deterministic) {
     throw new Error(
-      "generate requires --llm for repo-specific artifact content. Use --deterministic only for offline smoke tests.",
+      "generate requires --llm or --codex for repo-specific artifact content. Use --deterministic only for offline smoke tests.",
     );
   }
-  const modelArtifacts = options.llm
-    ? await generateModelArtifacts({ profile, files, options })
-    : undefined;
+  const modelArtifacts =
+    options.llm || options.codex
+      ? await generateModelArtifacts({ repoRoot, profile, files, options })
+      : undefined;
   const artifacts = createContextArtifacts({
     repoId: "local",
     profile,
@@ -252,6 +259,7 @@ function createProfileFromFiles(
 }
 
 async function generateModelArtifacts(input: {
+  repoRoot: string;
   profile: ReturnType<typeof analyzeRepo>;
   files: Awaited<ReturnType<typeof scanRepository>>;
   options: CliOptions;
@@ -260,6 +268,27 @@ async function generateModelArtifacts(input: {
     throw new Error(
       "--llm requires --allow-repo-content-provider because repository content will be sent to the configured provider.",
     );
+  }
+  if (input.options.codex) {
+    const prompt = buildArtifactSynthesisPrompt({
+      profile: input.profile,
+      files: input.files,
+    });
+    const model =
+      input.options.codexModel ?? process.env.OPEN_MAINTAINER_CODEX_MODEL;
+    console.log(
+      `codex: generating artifact content${model ? ` with ${model}` : ""}`,
+    );
+    const completion = await buildCodexCliProvider({
+      cwd: input.repoRoot,
+      ...(model ? { model } : {}),
+      outputSchema: modelArtifactContentJsonSchema,
+    }).complete(prompt);
+    return {
+      provider: "Codex CLI",
+      model: completion.model,
+      content: parseModelArtifactContent(completion.text),
+    };
   }
   const baseUrl =
     input.options.providerBaseUrl ??
@@ -305,8 +334,10 @@ function parseOptions(rawOptions: string[]): CliOptions {
     reportPath: null,
     noProfileWrite: false,
     llm: false,
+    codex: false,
     deterministic: false,
     allowRepoContentProvider: false,
+    codexModel: null,
     providerBaseUrl: null,
     providerModel: null,
     providerApiKey: null,
@@ -332,6 +363,12 @@ function parseOptions(rawOptions: string[]): CliOptions {
       options.noProfileWrite = true;
     } else if (option === "--llm") {
       options.llm = true;
+    } else if (option === "--codex") {
+      options.codex = true;
+      options.llm = true;
+    } else if (option === "--codex-model") {
+      options.codexModel = rawOptions[index + 1] ?? null;
+      index += 1;
     } else if (option === "--deterministic") {
       options.deterministic = true;
     } else if (option === "--allow-repo-content-provider") {
