@@ -3,10 +3,13 @@ import type { RepoProfile } from "@open-maintainer/shared";
 import { describe, expect, it } from "vitest";
 import {
   buildArtifactSynthesisPrompt,
+  buildRepoFactsSynthesisPrompt,
   createContextArtifacts,
   parseModelArtifactContent,
+  parseStructuredRepoFacts,
   renderAgentsMd,
   renderOpenMaintainerYaml,
+  structuredContextOutputFromRepoFacts,
 } from "../src";
 
 const profile: RepoProfile = {
@@ -56,6 +59,125 @@ const profile: RepoProfile = {
   },
   createdAt: "2026-04-30T00:00:00.000Z",
 };
+
+const repoFacts = parseStructuredRepoFacts(
+  JSON.stringify({
+    summary:
+      "acme/tool is a TypeScript repository using Bun and Next.js based on package metadata.",
+    evidenceMap: [
+      {
+        claim: "Bun is used for test commands.",
+        evidence: ["package.json"],
+        confidence: "observed",
+      },
+    ],
+    repositoryMap: [
+      {
+        path: "apps",
+        purpose: "Application workspace paths.",
+        evidence: ["architecturePathGroups"],
+        confidence: "observed",
+      },
+    ],
+    commands: [
+      {
+        name: "test",
+        command: "bun test",
+        scope: "tests",
+        source: "package.json",
+        purpose: "Run test suite.",
+        confidence: "observed",
+      },
+    ],
+    setup: {
+      requirements: [
+        {
+          claim: "Install dependencies with Bun.",
+          evidence: ["packageManager", "bun.lock"],
+          confidence: "inferred",
+        },
+      ],
+      unknowns: ["No environment example was detected."],
+    },
+    architecture: {
+      observed: [
+        {
+          claim: "Application code appears under apps.",
+          evidence: ["architecturePathGroups"],
+          confidence: "observed",
+        },
+      ],
+      inferred: [],
+      unknowns: ["Detailed data flow was not detected."],
+    },
+    changeRules: {
+      safeEditZones: [
+        {
+          claim: "Application source paths are normal edit zones.",
+          evidence: ["architecturePathGroups"],
+          confidence: "inferred",
+        },
+      ],
+      carefulEditZones: [
+        {
+          claim: "Lockfiles require dependency-change justification.",
+          evidence: ["bun.lock"],
+          confidence: "observed",
+        },
+      ],
+      doNotEditWithoutExplicitInstruction: [],
+      unknowns: ["Ownership boundaries were not detected."],
+    },
+    testingStrategy: {
+      locations: [],
+      commands: [
+        {
+          name: "test",
+          command: "bun test",
+          scope: "tests",
+          source: "package.json",
+          purpose: "Run test suite.",
+          confidence: "observed",
+        },
+      ],
+      namingConventions: [],
+      regressionExpectations: [
+        "Add focused regression coverage when changing behavior.",
+      ],
+      unknowns: ["Test file naming conventions were not detected."],
+    },
+    validation: {
+      canonicalCommand: {
+        name: "test",
+        command: "bun test",
+        scope: "tests",
+        source: "package.json",
+        purpose: "Run test suite.",
+        confidence: "observed",
+      },
+      scopedCommands: [],
+      unknowns: [],
+    },
+    prRules: ["Include test evidence in PR notes."],
+    knownPitfalls: [
+      {
+        claim: "Do not edit lockfiles unless dependencies changed.",
+        evidence: ["bun.lock"],
+        confidence: "observed",
+      },
+    ],
+    generatedFiles: [],
+    highRiskAreas: [],
+    documentationAlignment: [
+      {
+        claim: "Update README.md when user-facing behavior changes.",
+        evidence: ["README.md"],
+        confidence: "inferred",
+      },
+    ],
+    unknowns: ["No PR template was detected."],
+  }),
+);
 
 describe("context renderers", () => {
   it("renders AGENTS.md from structured output", () => {
@@ -207,8 +329,8 @@ describe("context renderers", () => {
     ]);
   });
 
-  it("builds artifact synthesis prompts with source excerpts", () => {
-    const prompt = buildArtifactSynthesisPrompt({
+  it("builds repo facts synthesis prompts with source excerpts", () => {
+    const prompt = buildRepoFactsSynthesisPrompt({
       profile,
       files: [
         { path: "README.md", content: "# Tool\n\nImportant domain details." },
@@ -216,8 +338,52 @@ describe("context renderers", () => {
       ],
     });
 
-    expect(prompt.system).toContain("repo-specific");
+    expect(prompt.system).toContain("pass 1 of a two-pass pipeline");
+    expect(prompt.system).toContain("Evidence policy");
+    expect(prompt.system).toContain("Unknowns beat hallucinated confidence");
     expect(prompt.user).toContain("README.md");
     expect(prompt.user).toContain("Important domain details.");
+    expect(prompt.user).toContain('"labelInferences":true');
+  });
+
+  it("builds artifact synthesis prompts from structured repo facts", () => {
+    const prompt = buildArtifactSynthesisPrompt({
+      profile,
+      repoFacts,
+    });
+
+    expect(prompt.system).toContain("repository-specific");
+    expect(prompt.system).toContain("Evidence policy");
+    expect(prompt.system).toContain("Unknowns and missing evidence");
+    expect(prompt.system).toContain(
+      "Optimize AGENTS.md for coding-agent execution",
+    );
+    expect(prompt.system).toContain("Agent workflow");
+    expect(prompt.system).toContain("Scope control");
+    expect(prompt.system).toContain("validation routing table");
+    expect(prompt.system).toContain("documentation routing table");
+    expect(prompt.system).toContain("Do not repeat the same command list");
+    expect(prompt.system).toContain(
+      "Do not fabricate a combined command such as 'make check' or 'npm run check'",
+    );
+    expect(prompt.user).toContain("repoFacts");
+    expect(prompt.user).toContain("No PR template was detected.");
+    expect(prompt.user).toContain('"sourceOfTruth":"AGENTS.md"');
+    expect(prompt.user).toContain('"labelInferences":true');
+    expect(prompt.user).toContain('"includeScopeControl":true');
+    expect(prompt.user).toContain(
+      '"targetAgentsMdLineCount":"180-250 unless unusually complex"',
+    );
+  });
+
+  it("derives deterministic fallback output from structured repo facts", () => {
+    const output = structuredContextOutputFromRepoFacts(profile, repoFacts);
+
+    expect(output.summary).toContain("acme/tool");
+    expect(output.commands).toContain(
+      "tests test: bun test (package.json; observed)",
+    );
+    expect(output.qualityRules).toContain("Include test evidence in PR notes.");
+    expect(output.notes).toContain("Unknown: No PR template was detected.");
   });
 });
