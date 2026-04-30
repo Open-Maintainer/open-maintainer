@@ -90,18 +90,46 @@ Existing context files are preserved by default. Use `--force` only when you exp
 
 ## GitHub Action Audit Mode
 
-The repository includes `action.yml` for pull request audit mode:
+Use the action in OSS repositories before installing a hosted app:
 
 ```yaml
-- uses: ./
-  with:
-    mode: audit
-    fail-on-score-below: "40"
-    report-path: .open-maintainer/report.md
+name: Open Maintainer
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: open-maintainer/action@v1
+        with:
+          mode: audit
+          fail-on-score-below: "60"
 ```
 
-Default audit mode writes the report/profile path only and does not create PRs or mutate context files.
-The bundled action uses `--no-profile-write` and stores its default report under `$RUNNER_TEMP` so pull request audits do not modify checked-out context files unless you choose a repository path.
+Default audit mode runs from the packaged action checkout, installs its own Bun dependencies, writes the report under `$RUNNER_TEMP`, and uses `--no-profile-write`, so pull request audits do not modify checked-out context files unless you choose a repository `report-path`.
+
+The action warns when required generated context is missing, including `AGENTS.md` and repo-local skills, and runs `doctor` to detect stale generated profile artifacts. Set `fail-on-drift: "true"` to fail when profile drift is detected.
+
+To add a pull request summary with current readiness, readiness delta against the PR base, and drift diagnostics, grant comment permission and enable comments:
+
+```yaml
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+steps:
+  - uses: actions/checkout@v4
+  - uses: open-maintainer/action@v1
+    with:
+      mode: audit
+      fail-on-score-below: "60"
+      comment-on-pr: "true"
+```
 
 ## Dashboard and GitHub App
 

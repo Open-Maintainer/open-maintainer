@@ -9,9 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
       - uses: ./
         with:
           mode: audit
-          fail-on-score-below: "40"
-          report-path: .open-maintainer/report.md
+          fail-on-score-below: "60"

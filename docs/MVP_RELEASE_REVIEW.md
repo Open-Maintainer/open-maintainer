@@ -13,12 +13,12 @@ Included:
 - Full MVP context artifact set, including agent instructions, Copilot/Cursor rules, repo-local skills, profile, report, and policy config.
 - Context pull request creation against a branch, never the default branch.
 - Repo-local run history with safe retry for failed runs.
-- GitHub Action audit mode.
+- GitHub Action audit mode with missing-context warnings, drift detection, and optional pull request summary comments.
 - CLI MVP smoke diagnostics plus Docker Compose self-hosting path.
 
 Excluded:
 
-- Automatic PR review comments.
+- Automatic code-review comments on pull request diffs.
 - Issue triage.
 - Kanban or org memory.
 - Managed SaaS, billing, SSO, Helm, or Terraform.
@@ -31,7 +31,8 @@ Excluded:
 | CLI demo works from a fresh checkout. | `bun run smoke:mvp`. |
 | `open-maintainer audit .` produces readiness score and report. | `bun run cli audit tests/fixtures/low-context-ts`. |
 | Full artifact generation works and preserves existing files by default. | `bun run cli generate <fixture> --model codex --context codex --skills codex --allow-write`, then `bun run cli doctor <fixture>`. Use `--context claude --skills claude` when Claude Code project skills are part of the review. |
-| GitHub Action audit mode works without default context mutation. | `action.yml` and `.github/workflows/open-maintainer-audit.yml`. |
+| GitHub Action audit mode works without default context mutation. | `action.yml`, `.github/workflows/open-maintainer-audit.yml`, and action metadata tests. |
+| GitHub Action warns on missing context, detects drift, and can comment on PRs when enabled. | `tests/action-mvp.test.ts` plus CLI audit and doctor fixture evidence. |
 | Docker Compose starts `web`, `api`, `worker`, `postgres`, and `redis`. | `docker compose up --build` plus `bun run smoke:compose`. |
 | GitHub App credentials can be configured. | Dashboard settings screen or `POST /github/settings` response. |
 | Webhook signatures are verified. | `packages/github/tests/webhook.test.ts`. |
