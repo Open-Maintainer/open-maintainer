@@ -2,15 +2,13 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
-  assertProviderConsent,
+  buildClaudeCliProvider,
   buildCodexCliProvider,
-  buildProvider,
-  createProviderConfig,
 } from "@open-maintainer/ai";
 import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
 import {
+  type ArtifactModel,
   type ContextArtifactTarget,
-  availableArtifactTargets,
   buildArtifactSynthesisPrompt,
   createContextArtifacts,
   defaultArtifactTargets,
@@ -26,25 +24,22 @@ type CliOptions = {
   force: boolean;
   dryRun: boolean;
   createPr: boolean;
-  targets: ContextArtifactTarget[];
   failOnScoreBelow: number | null;
   reportPath: string | null;
   noProfileWrite: boolean;
-  llm: boolean;
+  model: ArtifactModel | null;
   codex: boolean;
+  claude: boolean;
   deterministic: boolean;
   allowRepoContentProvider: boolean;
-  codexModel: string | null;
-  providerBaseUrl: string | null;
-  providerModel: string | null;
-  providerApiKey: string | null;
+  llmModel: string | null;
 };
 
 const usage = `open-maintainer <command> <repo>
 
 Commands:
   audit <repo>                         Analyze repo and write .open-maintainer/profile.json and report.md
-  generate <repo> --targets a,b         Generate context artifacts safely
+  generate <repo> --model codex --codex Generate context artifacts safely
   init <repo>                           Run audit, then generate missing artifacts
   doctor <repo>                         Report missing or stale generated context
   pr <repo> --create                    Print a dry-run PR summary for generated artifacts
@@ -52,18 +47,15 @@ Commands:
 Options:
   --force                               Overwrite existing generated artifact files
   --dry-run                             Print planned writes without writing files
-  --targets agents,copilot,cursor,skills,claude-skills,profile,report,config
+  --model codex|claude                  LLM CLI backend used to generate artifact bodies
+  --codex                               Generate AGENTS.md and Codex skills under .agents/skills
+  --claude                              Generate CLAUDE.md and Claude skills under .claude/skills
+  --llm-model <model>                   Optional backend model override
   --fail-on-score-below <number>        Exit non-zero when audit score is below threshold
   --report-path <path>                  Write audit report to a custom path
   --no-profile-write                    Skip .open-maintainer/profile.json writes during audit
-  --llm                                 Use an OpenAI-compatible model to generate artifact bodies
-  --codex                               Use Codex CLI as the LLM provider for artifact bodies
-  --codex-model <model>                 Optional Codex CLI model override
   --deterministic                       Use template-only artifact generation for offline smoke tests
-  --allow-repo-content-provider         Required with --llm; permits sending scanned repo content to the provider
-  --provider-base-url <url>             OpenAI-compatible base URL, or OPEN_MAINTAINER_PROVIDER_BASE_URL
-  --provider-model <model>              Model name, or OPEN_MAINTAINER_MODEL
-  --provider-api-key <key>              API key, or OPEN_MAINTAINER_API_KEY
+  --allow-repo-content-provider         Required with --model; permits sending scanned repo content to the backend
 `;
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -155,15 +147,15 @@ async function audit(
 async function generate(repoRoot: string, options: CliOptions): Promise<void> {
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
   const profile = createProfileFromFiles(repoRoot, files);
-  if (!options.llm && !options.deterministic) {
+  const targets = resolveTargets(options);
+  if (!options.model && !options.deterministic) {
     throw new Error(
-      "generate requires --llm or --codex for repo-specific artifact content. Use --deterministic only for offline smoke tests.",
+      "generate requires --model codex or --model claude for repo-specific artifact content. Use --deterministic only for offline smoke tests.",
     );
   }
-  const modelArtifacts =
-    options.llm || options.codex
-      ? await generateModelArtifacts({ repoRoot, profile, files, options })
-      : undefined;
+  const modelArtifacts = options.deterministic
+    ? undefined
+    : await generateModelArtifacts({ repoRoot, profile, files, options });
   const artifacts = createContextArtifacts({
     repoId: "local",
     profile,
@@ -172,7 +164,7 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
     modelProvider: modelArtifacts?.provider ?? null,
     model: modelArtifacts?.model ?? null,
     nextVersion: 1,
-    targets: options.targets,
+    targets,
   });
   const existingPaths = new Set(files.map((file) => file.path));
   const plan = planArtifactWrites({
@@ -267,16 +259,16 @@ async function generateModelArtifacts(input: {
 }) {
   if (!input.options.allowRepoContentProvider) {
     throw new Error(
-      "--llm requires --allow-repo-content-provider because repository content will be sent to the configured provider.",
+      "--model requires --allow-repo-content-provider because repository content will be sent to the selected CLI backend.",
     );
   }
-  if (input.options.codex) {
-    const prompt = buildArtifactSynthesisPrompt({
-      profile: input.profile,
-      files: input.files,
-    });
+  const prompt = buildArtifactSynthesisPrompt({
+    profile: input.profile,
+    files: input.files,
+  });
+  if (input.options.model === "codex") {
     const model =
-      input.options.codexModel ?? process.env.OPEN_MAINTAINER_CODEX_MODEL;
+      input.options.llmModel ?? process.env.OPEN_MAINTAINER_CODEX_MODEL;
     console.log(
       `codex: generating artifact content${model ? ` with ${model}` : ""}`,
     );
@@ -291,38 +283,24 @@ async function generateModelArtifacts(input: {
       content: parseModelArtifactContent(completion.text),
     };
   }
-  const baseUrl =
-    input.options.providerBaseUrl ??
-    process.env.OPEN_MAINTAINER_PROVIDER_BASE_URL;
-  const model =
-    input.options.providerModel ?? process.env.OPEN_MAINTAINER_MODEL;
-  const apiKey =
-    input.options.providerApiKey ?? process.env.OPEN_MAINTAINER_API_KEY;
-  if (!baseUrl || !model || !apiKey) {
-    throw new Error(
-      "--llm requires --provider-base-url, --provider-model, and --provider-api-key, or matching OPEN_MAINTAINER_* environment variables.",
+  if (input.options.model === "claude") {
+    const model =
+      input.options.llmModel ?? process.env.OPEN_MAINTAINER_CLAUDE_MODEL;
+    console.log(
+      `claude: generating artifact content${model ? ` with ${model}` : ""}`,
     );
+    const completion = await buildClaudeCliProvider({
+      cwd: input.repoRoot,
+      ...(model ? { model } : {}),
+      outputSchema: modelArtifactContentJsonSchema,
+    }).complete(prompt);
+    return {
+      provider: "Claude CLI",
+      model: completion.model,
+      content: parseModelArtifactContent(completion.text),
+    };
   }
-  const provider = createProviderConfig({
-    kind: "openai-compatible",
-    displayName: "CLI OpenAI-compatible provider",
-    baseUrl,
-    model,
-    apiKey,
-    repoContentConsent: input.options.allowRepoContentProvider,
-  });
-  assertProviderConsent(provider);
-  const prompt = buildArtifactSynthesisPrompt({
-    profile: input.profile,
-    files: input.files,
-  });
-  console.log(`llm: generating artifact content with ${model}`);
-  const completion = await buildProvider(provider).complete(prompt);
-  return {
-    provider: provider.displayName,
-    model: completion.model,
-    content: parseModelArtifactContent(completion.text),
-  };
+  throw new Error("Unknown model backend.");
 }
 
 function parseOptions(rawOptions: string[]): CliOptions {
@@ -330,18 +308,15 @@ function parseOptions(rawOptions: string[]): CliOptions {
     force: false,
     dryRun: false,
     createPr: false,
-    targets: defaultArtifactTargets,
     failOnScoreBelow: null,
     reportPath: null,
     noProfileWrite: false,
-    llm: false,
+    model: null,
     codex: false,
+    claude: false,
     deterministic: false,
     allowRepoContentProvider: false,
-    codexModel: null,
-    providerBaseUrl: null,
-    providerModel: null,
-    providerApiKey: null,
+    llmModel: null,
   };
   for (let index = 0; index < rawOptions.length; index += 1) {
     const option = rawOptions[index];
@@ -351,9 +326,6 @@ function parseOptions(rawOptions: string[]): CliOptions {
       options.dryRun = true;
     } else if (option === "--create") {
       options.createPr = true;
-    } else if (option === "--targets") {
-      options.targets = parseTargets(rawOptions[index + 1] ?? "");
-      index += 1;
     } else if (option === "--fail-on-score-below") {
       options.failOnScoreBelow = Number(rawOptions[index + 1]);
       index += 1;
@@ -362,27 +334,20 @@ function parseOptions(rawOptions: string[]): CliOptions {
       index += 1;
     } else if (option === "--no-profile-write") {
       options.noProfileWrite = true;
-    } else if (option === "--llm") {
-      options.llm = true;
+    } else if (option === "--model") {
+      options.model = parseArtifactModel(rawOptions[index + 1] ?? "");
+      index += 1;
     } else if (option === "--codex") {
       options.codex = true;
-      options.llm = true;
-    } else if (option === "--codex-model") {
-      options.codexModel = rawOptions[index + 1] ?? null;
+    } else if (option === "--claude") {
+      options.claude = true;
+    } else if (option === "--llm-model") {
+      options.llmModel = rawOptions[index + 1] ?? null;
       index += 1;
     } else if (option === "--deterministic") {
       options.deterministic = true;
     } else if (option === "--allow-repo-content-provider") {
       options.allowRepoContentProvider = true;
-    } else if (option === "--provider-base-url") {
-      options.providerBaseUrl = rawOptions[index + 1] ?? null;
-      index += 1;
-    } else if (option === "--provider-model") {
-      options.providerModel = rawOptions[index + 1] ?? null;
-      index += 1;
-    } else if (option === "--provider-api-key") {
-      options.providerApiKey = rawOptions[index + 1] ?? null;
-      index += 1;
     } else {
       throw new Error(`Unknown option: ${option}`);
     }
@@ -390,15 +355,26 @@ function parseOptions(rawOptions: string[]): CliOptions {
   return options;
 }
 
-function parseTargets(value: string): ContextArtifactTarget[] {
-  const targets = value.split(",").filter(Boolean) as ContextArtifactTarget[];
-  const allowed = new Set(availableArtifactTargets);
-  for (const target of targets) {
-    if (!allowed.has(target)) {
-      throw new Error(`Unknown target: ${target}`);
-    }
+function resolveTargets(options: CliOptions): ContextArtifactTarget[] {
+  const targets: ContextArtifactTarget[] = [];
+  if (options.codex) {
+    targets.push("agents", "skills");
   }
-  return targets.length > 0 ? targets : defaultArtifactTargets;
+  if (options.claude) {
+    targets.push("claude", "claude-skills");
+  }
+  if (targets.length === 0) {
+    throw new Error("generate requires --codex, --claude, or both.");
+  }
+  targets.push("profile", "report", "config");
+  return targets;
+}
+
+function parseArtifactModel(value: string): ArtifactModel {
+  if (value === "codex" || value === "claude") {
+    return value;
+  }
+  throw new Error("Unknown model. Expected --model codex or --model claude.");
 }
 
 function thresholdExit(score: number, options: CliOptions): number {

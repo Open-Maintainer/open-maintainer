@@ -30,7 +30,7 @@ Excluded:
 | --- | --- |
 | CLI demo works from a fresh checkout. | `bun run smoke:mvp`. |
 | `open-maintainer audit .` produces readiness score and report. | `bun run cli audit tests/fixtures/low-context-ts`. |
-| Full artifact generation works and preserves existing files by default. | `bun run cli generate <fixture> --targets agents,copilot,cursor,skills,profile,report,config`, then `bun run cli doctor <fixture>`. Use `claude-skills` only when Claude Code project skills are part of the review. |
+| Full artifact generation works and preserves existing files by default. | `bun run cli generate <fixture> --model codex --codex --allow-repo-content-provider`, then `bun run cli doctor <fixture>`. Add `--claude` when Claude Code project skills are part of the review. |
 | GitHub Action audit mode works without default context mutation. | `action.yml` and `.github/workflows/open-maintainer-audit.yml`. |
 | Docker Compose starts `web`, `api`, `worker`, `postgres`, and `redis`. | `docker compose up --build` plus `bun run smoke:compose`. |
 | GitHub App credentials can be configured. | Dashboard settings screen or `POST /github/settings` response. |

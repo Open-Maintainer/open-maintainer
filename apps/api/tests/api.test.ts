@@ -105,6 +105,8 @@ describe("MVP API", () => {
             : JSON.stringify({
                 agentsMd:
                   "# AGENTS.md instructions for demo-org/demo-repo\n\nLLM-generated repository instructions with Bun, Fastify, Next.js, and CI context.",
+                claudeMd:
+                  "# CLAUDE.md instructions for demo-org/demo-repo\n\nLLM-generated repository instructions with Bun, Fastify, Next.js, and CI context.",
                 copilotInstructions:
                   "# Copilot instructions for demo-org/demo-repo\n\nUse Bun scripts and inspect package manifests before editing.",
                 cursorRule:
@@ -145,7 +147,7 @@ describe("MVP API", () => {
     });
     server.close();
     expect(generated.statusCode).toBe(200);
-    expect(generated.json().artifacts).toHaveLength(9);
+    expect(generated.json().artifacts).toHaveLength(7);
     expect(generated.json().artifacts[0].content).toContain("LLM-generated");
 
     const pr = await app.inject({

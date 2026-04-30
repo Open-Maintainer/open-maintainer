@@ -71,6 +71,7 @@ export type RepoProfile = z.infer<typeof RepoProfileSchema>;
 export const ArtifactTypeSchema = z.enum([
   "repo_profile",
   "AGENTS.md",
+  "CLAUDE.md",
   ".open-maintainer.yml",
   ".github/copilot-instructions.md",
   ".cursor/rules/open-maintainer.md",

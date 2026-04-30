@@ -34,21 +34,13 @@ function scoreFrom(output: string): number {
 }
 
 const before = scoreFrom(await runCli(["audit", workdir]));
-await runCli([
-  "generate",
-  workdir,
-  "--deterministic",
-  "--targets",
-  "agents,copilot,cursor,skills,profile,report,config",
-]);
+await runCli(["generate", workdir, "--deterministic", "--codex"]);
 const after = scoreFrom(await runCli(["audit", workdir]));
 const doctor = await runCli(["doctor", workdir]);
 await runCli(["pr", workdir, "--create"]);
 
 const required = [
   "AGENTS.md",
-  ".github/copilot-instructions.md",
-  ".cursor/rules/open-maintainer.md",
   ".agents/skills/repo-overview/SKILL.md",
   ".agents/skills/testing-workflow/SKILL.md",
   ".agents/skills/pr-review/SKILL.md",

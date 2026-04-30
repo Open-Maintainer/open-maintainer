@@ -20,6 +20,7 @@ export type StructuredContextOutput = z.infer<
 
 export const ModelArtifactContentSchema = z.object({
   agentsMd: z.string().min(80),
+  claudeMd: z.string().min(80),
   copilotInstructions: z.string().min(80),
   cursorRule: z.string().min(80),
   repoOverviewSkill: z.string().min(80),
@@ -33,6 +34,7 @@ export const modelArtifactContentJsonSchema = {
   additionalProperties: false,
   required: [
     "agentsMd",
+    "claudeMd",
     "copilotInstructions",
     "cursorRule",
     "repoOverviewSkill",
@@ -41,6 +43,7 @@ export const modelArtifactContentJsonSchema = {
   ],
   properties: {
     agentsMd: { type: "string", minLength: 80 },
+    claudeMd: { type: "string", minLength: 80 },
     copilotInstructions: { type: "string", minLength: 80 },
     cursorRule: { type: "string", minLength: 80 },
     repoOverviewSkill: { type: "string", minLength: 80 },
@@ -56,6 +59,7 @@ export type ContextSourceFile = {
 
 export type ContextArtifactTarget =
   | "agents"
+  | "claude"
   | "copilot"
   | "cursor"
   | "skills"
@@ -66,6 +70,7 @@ export type ContextArtifactTarget =
 
 export const availableArtifactTargets: ContextArtifactTarget[] = [
   "agents",
+  "claude",
   "copilot",
   "cursor",
   "skills",
@@ -77,13 +82,13 @@ export const availableArtifactTargets: ContextArtifactTarget[] = [
 
 export const defaultArtifactTargets: ContextArtifactTarget[] = [
   "agents",
-  "copilot",
-  "cursor",
   "skills",
   "profile",
   "report",
   "config",
 ];
+
+export type ArtifactModel = "codex" | "claude";
 
 export type ArtifactWritePlanItem = {
   artifact: GeneratedArtifact;
@@ -155,6 +160,16 @@ export function renderAgentsMd(
     "",
     `<!-- ${generatedMarker}; edit through .open-maintainer.yml after merge -->`,
   ].join("\n");
+}
+
+export function renderClaudeMd(
+  profile: RepoProfile,
+  output: StructuredContextOutput,
+): string {
+  return renderAgentsMd(profile, output).replace(
+    `# AGENTS.md instructions for ${profile.owner}/${profile.name}`,
+    `# CLAUDE.md instructions for ${profile.owner}/${profile.name}`,
+  );
 }
 
 export function renderOpenMaintainerYaml(
@@ -327,6 +342,14 @@ export function createContextArtifacts(input: {
         renderAgentsMd(input.profile, input.output),
     });
   }
+  if (targets.has("claude")) {
+    definitions.push({
+      type: "CLAUDE.md",
+      content:
+        input.modelArtifacts?.claudeMd ??
+        renderClaudeMd(input.profile, input.output),
+    });
+  }
   if (targets.has("config")) {
     definitions.push({
       type: ".open-maintainer.yml",
@@ -478,7 +501,7 @@ export function buildArtifactSynthesisPrompt(input: {
       "You generate complete, repo-specific AI coding-agent context files.",
       "Use only the repository evidence and file excerpts provided.",
       "Do not produce generic boilerplate. Name exact subsystems, commands, risks, generated files, and review rules.",
-      "Return only JSON with keys: agentsMd, copilotInstructions, cursorRule, repoOverviewSkill, testingWorkflowSkill, prReviewSkill.",
+      "Return only JSON with keys: agentsMd, claudeMd, copilotInstructions, cursorRule, repoOverviewSkill, testingWorkflowSkill, prReviewSkill.",
       "Each value must be complete Markdown content for that file. Include YAML frontmatter for skill files. Include Cursor frontmatter for cursorRule.",
       "Do not include markdown fences around the JSON.",
     ].join(" "),

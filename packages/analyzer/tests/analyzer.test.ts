@@ -72,7 +72,7 @@ describe("analyzeRepo", () => {
       ".claude/skills/repo-overview/SKILL.md",
     );
     expect(profile.agentReadiness.missingItems).toContain(
-      "agent instructions: AGENTS.md is missing.",
+      "agent instructions: AGENTS.md or CLAUDE.md is missing.",
     );
   });
 

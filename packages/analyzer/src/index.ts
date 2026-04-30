@@ -76,8 +76,6 @@ const configFilePatterns = [
 
 const contextArtifactPaths = [
   "AGENTS.md",
-  ".github/copilot-instructions.md",
-  ".cursor/rules/open-maintainer.md",
   ".agents/skills/repo-overview/SKILL.md",
   ".agents/skills/testing-workflow/SKILL.md",
   ".agents/skills/pr-review/SKILL.md",
@@ -87,6 +85,9 @@ const contextArtifactPaths = [
 ];
 
 const optionalContextArtifactPaths = [
+  "CLAUDE.md",
+  ".github/copilot-instructions.md",
+  ".cursor/rules/open-maintainer.md",
   ".claude/skills/repo-overview/SKILL.md",
   ".claude/skills/testing-workflow/SKILL.md",
   ".claude/skills/pr-review/SKILL.md",
@@ -418,14 +419,9 @@ export function scoreAgentReadiness(
       name: "agent instructions",
       checks: [
         check(
-          profile.existingContextFiles.includes("AGENTS.md"),
-          "AGENTS.md is missing.",
-        ),
-        check(
-          profile.existingContextFiles.includes(
-            ".github/copilot-instructions.md",
-          ),
-          "Copilot instructions are missing.",
+          profile.existingContextFiles.includes("AGENTS.md") ||
+            profile.existingContextFiles.includes("CLAUDE.md"),
+          "AGENTS.md or CLAUDE.md is missing.",
         ),
         check(
           profile.existingContextFiles.some(

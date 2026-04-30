@@ -91,7 +91,7 @@ describe("context renderers", () => {
       nextVersion: 1,
     });
 
-    expect(artifacts).toHaveLength(9);
+    expect(artifacts).toHaveLength(7);
     expect(
       artifacts.every((artifact) => artifact.sourceProfileVersion === 2),
     ).toBe(true);
@@ -105,6 +105,8 @@ describe("context renderers", () => {
       JSON.stringify({
         agentsMd:
           "# AGENTS.md instructions for acme/tool\n\nUse the real app router, Vitest tests, and Bun workspace scripts before changing code.",
+        claudeMd:
+          "# CLAUDE.md instructions for acme/tool\n\nUse the real app router, Vitest tests, and Bun workspace scripts before changing code.",
         copilotInstructions:
           "# Copilot instructions for acme/tool\n\nPrefer Bun commands and keep Next.js app-router code under apps/.",
         cursorRule:
@@ -136,6 +138,48 @@ describe("context renderers", () => {
     expect(artifacts[0]?.content).toContain("real app router");
     expect(artifacts[1]?.content).toContain("Next.js app with Bun tests");
     expect(artifacts.map((artifact) => artifact.type)).not.toContain(
+      ".claude/skills/repo-overview/SKILL.md",
+    );
+  });
+
+  it("uses model-generated Claude instructions when requested", () => {
+    const modelArtifacts = parseModelArtifactContent(
+      JSON.stringify({
+        agentsMd:
+          "# AGENTS.md instructions for acme/tool\n\nUse the real app router, Vitest tests, and Bun workspace scripts before changing code.",
+        claudeMd:
+          "# CLAUDE.md instructions for acme/tool\n\nUse Claude project guidance, Bun scripts, and app-router evidence before changing code.",
+        copilotInstructions:
+          "# Copilot instructions for acme/tool\n\nPrefer Bun commands and keep Next.js app-router code under apps/.",
+        cursorRule:
+          "---\ndescription: acme tool repo rules\nalwaysApply: true\n---\n\nUse Bun scripts and inspect app routes before editing.",
+        repoOverviewSkill:
+          "---\nname: repo-overview\ndescription: Use when working in acme/tool.\n---\n\n# Repo Overview\n\nNext.js app with Bun tests.",
+        testingWorkflowSkill:
+          "---\nname: testing-workflow\ndescription: Use when testing acme/tool.\n---\n\n# Testing Workflow\n\nRun bun test for unit coverage.",
+        prReviewSkill:
+          "---\nname: pr-review\ndescription: Use when reviewing acme/tool PRs.\n---\n\n# PR Review\n\nCheck Bun quality gates.",
+      }),
+    );
+    const artifacts = createContextArtifacts({
+      repoId: "repo_1",
+      profile,
+      output: {
+        summary: "Deterministic fallback.",
+        qualityRules: ["Fallback rule."],
+        commands: ["fallback"],
+        notes: [],
+      },
+      modelArtifacts,
+      modelProvider: "local",
+      model: "claude",
+      nextVersion: 1,
+      targets: ["claude", "claude-skills"],
+    });
+
+    expect(artifacts[0]?.type).toBe("CLAUDE.md");
+    expect(artifacts[0]?.content).toContain("Claude project guidance");
+    expect(artifacts.map((artifact) => artifact.type)).toContain(
       ".claude/skills/repo-overview/SKILL.md",
     );
   });

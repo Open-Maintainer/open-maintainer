@@ -86,9 +86,9 @@ Generate the full MVP context artifact set with the LLM:
 
 ```sh
 bun run cli generate "$DEMO_REPO" \
+  --model codex \
   --codex \
-  --allow-repo-content-provider \
-  --targets agents,copilot,cursor,skills,profile,report,config
+  --allow-repo-content-provider
 ```
 
 List the generated files:
@@ -105,8 +105,6 @@ Key generated files should include:
 
 ```text
 AGENTS.md
-.github/copilot-instructions.md
-.cursor/rules/open-maintainer.md
 .agents/skills/repo-overview/SKILL.md
 .agents/skills/testing-workflow/SKILL.md
 .agents/skills/pr-review/SKILL.md
@@ -115,7 +113,7 @@ AGENTS.md
 .open-maintainer.yml
 ```
 
-`skills` writes Codex repo skills under `.agents/skills`. Add `claude-skills` to the target list when the demo should also produce Claude Code project skills under `.claude/skills`.
+`--model` selects the LLM CLI backend. `--codex` writes `AGENTS.md` plus `.agents/skills`; add `--claude` to also write `CLAUDE.md` plus `.claude/skills`.
 
 Run audit again to show the before/after improvement:
 
@@ -149,18 +147,18 @@ Generation preserves existing context files by default. Run generation a second 
 
 ```sh
 bun run cli generate "$DEMO_REPO" \
+  --model codex \
   --codex \
-  --allow-repo-content-provider \
-  --targets agents,copilot,cursor,skills,profile,report,config
+  --allow-repo-content-provider
 ```
 
 Expected output includes `skip:` entries for files that already exist. Use `--force` only when you explicitly want generated files overwritten:
 
 ```sh
 bun run cli generate "$DEMO_REPO" \
+  --model codex \
   --codex \
   --allow-repo-content-provider \
-  --targets agents,copilot,cursor,skills,profile,report,config \
   --force
 ```
 
@@ -174,9 +172,9 @@ HORIZON_REPO="/Users/alexmetelli/source/horizon-starknet"
 bun run cli audit "$HORIZON_REPO"
 
 bun run cli generate "$HORIZON_REPO" \
+  --model codex \
   --codex \
   --allow-repo-content-provider \
-  --targets agents,copilot,cursor,skills,profile,report,config \
   --force
 
 bun run cli doctor "$HORIZON_REPO"
@@ -186,10 +184,10 @@ To override the Codex model for one run:
 
 ```sh
 bun run cli generate "$HORIZON_REPO" \
+  --model codex \
   --codex \
-  --codex-model "gpt-5.3-codex" \
+  --llm-model "gpt-5.3-codex" \
   --allow-repo-content-provider \
-  --targets agents,copilot,cursor,skills,profile,report,config \
   --force
 ```
 

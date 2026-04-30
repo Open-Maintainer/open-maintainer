@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertGenerationAllowed,
+  buildClaudeCliProvider,
   buildCodexCliProvider,
   buildProvider,
   createProviderConfig,
@@ -93,5 +94,32 @@ fs.writeFileSync(outputPath, JSON.stringify({ ok: true, source: "codex" }));
 
     expect(JSON.parse(result.text)).toEqual({ ok: true, source: "codex" });
     expect(result.model).toBe("codex-cli");
+  });
+
+  it("runs Claude CLI provider through schema-constrained print mode", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "claude-provider-test-"),
+    );
+    const command = path.join(directory, "fake-claude.js");
+    await writeFile(
+      command,
+      `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ ok: true, source: "claude" }));
+`,
+    );
+    await chmod(command, 0o755);
+
+    const result = await buildClaudeCliProvider({
+      command,
+      cwd: directory,
+      outputSchema: {
+        type: "object",
+        required: ["ok", "source"],
+        properties: { ok: { type: "boolean" }, source: { type: "string" } },
+      },
+    }).complete({ system: "Return JSON.", user: "Use schema." });
+
+    expect(JSON.parse(result.text)).toEqual({ ok: true, source: "claude" });
+    expect(result.model).toBe("claude-cli");
   });
 });

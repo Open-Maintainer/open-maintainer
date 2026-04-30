@@ -54,8 +54,6 @@ describe("MVP fixture golden output", () => {
     expect(artifacts.map((artifact) => artifact.type)).toEqual([
       "AGENTS.md",
       ".open-maintainer.yml",
-      ".github/copilot-instructions.md",
-      ".cursor/rules/open-maintainer.md",
       ".agents/skills/repo-overview/SKILL.md",
       ".agents/skills/testing-workflow/SKILL.md",
       ".agents/skills/pr-review/SKILL.md",

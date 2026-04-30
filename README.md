@@ -40,7 +40,7 @@ DEMO_REPO="$(mktemp -d)"
 cp -R tests/fixtures/low-context-ts/. "$DEMO_REPO"
 
 bun run cli audit "$DEMO_REPO"
-bun run cli generate "$DEMO_REPO" --codex --allow-repo-content-provider --targets agents,copilot,cursor,skills,profile,report,config
+bun run cli generate "$DEMO_REPO" --model codex --codex --allow-repo-content-provider
 bun run cli doctor "$DEMO_REPO"
 bun run cli pr "$DEMO_REPO" --create
 ```
@@ -53,8 +53,6 @@ bun run cli pr "$DEMO_REPO" --create
 `generate` writes the full MVP context set when files are absent:
 
 - `AGENTS.md`
-- `.github/copilot-instructions.md`
-- `.cursor/rules/open-maintainer.md`
 - `.agents/skills/repo-overview/SKILL.md`
 - `.agents/skills/testing-workflow/SKILL.md`
 - `.agents/skills/pr-review/SKILL.md`
@@ -62,9 +60,9 @@ bun run cli pr "$DEMO_REPO" --create
 - `.open-maintainer/report.md`
 - `.open-maintainer.yml`
 
-`skills` writes Codex repo skills under `.agents/skills`. Add `claude-skills` to `--targets` when you also want Claude Code project skills under `.claude/skills`.
+`--model` chooses the LLM CLI backend. `--codex` writes Codex artifacts (`AGENTS.md` and `.agents/skills`). Add `--claude` when you also want Claude Code artifacts (`CLAUDE.md` and `.claude/skills`).
 
-Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Repo content is sent to Codex only when `--allow-repo-content-provider` is present; offline deterministic mode is reserved for smoke tests.
+Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Repo content is sent to the selected LLM CLI only when `--allow-repo-content-provider` is present; offline deterministic mode is reserved for smoke tests.
 
 ## GitHub Action Audit Mode
 

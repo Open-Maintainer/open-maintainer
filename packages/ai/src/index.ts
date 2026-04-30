@@ -38,6 +38,14 @@ export type CodexCliProviderOptions = {
   timeoutMs?: number;
 };
 
+export type ClaudeCliProviderOptions = {
+  command?: string;
+  cwd: string;
+  model?: string;
+  outputSchema?: unknown;
+  timeoutMs?: number;
+};
+
 export type ProviderSettingsInput = {
   kind: ModelProviderKind;
   displayName: string;
@@ -168,6 +176,7 @@ export function buildCodexCliProvider(
           input.user,
         ].join("\n");
         const result = await runProcess({
+          label: "Codex CLI",
           command: options.command ?? "codex",
           args,
           stdin: prompt,
@@ -183,6 +192,51 @@ export function buildCodexCliProvider(
       } finally {
         await rm(workdir, { recursive: true, force: true });
       }
+    },
+  };
+}
+
+export function buildClaudeCliProvider(
+  options: ClaudeCliProviderOptions,
+): ModelProvider {
+  return {
+    async complete(input) {
+      const args = [
+        "--print",
+        "--permission-mode",
+        "dontAsk",
+        "--add-dir",
+        options.cwd,
+        "--output-format",
+        "json",
+      ];
+      if (options.model) {
+        args.push("--model", options.model);
+      }
+      if (options.outputSchema) {
+        args.push("--json-schema", JSON.stringify(options.outputSchema));
+      }
+
+      const prompt = [
+        input.system,
+        "",
+        "Return the final answer only. If an output schema is provided, return JSON that satisfies it.",
+        "",
+        input.user,
+      ].join("\n");
+      args.push(prompt);
+      const result = await runProcess({
+        label: "Claude CLI",
+        command: options.command ?? "claude",
+        args,
+        stdin: "",
+        cwd: options.cwd,
+        timeoutMs: options.timeoutMs ?? 300_000,
+      });
+      return {
+        text: extractClaudeOutput(result.stdout),
+        model: options.model ?? "claude-cli",
+      };
     },
   };
 }
@@ -211,19 +265,40 @@ function decryptForLocalDev(value: string): string {
   return Buffer.from(value, "base64").toString("utf8");
 }
 
+function extractClaudeOutput(stdout: string): string {
+  const trimmed = stdout.trim();
+  if (!trimmed.startsWith("{")) {
+    return trimmed;
+  }
+  const parsed = JSON.parse(trimmed) as {
+    structured_output?: unknown;
+    result?: unknown;
+  };
+  if (parsed.structured_output !== undefined) {
+    return JSON.stringify(parsed.structured_output);
+  }
+  if (typeof parsed.result === "string") {
+    return parsed.result;
+  }
+  return trimmed;
+}
+
 async function runProcess(input: {
+  label: string;
   command: string;
   args: string[];
   stdin: string;
+  cwd?: string;
   timeoutMs: number;
 }): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
     const child = spawn(input.command, input.args, {
+      cwd: input.cwd,
       stdio: ["pipe", "pipe", "pipe"],
     });
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
-      reject(new Error(`Codex CLI timed out after ${input.timeoutMs}ms.`));
+      reject(new Error(`${input.label} timed out after ${input.timeoutMs}ms.`));
     }, input.timeoutMs);
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -240,7 +315,7 @@ async function runProcess(input: {
       if (code !== 0) {
         reject(
           new Error(
-            `Codex CLI exited with code ${code}.\n${stderrText || stdoutText}`,
+            `${input.label} exited with code ${code}.\n${stderrText || stdoutText}`,
           ),
         );
         return;
