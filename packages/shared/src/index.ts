@@ -41,6 +41,29 @@ export const RepoProfileSchema = z.object({
   detectedRiskAreas: z.array(z.string()),
   reviewRuleCandidates: z.array(z.string()),
   evidence: z.array(EvidenceReferenceSchema),
+  workspaceManifests: z.array(z.string()),
+  lockfiles: z.array(z.string()),
+  configFiles: z.array(z.string()),
+  agentReadiness: z.object({
+    score: z.number().int().min(0).max(100),
+    categories: z.array(
+      z.object({
+        name: z.enum([
+          "setup clarity",
+          "architecture clarity",
+          "testing and CI",
+          "agent instructions",
+          "safety and review rules",
+        ]),
+        score: z.number().int().min(0).max(20),
+        maxScore: z.literal(20),
+        missing: z.array(z.string()),
+        evidence: z.array(EvidenceReferenceSchema),
+      }),
+    ),
+    missingItems: z.array(z.string()),
+    generatedAt: z.string(),
+  }),
   createdAt: z.string(),
 });
 export type RepoProfile = z.infer<typeof RepoProfileSchema>;
@@ -49,6 +72,13 @@ export const ArtifactTypeSchema = z.enum([
   "repo_profile",
   "AGENTS.md",
   ".open-maintainer.yml",
+  ".github/copilot-instructions.md",
+  ".cursor/rules/open-maintainer.md",
+  ".skills/repo-overview/SKILL.md",
+  ".skills/testing-workflow/SKILL.md",
+  ".skills/pr-review/SKILL.md",
+  ".open-maintainer/profile.json",
+  ".open-maintainer/report.md",
 ]);
 export type ArtifactType = z.infer<typeof ArtifactTypeSchema>;
 

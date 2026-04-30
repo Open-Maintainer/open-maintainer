@@ -22,6 +22,23 @@ describe("shared schemas", () => {
       detectedRiskAreas: [],
       reviewRuleCandidates: [],
       evidence: [{ path: "README.md", reason: "project overview" }],
+      workspaceManifests: ["package.json"],
+      lockfiles: ["bun.lock"],
+      configFiles: ["tsconfig.json"],
+      agentReadiness: {
+        score: 40,
+        categories: [
+          {
+            name: "setup clarity",
+            score: 20,
+            maxScore: 20,
+            missing: [],
+            evidence: [{ path: "README.md", reason: "project overview" }],
+          },
+        ],
+        missingItems: [],
+        generatedAt: nowIso(),
+      },
       createdAt: nowIso(),
     });
 

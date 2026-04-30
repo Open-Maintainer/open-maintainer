@@ -48,6 +48,16 @@
         "@open-maintainer/shared": "workspace:*",
       },
     },
+    "apps/cli": {
+      "name": "@open-maintainer/cli",
+      "bin": {
+        "open-maintainer": "./src/index.ts",
+      },
+      "dependencies": {
+        "@open-maintainer/analyzer": "workspace:*",
+        "@open-maintainer/context": "workspace:*",
+      },
+    },
     "apps/web": {
       "name": "@open-maintainer/web",
       "dependencies": {
@@ -293,6 +303,8 @@
     "@open-maintainer/analyzer": ["@open-maintainer/analyzer@workspace:packages/analyzer"],
 
     "@open-maintainer/api": ["@open-maintainer/api@workspace:apps/api"],
+
+    "@open-maintainer/cli": ["@open-maintainer/cli@workspace:apps/cli"],
 
     "@open-maintainer/config": ["@open-maintainer/config@workspace:packages/config"],
 

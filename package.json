@@ -4,15 +4,18 @@
   "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
+    "cli": "bun apps/cli/src/index.ts",
+    "open-maintainer": "bun apps/cli/src/index.ts",
     "lint": "biome check .",
     "typecheck": "tsc -b",
     "test": "vitest run",
-    "build": "bun run --cwd packages/shared build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/ai build && bun run --cwd packages/context build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build",
+    "build": "bun run --cwd packages/shared build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/ai build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build",
     "dev:api": "bun run --cwd apps/api dev",
     "dev:web": "bun run --cwd apps/web dev",
     "dev:worker": "bun run --cwd apps/worker dev",
     "diagnostics": "bun run tests/smoke/local-health.ts",
-    "smoke:compose": "bun run tests/smoke/compose-smoke.ts"
+    "smoke:compose": "bun run tests/smoke/compose-smoke.ts",
+    "smoke:mvp": "bun run tests/smoke/mvp-demo.ts"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",

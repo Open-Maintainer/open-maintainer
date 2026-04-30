@@ -1,10 +1,43 @@
 import type {
   GeneratedArtifact,
   Health,
+  ModelProviderConfig,
   Repo,
   RepoProfile,
   RunRecord,
 } from "@open-maintainer/shared";
+
+type SearchParams = Record<string, string | string[] | undefined>;
+
+type DashboardProps = {
+  searchParams?: Promise<SearchParams>;
+};
+
+type ProviderSummary = Omit<ModelProviderConfig, "encryptedApiKey"> & {
+  encryptedApiKey?: string;
+};
+
+type ReadinessProfile = RepoProfile & {
+  readiness?: {
+    score?: unknown;
+    missingItems?: unknown;
+    missing?: unknown;
+  };
+  readinessScore?: unknown;
+  missingItems?: unknown;
+  readinessMissingItems?: unknown;
+};
+
+type RunWithContext = RunRecord & {
+  contextPr?: {
+    prUrl?: unknown;
+  };
+  context?: {
+    prUrl?: unknown;
+    pullRequestUrl?: unknown;
+  };
+  prUrl?: unknown;
+};
 
 const apiBaseUrl =
   process.env.API_BASE_URL ??
@@ -30,12 +63,23 @@ async function fetchJson<T>(
   }
 }
 
-export default async function Dashboard() {
-  const health = await fetchJson<Health>("/health");
-  const reposResponse = await fetchJson<{ repos: Repo[] }>("/repos");
-  const repo = reposResponse?.repos[0] ?? null;
+export default async function Dashboard({ searchParams }: DashboardProps) {
+  const params: SearchParams = searchParams ? await searchParams : {};
+  const requestedRepo = singleParam(params.repo ?? params.repoId);
+  const repoQuery = singleParam(params.q)?.trim().toLowerCase() ?? "";
+
+  const [health, reposResponse, providersResponse] = await Promise.all([
+    fetchJson<Health>("/health"),
+    fetchJson<{ repos: Repo[] }>("/repos"),
+    fetchJson<{ providers: ProviderSummary[] }>("/model-providers"),
+  ]);
+  const repos = reposResponse?.repos ?? [];
+  const repo =
+    selectRepo({ repos, requestedRepo, repoQuery }) ?? repos[0] ?? null;
   const profileResponse = repo
-    ? await fetchJson<{ profile: RepoProfile }>(`/repos/${repo.id}/profile`)
+    ? await fetchJson<{ profile: ReadinessProfile }>(
+        `/repos/${repo.id}/profile`,
+      )
     : null;
   const artifactsResponse = repo
     ? await fetchJson<{ artifacts: GeneratedArtifact[] }>(
@@ -43,8 +87,14 @@ export default async function Dashboard() {
       )
     : null;
   const runsResponse = repo
-    ? await fetchJson<{ runs: RunRecord[] }>(`/repos/${repo.id}/runs`)
+    ? await fetchJson<{ runs: RunWithContext[] }>(`/repos/${repo.id}/runs`)
     : null;
+  const profile = profileResponse?.profile ?? null;
+  const artifacts = artifactsResponse?.artifacts ?? [];
+  const runs = runsResponse?.runs ?? [];
+  const providers = providersResponse?.providers ?? [];
+  const readiness = profile ? getReadiness(profile) : null;
+  const prStatus = getPrStatus(runs);
 
   return (
     <main>
@@ -68,9 +118,40 @@ export default async function Dashboard() {
 
         <section className="columns">
           <div className="panel">
-            <h2>Repository</h2>
+            <div className="panel-heading">
+              <h2>Repository</h2>
+              <span className="count">{repos.length} installed</span>
+            </div>
             {repo ? (
               <div className="list">
+                {repos.length > 1 ? (
+                  <div className="repo-picker">
+                    <form action="/" method="get" className="search-form">
+                      <input
+                        name="q"
+                        type="search"
+                        placeholder="Find installed repo"
+                        defaultValue={repoQuery}
+                      />
+                      <button type="submit">Search</button>
+                    </form>
+                    <div className="repo-links" aria-label="Installed repos">
+                      {repos.map((installedRepo) => (
+                        <a
+                          className={
+                            installedRepo.id === repo.id
+                              ? "repo-link active"
+                              : "repo-link"
+                          }
+                          href={`/?repo=${encodeURIComponent(installedRepo.id)}`}
+                          key={installedRepo.id}
+                        >
+                          {installedRepo.fullName}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
                 <div className="row">
                   <div>
                     <strong>{repo.fullName}</strong>
@@ -109,38 +190,124 @@ export default async function Dashboard() {
           </div>
 
           <div className="panel">
-            <h2>Provider Consent</h2>
-            <p className="muted">
-              Generation remains blocked until a provider is configured and
-              repo-content consent is enabled. Connectivity tests use a harmless
-              non-repo prompt.
+            <div className="panel-heading">
+              <h2>Provider Consent</h2>
+              <span
+                className={
+                  providers.some((provider) => provider.repoContentConsent)
+                    ? "badge"
+                    : "badge warn"
+                }
+              >
+                {providers.some((provider) => provider.repoContentConsent)
+                  ? "ready"
+                  : "blocked"}
+              </span>
+            </div>
+            {providers.length ? (
+              <div className="list">
+                {providers.map((provider) => (
+                  <div className="row compact" key={provider.id}>
+                    <div>
+                      <strong>{provider.displayName}</strong>
+                      <p className="muted">
+                        {provider.kind} / {provider.model}
+                      </p>
+                    </div>
+                    <span
+                      className={
+                        provider.repoContentConsent ? "badge" : "badge warn"
+                      }
+                    >
+                      {provider.repoContentConsent ? "consented" : "no consent"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted">
+                No model provider is configured. Generation is blocked until a
+                provider exists and repo-content consent is enabled.
+              </p>
+            )}
+            <p className="note">
+              Connectivity tests use a harmless non-repo prompt.
             </p>
           </div>
         </section>
 
         <section className="columns" style={{ marginTop: 16 }}>
           <div className="panel">
-            <h2>Repo Profile</h2>
-            {profileResponse?.profile ? (
-              <pre>{JSON.stringify(profileResponse.profile, null, 2)}</pre>
+            <div className="panel-heading">
+              <h2>Repo Profile</h2>
+              {profile ? (
+                <span className="badge">v{profile.version}</span>
+              ) : null}
+            </div>
+            {profile ? (
+              <div className="profile-stack">
+                <div className="metric-row">
+                  <div className="metric">
+                    <span className="metric-label">Readiness</span>
+                    <strong>{formatReadinessScore(readiness?.score)}</strong>
+                  </div>
+                  <div className="metric">
+                    <span className="metric-label">Package manager</span>
+                    <strong>{profile.packageManager ?? "unknown"}</strong>
+                  </div>
+                </div>
+                {readiness?.missingItems.length ? (
+                  <div>
+                    <h3>Missing items</h3>
+                    <ul className="plain-list">
+                      {readiness.missingItems.map((item) => (
+                        <li key={item}>{item}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : readiness?.score === undefined ? (
+                  <p className="muted">
+                    Readiness score has not been populated by the backend yet.
+                  </p>
+                ) : (
+                  <p className="muted">No missing readiness items reported.</p>
+                )}
+                <div className="profile-facts">
+                  <FactList
+                    label="Languages"
+                    values={profile.primaryLanguages}
+                  />
+                  <FactList label="Frameworks" values={profile.frameworks} />
+                  <FactList
+                    label="Risk areas"
+                    values={profile.detectedRiskAreas}
+                  />
+                </div>
+              </div>
             ) : (
               <p className="muted">Run analysis to create repo_profile:v1.</p>
             )}
           </div>
           <div className="panel">
-            <h2>Artifacts</h2>
-            {artifactsResponse?.artifacts?.length ? (
-              <div className="list">
-                {artifactsResponse.artifacts.map((artifact) => (
-                  <div className="row" key={artifact.id}>
-                    <div>
-                      <strong>{artifact.type}</strong>
-                      <p className="muted">
-                        v{artifact.version} from profile v
-                        {artifact.sourceProfileVersion}
-                      </p>
+            <div className="panel-heading">
+              <h2>Artifacts</h2>
+              <span className="count">{artifacts.length} generated</span>
+            </div>
+            {artifacts.length ? (
+              <div className="artifact-list">
+                {artifacts.map((artifact) => (
+                  <div className="artifact" key={artifact.id}>
+                    <div className="row compact">
+                      <div>
+                        <strong>{artifact.type}</strong>
+                        <p className="muted">
+                          v{artifact.version} from profile v
+                          {artifact.sourceProfileVersion}
+                        </p>
+                      </div>
+                      <span className="badge">preview</span>
                     </div>
-                    <span className="badge">preview</span>
+                    <pre className="artifact-preview">{artifact.content}</pre>
                   </div>
                 ))}
               </div>
@@ -152,35 +319,216 @@ export default async function Dashboard() {
           </div>
         </section>
 
-        <section className="panel" style={{ marginTop: 16 }}>
-          <h2>Run History</h2>
-          {runsResponse?.runs?.length ? (
-            <div className="list">
-              {runsResponse.runs.slice(-8).map((run) => (
-                <div className="row" key={run.id}>
-                  <div>
-                    <strong>{run.type}</strong>
-                    <p className="muted">
-                      {run.safeMessage ?? run.inputSummary}
-                    </p>
-                  </div>
-                  <span
-                    className={run.status === "failed" ? "badge warn" : "badge"}
-                  >
-                    {run.status}
-                  </span>
-                </div>
-              ))}
+        <section className="columns" style={{ marginTop: 16 }}>
+          <div className="panel">
+            <div className="panel-heading">
+              <h2>Context PR</h2>
+              <span className={prStatus.url ? "badge" : "badge warn"}>
+                {prStatus.label}
+              </span>
             </div>
-          ) : (
-            <p className="muted">
-              Run records will appear before external work starts and after each
-              state transition.
-            </p>
-          )}
+            {prStatus.url ? (
+              <a className="pr-link" href={prStatus.url}>
+                {prStatus.url}
+              </a>
+            ) : (
+              <p className="muted">{prStatus.message}</p>
+            )}
+          </div>
+          <div className="panel">
+            <div className="panel-heading">
+              <h2>Run History</h2>
+              <span className="count">{runs.length} runs</span>
+            </div>
+            {runs.length ? (
+              <div className="list">
+                {runs
+                  .slice()
+                  .reverse()
+                  .slice(0, 8)
+                  .map((run) => (
+                    <div className="run" key={run.id}>
+                      <div className="run-title">
+                        <strong>{run.type}</strong>
+                        <span
+                          className={
+                            run.status === "failed" ? "badge warn" : "badge"
+                          }
+                        >
+                          {run.status}
+                        </span>
+                      </div>
+                      <p
+                        className={run.status === "failed" ? "error" : "muted"}
+                      >
+                        {run.safeMessage ?? run.inputSummary}
+                      </p>
+                      <dl className="run-meta">
+                        <div>
+                          <dt>Updated</dt>
+                          <dd>{formatDate(run.updatedAt)}</dd>
+                        </div>
+                        <div>
+                          <dt>Provider</dt>
+                          <dd>{formatProvider(run)}</dd>
+                        </div>
+                        <div>
+                          <dt>External</dt>
+                          <dd>{formatExternal(run)}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  ))}
+              </div>
+            ) : (
+              <p className="muted">
+                Run records will appear before external work starts and after
+                each state transition.
+              </p>
+            )}
+          </div>
         </section>
       </div>
     </main>
+  );
+}
+
+function singleParam(value: string | string[] | undefined): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function selectRepo({
+  repos,
+  requestedRepo,
+  repoQuery,
+}: {
+  repos: Repo[];
+  requestedRepo: string | undefined;
+  repoQuery: string;
+}): Repo | null {
+  if (requestedRepo) {
+    const match = repos.find(
+      (repo) =>
+        repo.id === requestedRepo ||
+        repo.fullName === requestedRepo ||
+        repo.name === requestedRepo,
+    );
+    if (match) {
+      return match;
+    }
+  }
+  if (repoQuery) {
+    return (
+      repos.find((repo) => repo.fullName.toLowerCase().includes(repoQuery)) ??
+      null
+    );
+  }
+  return null;
+}
+
+function getReadiness(profile: ReadinessProfile): {
+  score: number | undefined;
+  missingItems: string[];
+} {
+  const readiness = profile.readiness;
+  return {
+    score: numberValue(profile.readinessScore ?? readiness?.score),
+    missingItems: stringArray(
+      profile.missingItems ??
+        profile.readinessMissingItems ??
+        readiness?.missingItems ??
+        readiness?.missing,
+    ),
+  };
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function formatReadinessScore(score: number | undefined): string {
+  if (score === undefined) {
+    return "pending";
+  }
+  return score <= 1 ? `${Math.round(score * 100)}%` : `${Math.round(score)}`;
+}
+
+function getPrStatus(runs: RunWithContext[]): {
+  label: string;
+  message: string;
+  url: string | null;
+} {
+  const contextRuns = runs
+    .filter((run) => run.type === "context_pr")
+    .slice()
+    .reverse();
+  const runWithUrl = contextRuns.find((run) => findPrUrl(run));
+  const url = runWithUrl ? findPrUrl(runWithUrl) : null;
+  if (url) {
+    return { label: "opened", message: "Context PR opened.", url };
+  }
+  const latest = contextRuns[0];
+  if (!latest) {
+    return {
+      label: "not opened",
+      message: "Open a context PR after artifacts have been generated.",
+      url: null,
+    };
+  }
+  return {
+    label: latest.status,
+    message:
+      latest.safeMessage ??
+      (latest.status === "succeeded"
+        ? "Context PR run succeeded, but no PR URL was returned."
+        : latest.inputSummary),
+    url: null,
+  };
+}
+
+function findPrUrl(run: RunWithContext): string | null {
+  const candidates = [
+    run.externalId,
+    run.prUrl,
+    run.contextPr?.prUrl,
+    run.context?.prUrl,
+    run.context?.pullRequestUrl,
+  ];
+  const url = candidates.find(
+    (candidate): candidate is string =>
+      typeof candidate === "string" &&
+      /^https?:\/\/\S+\/pull\/\d+/.test(candidate),
+  );
+  return url ?? null;
+}
+
+function formatDate(value: string): string {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function formatProvider(run: RunRecord): string {
+  return run.provider && run.model ? `${run.provider} / ${run.model}` : "none";
+}
+
+function formatExternal(run: RunWithContext): string {
+  return findPrUrl(run) ?? run.externalId ?? "none";
+}
+
+function FactList({ label, values }: { label: string; values: string[] }) {
+  return (
+    <div>
+      <h3>{label}</h3>
+      <p className="muted">{values.length ? values.join(", ") : "none"}</p>
+    </div>
   );
 }
 

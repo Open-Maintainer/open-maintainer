@@ -1,14 +1,87 @@
 # Open Maintainer
 
-Open Maintainer is a self-hostable, open-source AI maintainer for GitHub-native teams.
+Open Maintainer audits a repository for agent readiness, generates repo-specific context files, and can open a context PR through a GitHub App.
 
-The MVP workflow is:
+The primary MVP demo is CLI-first:
+
+```text
+audit repo -> show readiness score -> generate context -> doctor -> dry-run PR summary
+```
+
+The dashboard and self-hosted GitHub App flow remain available as a secondary path.
+
+## CLI Demo
+
+Prerequisites:
+
+- Bun 1.1 or newer
+- A fresh checkout of this repository
+
+Install dependencies:
+
+```sh
+bun install --frozen-lockfile
+```
+
+Run the demo smoke gate against the bundled fixture repo:
+
+```sh
+bun run smoke:mvp
+```
+
+Manual terminal flow:
+
+```sh
+DEMO_REPO="$(mktemp -d)"
+cp -R tests/fixtures/low-context-ts/. "$DEMO_REPO"
+
+bun run cli audit "$DEMO_REPO"
+bun run cli generate "$DEMO_REPO" --targets agents,copilot,cursor,skills,profile,report,config
+bun run cli doctor "$DEMO_REPO"
+bun run cli pr "$DEMO_REPO" --create
+```
+
+`audit` writes:
+
+- `.open-maintainer/profile.json`
+- `.open-maintainer/report.md`
+
+`generate` writes the full MVP context set when files are absent:
+
+- `AGENTS.md`
+- `.github/copilot-instructions.md`
+- `.cursor/rules/open-maintainer.md`
+- `.skills/repo-overview/SKILL.md`
+- `.skills/testing-workflow/SKILL.md`
+- `.skills/pr-review/SKILL.md`
+- `.open-maintainer/profile.json`
+- `.open-maintainer/report.md`
+- `.open-maintainer.yml`
+
+Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Model synthesis is optional and repo content is never sent to a provider unless a configured provider has repo-content consent enabled; the CLI demo runs deterministically without a provider.
+
+## GitHub Action Audit Mode
+
+The repository includes `action.yml` for pull request audit mode:
+
+```yaml
+- uses: ./
+  with:
+    mode: audit
+    fail-on-score-below: "40"
+    report-path: .open-maintainer/report.md
+```
+
+Default audit mode writes the report/profile path only and does not create PRs or mutate context files.
+The bundled action uses `--no-profile-write` and stores its default report under `$RUNNER_TEMP` so pull request audits do not modify checked-out context files unless you choose a repository path.
+
+## Dashboard and GitHub App
+
+The secondary self-hosted workflow is:
 
 ```text
 connect GitHub -> analyze repo -> generate context -> preview -> open context PR
 ```
-
-## Quickstart
 
 Prerequisites:
 
@@ -21,7 +94,7 @@ Start a local self-hosted stack:
 
 ```sh
 cp .env.example .env
-bun install
+bun install --frozen-lockfile
 docker compose up --build
 ```
 
@@ -53,7 +126,7 @@ Configure a webhook secret and point the webhook URL at:
 http://localhost:4000/github/webhook
 ```
 
-For local webhook delivery from GitHub, expose the API with a tunnel and use the tunnel URL instead. Set the matching values in `.env`:
+Set the matching values in `.env`:
 
 - `GITHUB_APP_ID`
 - `GITHUB_CLIENT_ID`
@@ -62,33 +135,6 @@ For local webhook delivery from GitHub, expose the API with a tunnel and use the
 - `GITHUB_WEBHOOK_SECRET`
 
 Install the GitHub App on selected repositories. Installation and repository metadata appear in the dashboard after a verified installation webhook is received.
-
-## First Context PR
-
-1. Confirm the dashboard shows healthy API, Postgres, Redis, and worker status.
-2. Configure GitHub App credentials and install the app on one selected repo.
-3. Select the repo in the dashboard.
-4. Run deterministic analysis to create `repo_profile:v1`.
-5. Configure a model provider and explicitly enable repo-content consent.
-6. Generate context artifacts.
-7. Preview `AGENTS.md` and `.open-maintainer.yml`.
-8. Open a context PR.
-
-The MVP never commits directly to the default branch. Context PRs use a branch named like `open-maintainer/context-{repoProfileVersion}` and include only `AGENTS.md` and `.open-maintainer.yml`.
-
-## Setup Diagnostics
-
-Common setup states are surfaced through `/health`, the dashboard, and repo run history:
-
-- Missing GitHub credentials: settings can be saved only after required values are present.
-- Failed webhook verification: `/github/webhook` returns `401`.
-- Database or Redis unavailable: `/health` returns `degraded`.
-- Worker not heartbeating: dashboard worker status shows `missing`.
-- Provider not configured or consent disabled: generation fails closed and records a failed run.
-
-## Migrations
-
-The first MVP migration is stored at `packages/db/migrations/0001_mvp_foundation.sql`. The current scaffold uses an in-memory store for local tests and demo behavior; apply the SQL migration when wiring a persistent Postgres deployment.
 
 ## Quality Gates
 
@@ -99,6 +145,7 @@ bun lint
 bun typecheck
 bun test
 bun run build
+bun run smoke:mvp
 docker compose up --build
 bun run smoke:compose
 ```

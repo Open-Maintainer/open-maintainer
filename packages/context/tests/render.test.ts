@@ -28,6 +28,30 @@ const profile: RepoProfile = {
     "Run `bun test` before finishing changes that affect test.",
   ],
   evidence: [{ path: "README.md", reason: "overview" }],
+  workspaceManifests: ["package.json"],
+  lockfiles: ["bun.lock"],
+  configFiles: ["tsconfig.json"],
+  agentReadiness: {
+    score: 47,
+    categories: [
+      {
+        name: "setup clarity",
+        score: 20,
+        maxScore: 20,
+        missing: [],
+        evidence: [{ path: "README.md", reason: "overview" }],
+      },
+      {
+        name: "agent instructions",
+        score: 0,
+        maxScore: 20,
+        missing: ["AGENTS.md is missing."],
+        evidence: [],
+      },
+    ],
+    missingItems: ["agent instructions: AGENTS.md is missing."],
+    generatedAt: "2026-04-30T00:00:00.000Z",
+  },
   createdAt: "2026-04-30T00:00:00.000Z",
 };
 
@@ -65,9 +89,12 @@ describe("context renderers", () => {
       nextVersion: 1,
     });
 
-    expect(artifacts).toHaveLength(2);
+    expect(artifacts).toHaveLength(9);
     expect(
       artifacts.every((artifact) => artifact.sourceProfileVersion === 2),
     ).toBe(true);
+    expect(artifacts.map((artifact) => artifact.type)).toContain(
+      ".open-maintainer/report.md",
+    );
   });
 });

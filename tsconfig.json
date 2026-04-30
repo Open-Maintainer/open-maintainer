@@ -8,6 +8,7 @@
     { "path": "./packages/analyzer" },
     { "path": "./packages/ai" },
     { "path": "./packages/context" },
+    { "path": "./apps/cli" },
     { "path": "./apps/api" },
     { "path": "./apps/worker" }
   ]

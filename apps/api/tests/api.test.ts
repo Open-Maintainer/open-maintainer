@@ -56,27 +56,16 @@ describe("MVP API", () => {
     ).toBe(true);
   });
 
-  it("runs analysis, blocks generation without consent, retries failed runs, then creates artifacts and a PR", async () => {
+  it("runs deterministic analysis and generation, blocks explicit providers without consent, then creates artifacts and a PR", async () => {
     const analysis = await app.inject({
       method: "POST",
       url: "/repos/repo_demo/analyze",
     });
     expect(analysis.statusCode).toBe(200);
     expect(analysis.json().profile.version).toBe(1);
+    expect(analysis.json().profile.agentReadiness.score).toBeGreaterThan(0);
 
-    const blocked = await app.inject({
-      method: "POST",
-      url: "/repos/repo_demo/generate-context",
-      payload: {},
-    });
-    expect(blocked.statusCode).toBe(403);
-    const retry = await app.inject({
-      method: "POST",
-      url: `/runs/${blocked.json().run.id}/retry`,
-    });
-    expect(retry.json().run.status).toBe("queued");
-
-    const provider = await app.inject({
+    const providerWithoutConsent = await app.inject({
       method: "POST",
       url: "/model-providers",
       payload: {
@@ -85,16 +74,28 @@ describe("MVP API", () => {
         baseUrl: "http://localhost:11434/v1",
         model: "llama3.1",
         apiKey: "dev",
-        repoContentConsent: true,
+        repoContentConsent: false,
       },
     });
+    const blocked = await app.inject({
+      method: "POST",
+      url: "/repos/repo_demo/generate-context",
+      payload: { providerId: providerWithoutConsent.json().provider.id },
+    });
+    expect(blocked.statusCode).toBe(403);
+    const retry = await app.inject({
+      method: "POST",
+      url: `/runs/${blocked.json().run.id}/retry`,
+    });
+    expect(retry.json().run.status).toBe("queued");
+
     const generated = await app.inject({
       method: "POST",
       url: "/repos/repo_demo/generate-context",
-      payload: { providerId: provider.json().provider.id },
+      payload: {},
     });
     expect(generated.statusCode).toBe(200);
-    expect(generated.json().artifacts).toHaveLength(2);
+    expect(generated.json().artifacts).toHaveLength(9);
 
     const pr = await app.inject({
       method: "POST",

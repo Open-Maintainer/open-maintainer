@@ -1,19 +1,24 @@
 import cors from "@fastify/cors";
 import {
-  assertGenerationAllowed,
+  assertProviderConsent,
+  buildProvider,
   createProviderConfig,
 } from "@open-maintainer/ai";
 import { analyzeRepo } from "@open-maintainer/analyzer";
 import {
+  buildContextSynthesisPrompt,
   createContextArtifacts,
   deterministicContextOutput,
+  parseStructuredContextOutput,
 } from "@open-maintainer/context";
 import { checkDatabase, checkRedis, store } from "@open-maintainer/db";
 import {
-  createMockContextPr,
+  createContextPr,
+  fetchRepositoryFilesForAnalysis,
   mapInstallationEvent,
   verifyWebhookSignature,
 } from "@open-maintainer/github";
+import type { GitHubAppInstallationAuth } from "@open-maintainer/github";
 import { newId, nowIso } from "@open-maintainer/shared";
 import Fastify from "fastify";
 import { z } from "zod";
@@ -133,6 +138,32 @@ export function buildApp() {
       model: null,
       externalId: null,
     });
+    let files = store.repoFiles.get(repoId) ?? [];
+    if (files.length === 0) {
+      const auth = githubAuthForInstallation(repo.installationId);
+      if (!auth) {
+        store.updateRun(run.id, {
+          status: "failed",
+          safeMessage:
+            "Repository files are unavailable. Configure GitHub App credentials with contents read permission or seed local files for development.",
+        });
+        return reply.code(409).send({
+          error: store.runs.get(run.id)?.safeMessage,
+          run: store.runs.get(run.id),
+        });
+      }
+      const fetched = await fetchRepositoryFilesForAnalysis({
+        owner: repo.owner,
+        repo: repo.name,
+        ref: repo.defaultBranch,
+        auth,
+      });
+      files = fetched.files.map((file) => ({
+        path: file.path,
+        content: file.content,
+      }));
+      store.repoFiles.set(repoId, files);
+    }
     const version = (store.profiles.get(repoId)?.length ?? 0) + 1;
     const profile = analyzeRepo({
       repoId,
@@ -140,7 +171,7 @@ export function buildApp() {
       name: repo.name,
       defaultBranch: repo.defaultBranch,
       version,
-      files: store.repoFiles.get(repoId) ?? [],
+      files,
     });
     store.addProfile(profile);
     store.updateRun(run.id, {
@@ -205,9 +236,14 @@ export function buildApp() {
     }
     const provider = body.providerId
       ? (store.providers.get(body.providerId) ?? null)
-      : ([...store.providers.values()][0] ?? null);
+      : null;
+    if (body.providerId && !provider) {
+      return reply.code(404).send({ error: "Unknown model provider." });
+    }
     try {
-      assertGenerationAllowed(provider);
+      if (provider) {
+        assertProviderConsent(provider);
+      }
     } catch (error) {
       const run = store.recordRun({
         repoId,
@@ -233,17 +269,37 @@ export function buildApp() {
       safeMessage: null,
       artifactVersions: [],
       repoProfileVersion: profile.version,
-      provider: provider.displayName,
-      model: provider.model,
+      provider: provider?.displayName ?? null,
+      model: provider?.model ?? null,
       externalId: null,
     });
+    let output = deterministicContextOutput(profile);
+    if (provider) {
+      try {
+        const prompt = buildContextSynthesisPrompt(profile);
+        const completion = await buildProvider(provider).complete(prompt);
+        output = parseStructuredContextOutput(completion.text);
+      } catch (error) {
+        store.updateRun(run.id, {
+          status: "failed",
+          safeMessage:
+            error instanceof Error
+              ? `Model synthesis failed: ${error.message}`
+              : "Model synthesis failed.",
+        });
+        return reply.code(502).send({
+          error: store.runs.get(run.id)?.safeMessage,
+          run: store.runs.get(run.id),
+        });
+      }
+    }
     const currentArtifactCount = store.artifacts.get(repoId)?.length ?? 0;
     const artifacts = createContextArtifacts({
       repoId,
       profile,
-      output: deterministicContextOutput(profile),
-      modelProvider: provider.displayName,
-      model: provider.model,
+      output,
+      modelProvider: provider?.displayName ?? null,
+      model: provider?.model ?? null,
       nextVersion: currentArtifactCount + 1,
     });
     for (const artifact of artifacts) {
@@ -290,15 +346,29 @@ export function buildApp() {
       model: artifacts[0]?.model ?? null,
       externalId: null,
     });
-    const contextPr = createMockContextPr({
+    const repo = store.repos.get(repoId);
+    if (!repo) {
+      return reply.code(404).send({ error: "Unknown repo." });
+    }
+    const auth = githubAuthForInstallation(repo.installationId);
+    const contextPr = await createContextPr({
       repoId,
+      owner: repo.owner,
+      repo: repo.name,
+      defaultBranch: repo.defaultBranch,
       profileVersion: profile.version,
       artifacts,
+      runReference: run.id,
+      generatedAt: nowIso(),
+      mock: !auth,
+      ...(auth ? { auth } : {}),
     });
     store.contextPrs.set(contextPr.id, contextPr);
     store.updateRun(run.id, {
       status: "succeeded",
-      safeMessage: `Opened context PR at ${contextPr.prUrl}.`,
+      safeMessage: auth
+        ? `Opened context PR at ${contextPr.prUrl}.`
+        : `Created development mock context PR at ${contextPr.prUrl}; configure GitHub App credentials for a real PR.`,
       externalId: contextPr.prUrl,
     });
     return { run: store.runs.get(run.id), contextPr };
@@ -342,4 +412,19 @@ export function buildApp() {
   });
 
   return app;
+}
+
+function githubAuthForInstallation(
+  installationId: string,
+): GitHubAppInstallationAuth | null {
+  const appId = process.env.GITHUB_APP_ID;
+  const privateKeyBase64 = process.env.GITHUB_PRIVATE_KEY_BASE64;
+  if (!appId || !privateKeyBase64) {
+    return null;
+  }
+  return {
+    appId,
+    installationId,
+    privateKey: Buffer.from(privateKeyBase64, "base64").toString("utf8"),
+  };
 }

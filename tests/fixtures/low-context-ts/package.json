@@ -1,0 +1,18 @@
+{
+  "name": "widget-api",
+  "type": "module",
+  "scripts": {
+    "dev": "bun src/server.ts",
+    "test": "vitest run",
+    "build": "tsc -b",
+    "lint": "biome check ."
+  },
+  "dependencies": {
+    "fastify": "^5.2.1",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.4"
+  }
+}

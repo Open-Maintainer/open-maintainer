@@ -67,6 +67,16 @@ export function assertGenerationAllowed(
   }
 }
 
+export function assertProviderConsent(
+  provider: ModelProviderConfig,
+): asserts provider is ModelProviderConfig {
+  if (!provider.repoContentConsent) {
+    throw new Error(
+      "Generation is blocked until repo-content consent is enabled for this provider.",
+    );
+  }
+}
+
 export function buildProvider(config: ModelProviderConfig): ModelProvider {
   return {
     async complete(input) {

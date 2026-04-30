@@ -1,0 +1,15 @@
+{
+  "name": "@open-maintainer/cli",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "open-maintainer": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@open-maintainer/analyzer": "workspace:*",
+    "@open-maintainer/context": "workspace:*"
+  }
+}
