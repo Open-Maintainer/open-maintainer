@@ -29,6 +29,8 @@ Run the demo smoke gate against the bundled fixture repo:
 bun run smoke:mvp
 ```
 
+For the full narrated terminal flow, see `docs/DEMO_RUNBOOK.md`.
+
 Manual terminal flow:
 
 ```sh
