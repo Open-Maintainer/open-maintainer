@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@open-maintainer/ai": "workspace:*",
     "@open-maintainer/analyzer": "workspace:*",
     "@open-maintainer/context": "workspace:*"
   }

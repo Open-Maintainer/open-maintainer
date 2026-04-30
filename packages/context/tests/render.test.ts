@@ -2,7 +2,9 @@ import { parseOpenMaintainerConfig } from "@open-maintainer/config";
 import type { RepoProfile } from "@open-maintainer/shared";
 import { describe, expect, it } from "vitest";
 import {
+  buildArtifactSynthesisPrompt,
   createContextArtifacts,
+  parseModelArtifactContent,
   renderAgentsMd,
   renderOpenMaintainerYaml,
 } from "../src";
@@ -96,5 +98,56 @@ describe("context renderers", () => {
     expect(artifacts.map((artifact) => artifact.type)).toContain(
       ".open-maintainer/report.md",
     );
+  });
+
+  it("uses model-generated artifact bodies when provided", () => {
+    const modelArtifacts = parseModelArtifactContent(
+      JSON.stringify({
+        agentsMd:
+          "# AGENTS.md instructions for acme/tool\n\nUse the real app router, Vitest tests, and Bun workspace scripts before changing code.",
+        copilotInstructions:
+          "# Copilot instructions for acme/tool\n\nPrefer Bun commands and keep Next.js app-router code under apps/.",
+        cursorRule:
+          "---\ndescription: acme tool repo rules\nalwaysApply: true\n---\n\nUse Bun scripts and inspect app routes before editing.",
+        repoOverviewSkill:
+          "---\nname: repo-overview\ndescription: Use when working in acme/tool.\n---\n\n# Repo Overview\n\nNext.js app with Bun tests.",
+        testingWorkflowSkill:
+          "---\nname: testing-workflow\ndescription: Use when testing acme/tool.\n---\n\n# Testing Workflow\n\nRun bun test for unit coverage.",
+        prReviewSkill:
+          "---\nname: pr-review\ndescription: Use when reviewing acme/tool PRs.\n---\n\n# PR Review\n\nCheck Bun quality gates.",
+      }),
+    );
+    const artifacts = createContextArtifacts({
+      repoId: "repo_1",
+      profile,
+      output: {
+        summary: "Deterministic fallback.",
+        qualityRules: ["Fallback rule."],
+        commands: ["fallback"],
+        notes: [],
+      },
+      modelArtifacts,
+      modelProvider: "local",
+      model: "llama",
+      nextVersion: 1,
+      targets: ["agents", "skills"],
+    });
+
+    expect(artifacts[0]?.content).toContain("real app router");
+    expect(artifacts[1]?.content).toContain("Next.js app with Bun tests");
+  });
+
+  it("builds artifact synthesis prompts with source excerpts", () => {
+    const prompt = buildArtifactSynthesisPrompt({
+      profile,
+      files: [
+        { path: "README.md", content: "# Tool\n\nImportant domain details." },
+        { path: "src/index.ts", content: "export const ok = true;" },
+      ],
+    });
+
+    expect(prompt.system).toContain("repo-specific");
+    expect(prompt.user).toContain("README.md");
+    expect(prompt.user).toContain("Important domain details.");
   });
 });

@@ -1,4 +1,5 @@
 import { createHmac } from "node:crypto";
+import { createServer } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app";
 
@@ -56,7 +57,7 @@ describe("MVP API", () => {
     ).toBe(true);
   });
 
-  it("runs deterministic analysis and generation, blocks explicit providers without consent, then creates artifacts and a PR", async () => {
+  it("runs analysis, requires consented LLM generation, then creates artifacts and a PR", async () => {
     const analysis = await app.inject({
       method: "POST",
       url: "/repos/repo_demo/analyze",
@@ -89,13 +90,63 @@ describe("MVP API", () => {
     });
     expect(retry.json().run.status).toBe("queued");
 
+    const providerCalls: string[] = [];
+    const server = createServer((request, response) => {
+      request.on("data", (chunk) => providerCalls.push(String(chunk)));
+      request.on("end", () => {
+        const content =
+          providerCalls.length === 1
+            ? JSON.stringify({
+                summary: "LLM summary for the demo repository.",
+                qualityRules: ["Use Bun and inspect repo evidence."],
+                commands: ["test: bun test"],
+                notes: ["No special risks in the demo fixture."],
+              })
+            : JSON.stringify({
+                agentsMd:
+                  "# AGENTS.md instructions for demo-org/demo-repo\n\nLLM-generated repository instructions with Bun, Fastify, Next.js, and CI context.",
+                copilotInstructions:
+                  "# Copilot instructions for demo-org/demo-repo\n\nUse Bun scripts and inspect package manifests before editing.",
+                cursorRule:
+                  "---\ndescription: demo repo rules\nalwaysApply: true\n---\n\nUse generated repo evidence and Bun quality gates.",
+                repoOverviewSkill:
+                  "---\nname: repo-overview\ndescription: Use for demo-org/demo-repo overview.\n---\n\n# Repo Overview\n\nLLM-generated overview.",
+                testingWorkflowSkill:
+                  "---\nname: testing-workflow\ndescription: Use for demo-org/demo-repo testing.\n---\n\n# Testing Workflow\n\nRun Bun tests.",
+                prReviewSkill:
+                  "---\nname: pr-review\ndescription: Use for demo-org/demo-repo PR review.\n---\n\n# PR Review\n\nCheck generated context.",
+              });
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(JSON.stringify({ choices: [{ message: { content } }] }));
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected provider test server port");
+    }
+    const consentedProvider = await app.inject({
+      method: "POST",
+      url: "/model-providers",
+      payload: {
+        kind: "local-openai-compatible",
+        displayName: "Consented local mock",
+        baseUrl: `http://127.0.0.1:${address.port}/v1`,
+        model: "mock-model",
+        apiKey: "dev",
+        repoContentConsent: true,
+      },
+    });
+
     const generated = await app.inject({
       method: "POST",
       url: "/repos/repo_demo/generate-context",
-      payload: {},
+      payload: { providerId: consentedProvider.json().provider.id },
     });
+    server.close();
     expect(generated.statusCode).toBe(200);
     expect(generated.json().artifacts).toHaveLength(9);
+    expect(generated.json().artifacts[0].content).toContain("LLM-generated");
 
     const pr = await app.inject({
       method: "POST",

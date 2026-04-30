@@ -29,6 +29,15 @@ describe("analyzeRepo", () => {
         },
         { path: "bun.lock", content: "" },
         {
+          path: "Makefile",
+          content: "build:\n\tcd contracts && scarb build\n",
+        },
+        {
+          path: "contracts/Scarb.toml",
+          content:
+            '[package]\nname = "tool"\n\n[scripts]\ntest = "snforge test"\n',
+        },
+        {
           path: "apps/web/app/page.tsx",
           content: "export default function Page() {}",
         },
@@ -43,6 +52,13 @@ describe("analyzeRepo", () => {
     expect(profile.evidence.map((item) => item.path)).toContain("README.md");
     expect(profile.workspaceManifests).toEqual(["package.json"]);
     expect(profile.lockfiles).toEqual(["bun.lock"]);
+    expect(profile.frameworks).toContain("Scarb");
+    expect(profile.commands.map((command) => command.command)).toContain(
+      "make build",
+    );
+    expect(profile.commands.map((command) => command.command)).toContain(
+      "cd contracts && snforge test",
+    );
     expect(profile.agentReadiness.score).toBeGreaterThan(40);
     expect(profile.agentReadiness.missingItems).toContain(
       "agent instructions: AGENTS.md is missing.",

@@ -2,7 +2,7 @@
 
 Open Maintainer audits a repository for agent readiness, generates repo-specific context files, and can open a context PR through a GitHub App.
 
-The primary MVP demo is CLI-first:
+The primary MVP demo is CLI-first and uses an explicit model provider for generated context files:
 
 ```text
 audit repo -> show readiness score -> generate context -> doctor -> dry-run PR summary
@@ -29,6 +29,8 @@ Run the demo smoke gate against the bundled fixture repo:
 bun run smoke:mvp
 ```
 
+The smoke gate uses explicit deterministic mode to validate offline plumbing. For real generated files, use the LLM flow in `docs/DEMO_RUNBOOK.md`.
+
 For the full narrated terminal flow, see `docs/DEMO_RUNBOOK.md`.
 
 Manual terminal flow:
@@ -38,7 +40,10 @@ DEMO_REPO="$(mktemp -d)"
 cp -R tests/fixtures/low-context-ts/. "$DEMO_REPO"
 
 bun run cli audit "$DEMO_REPO"
-bun run cli generate "$DEMO_REPO" --targets agents,copilot,cursor,skills,profile,report,config
+OPEN_MAINTAINER_PROVIDER_BASE_URL="http://localhost:11434/v1" \
+OPEN_MAINTAINER_MODEL="your-model" \
+OPEN_MAINTAINER_API_KEY="dev" \
+bun run cli generate "$DEMO_REPO" --llm --allow-repo-content-provider --targets agents,copilot,cursor,skills,profile,report,config
 bun run cli doctor "$DEMO_REPO"
 bun run cli pr "$DEMO_REPO" --create
 ```

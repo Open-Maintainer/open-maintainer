@@ -6,9 +6,12 @@ import {
 } from "@open-maintainer/ai";
 import { analyzeRepo } from "@open-maintainer/analyzer";
 import {
+  type ModelArtifactContent,
+  buildArtifactSynthesisPrompt,
   buildContextSynthesisPrompt,
   createContextArtifacts,
   deterministicContextOutput,
+  parseModelArtifactContent,
   parseStructuredContextOutput,
 } from "@open-maintainer/context";
 import { checkDatabase, checkRedis, store } from "@open-maintainer/db";
@@ -236,14 +239,28 @@ export function buildApp() {
     }
     const provider = body.providerId
       ? (store.providers.get(body.providerId) ?? null)
-      : null;
+      : ([...store.providers.values()][0] ?? null);
     if (body.providerId && !provider) {
       return reply.code(404).send({ error: "Unknown model provider." });
     }
+    if (!provider) {
+      const run = store.recordRun({
+        repoId,
+        type: "generation",
+        status: "failed",
+        inputSummary: "Context generation blocked before provider call.",
+        safeMessage:
+          "Context generation requires an explicit model provider with repo-content consent.",
+        artifactVersions: [],
+        repoProfileVersion: profile.version,
+        provider: null,
+        model: null,
+        externalId: null,
+      });
+      return reply.code(403).send({ error: run.safeMessage, run });
+    }
     try {
-      if (provider) {
-        assertProviderConsent(provider);
-      }
+      assertProviderConsent(provider);
     } catch (error) {
       const run = store.recordRun({
         repoId,
@@ -274,11 +291,19 @@ export function buildApp() {
       externalId: null,
     });
     let output = deterministicContextOutput(profile);
+    let modelArtifacts: ModelArtifactContent | undefined;
     if (provider) {
       try {
         const prompt = buildContextSynthesisPrompt(profile);
         const completion = await buildProvider(provider).complete(prompt);
         output = parseStructuredContextOutput(completion.text);
+        const artifactPrompt = buildArtifactSynthesisPrompt({
+          profile,
+          files: store.repoFiles.get(repoId) ?? [],
+        });
+        const artifactCompletion =
+          await buildProvider(provider).complete(artifactPrompt);
+        modelArtifacts = parseModelArtifactContent(artifactCompletion.text);
       } catch (error) {
         store.updateRun(run.id, {
           status: "failed",
@@ -298,6 +323,7 @@ export function buildApp() {
       repoId,
       profile,
       output,
+      ...(modelArtifacts ? { modelArtifacts } : {}),
       modelProvider: provider?.displayName ?? null,
       model: provider?.model ?? null,
       nextVersion: currentArtifactCount + 1,

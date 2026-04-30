@@ -37,6 +37,7 @@ const before = scoreFrom(await runCli(["audit", workdir]));
 await runCli([
   "generate",
   workdir,
+  "--deterministic",
   "--targets",
   "agents,copilot,cursor,skills,profile,report,config",
 ]);

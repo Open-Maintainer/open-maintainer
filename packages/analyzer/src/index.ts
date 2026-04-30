@@ -196,6 +196,46 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     }
   }
 
+  for (const makefile of normalizedFiles.filter(
+    (file) => path.posix.basename(file.path) === "Makefile",
+  )) {
+    evidence.push({ path: makefile.path, reason: "make targets" });
+    for (const target of detectMakeTargets(makefile.content)) {
+      if (isQualityOrWorkflowScript(target)) {
+        commands.push({
+          name: target,
+          command:
+            makefile.path === "Makefile"
+              ? `make ${target}`
+              : `make -C ${path.posix.dirname(makefile.path)} ${target}`,
+          source: makefile.path,
+        });
+      }
+    }
+  }
+
+  for (const scarbToml of normalizedFiles.filter((file) =>
+    file.path.endsWith("Scarb.toml"),
+  )) {
+    evidence.push({ path: scarbToml.path, reason: "Scarb manifest" });
+    frameworks.add("Scarb");
+    frameworks.add("Starknet Foundry");
+    const scriptCommands = detectScarbScripts(scarbToml.content);
+    for (const [name, command] of Object.entries(scriptCommands)) {
+      if (isQualityOrWorkflowScript(name)) {
+        const directory = path.posix.dirname(scarbToml.path);
+        commands.push({
+          name,
+          command:
+            directory === "."
+              ? `scarb run ${name}`
+              : `cd ${directory} && ${command}`,
+          source: scarbToml.path,
+        });
+      }
+    }
+  }
+
   const lockfiles = paths.filter((repoPath) =>
     [
       "bun.lock",
@@ -484,6 +524,11 @@ function isQualityOrWorkflowScript(name: string): boolean {
     "smoke",
     "smoke:compose",
     "smoke:mvp",
+    "dev-up",
+    "dev-down",
+    "dev-fork",
+    "dev-fork-down",
+    "clean-env",
   ].includes(name);
 }
 
@@ -504,6 +549,34 @@ function parseJson(content: string): unknown | null {
   } catch {
     return null;
   }
+}
+
+function detectMakeTargets(content: string): string[] {
+  return [...content.matchAll(/^([a-zA-Z0-9][\w:.-]*):(?:\s|$)/gm)].flatMap(
+    (match) => {
+      const target = match[1];
+      return target && !target.includes("%") ? [target] : [];
+    },
+  );
+}
+
+function detectScarbScripts(content: string): Record<string, string> {
+  const scripts: Record<string, string> = {};
+  let inScripts = false;
+  for (const line of content.split(/\r?\n/)) {
+    if (/^\[[^\]]+\]\s*$/.test(line)) {
+      inScripts = line.trim() === "[scripts]";
+      continue;
+    }
+    if (!inScripts) {
+      continue;
+    }
+    const match = /^([A-Za-z0-9:_-]+)\s*=\s*"([^"]+)"\s*$/.exec(line);
+    if (match?.[1] && match[2]) {
+      scripts[match[1]] = match[2];
+    }
+  }
+  return scripts;
 }
 
 function detectPackageManager(

@@ -1,12 +1,19 @@
 #!/usr/bin/env bun
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  assertProviderConsent,
+  buildProvider,
+  createProviderConfig,
+} from "@open-maintainer/ai";
 import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
 import {
   type ContextArtifactTarget,
+  buildArtifactSynthesisPrompt,
   createContextArtifacts,
   defaultArtifactTargets,
   deterministicContextOutput,
+  parseModelArtifactContent,
   planArtifactWrites,
   profileFingerprint,
   renderReadinessReport,
@@ -20,6 +27,12 @@ type CliOptions = {
   failOnScoreBelow: number | null;
   reportPath: string | null;
   noProfileWrite: boolean;
+  llm: boolean;
+  deterministic: boolean;
+  allowRepoContentProvider: boolean;
+  providerBaseUrl: string | null;
+  providerModel: string | null;
+  providerApiKey: string | null;
 };
 
 const usage = `open-maintainer <command> <repo>
@@ -38,6 +51,12 @@ Options:
   --fail-on-score-below <number>        Exit non-zero when audit score is below threshold
   --report-path <path>                  Write audit report to a custom path
   --no-profile-write                    Skip .open-maintainer/profile.json writes during audit
+  --llm                                 Use an OpenAI-compatible model to generate artifact bodies
+  --deterministic                       Use template-only artifact generation for offline smoke tests
+  --allow-repo-content-provider         Required with --llm; permits sending scanned repo content to the provider
+  --provider-base-url <url>             OpenAI-compatible base URL, or OPEN_MAINTAINER_PROVIDER_BASE_URL
+  --provider-model <model>              Model name, or OPEN_MAINTAINER_MODEL
+  --provider-api-key <key>              API key, or OPEN_MAINTAINER_API_KEY
 `;
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
@@ -58,7 +77,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     if (command === "audit") {
       const { profile, reportPath } = await audit(repoRoot, options);
       console.log(`Agent Readiness: ${profile.agentReadiness.score}/100`);
-      console.log("Profile: .open-maintainer/profile.json");
+      console.log(
+        options.noProfileWrite
+          ? "Profile: skipped (--no-profile-write)"
+          : "Profile: .open-maintainer/profile.json",
+      );
       console.log(`Report: ${path.relative(repoRoot, reportPath)}`);
       return thresholdExit(profile.agentReadiness.score, options);
     }
@@ -123,21 +146,27 @@ async function audit(
 }
 
 async function generate(repoRoot: string, options: CliOptions): Promise<void> {
-  const profile = await createProfile(repoRoot);
+  const files = await scanRepository(repoRoot, { maxFiles: 800 });
+  const profile = createProfileFromFiles(repoRoot, files);
+  if (!options.llm && !options.deterministic) {
+    throw new Error(
+      "generate requires --llm for repo-specific artifact content. Use --deterministic only for offline smoke tests.",
+    );
+  }
+  const modelArtifacts = options.llm
+    ? await generateModelArtifacts({ profile, files, options })
+    : undefined;
   const artifacts = createContextArtifacts({
     repoId: "local",
     profile,
     output: deterministicContextOutput(profile),
-    modelProvider: null,
-    model: null,
+    ...(modelArtifacts ? { modelArtifacts: modelArtifacts.content } : {}),
+    modelProvider: modelArtifacts?.provider ?? null,
+    model: modelArtifacts?.model ?? null,
     nextVersion: 1,
     targets: options.targets,
   });
-  const existingPaths = new Set(
-    (await scanRepository(repoRoot, { maxFiles: 800 })).map(
-      (file) => file.path,
-    ),
-  );
+  const existingPaths = new Set(files.map((file) => file.path));
   const plan = planArtifactWrites({
     artifacts,
     existingPaths,
@@ -205,6 +234,13 @@ async function pr(repoRoot: string, options: CliOptions): Promise<void> {
 
 async function createProfile(repoRoot: string) {
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
+  return createProfileFromFiles(repoRoot, files);
+}
+
+function createProfileFromFiles(
+  repoRoot: string,
+  files: Awaited<ReturnType<typeof scanRepository>>,
+) {
   return analyzeRepo({
     repoId: "local",
     owner: path.basename(path.dirname(repoRoot)) || "local",
@@ -213,6 +249,50 @@ async function createProfile(repoRoot: string) {
     version: 1,
     files,
   });
+}
+
+async function generateModelArtifacts(input: {
+  profile: ReturnType<typeof analyzeRepo>;
+  files: Awaited<ReturnType<typeof scanRepository>>;
+  options: CliOptions;
+}) {
+  if (!input.options.allowRepoContentProvider) {
+    throw new Error(
+      "--llm requires --allow-repo-content-provider because repository content will be sent to the configured provider.",
+    );
+  }
+  const baseUrl =
+    input.options.providerBaseUrl ??
+    process.env.OPEN_MAINTAINER_PROVIDER_BASE_URL;
+  const model =
+    input.options.providerModel ?? process.env.OPEN_MAINTAINER_MODEL;
+  const apiKey =
+    input.options.providerApiKey ?? process.env.OPEN_MAINTAINER_API_KEY;
+  if (!baseUrl || !model || !apiKey) {
+    throw new Error(
+      "--llm requires --provider-base-url, --provider-model, and --provider-api-key, or matching OPEN_MAINTAINER_* environment variables.",
+    );
+  }
+  const provider = createProviderConfig({
+    kind: "openai-compatible",
+    displayName: "CLI OpenAI-compatible provider",
+    baseUrl,
+    model,
+    apiKey,
+    repoContentConsent: input.options.allowRepoContentProvider,
+  });
+  assertProviderConsent(provider);
+  const prompt = buildArtifactSynthesisPrompt({
+    profile: input.profile,
+    files: input.files,
+  });
+  console.log(`llm: generating artifact content with ${model}`);
+  const completion = await buildProvider(provider).complete(prompt);
+  return {
+    provider: provider.displayName,
+    model: completion.model,
+    content: parseModelArtifactContent(completion.text),
+  };
 }
 
 function parseOptions(rawOptions: string[]): CliOptions {
@@ -224,6 +304,12 @@ function parseOptions(rawOptions: string[]): CliOptions {
     failOnScoreBelow: null,
     reportPath: null,
     noProfileWrite: false,
+    llm: false,
+    deterministic: false,
+    allowRepoContentProvider: false,
+    providerBaseUrl: null,
+    providerModel: null,
+    providerApiKey: null,
   };
   for (let index = 0; index < rawOptions.length; index += 1) {
     const option = rawOptions[index];
@@ -244,6 +330,21 @@ function parseOptions(rawOptions: string[]): CliOptions {
       index += 1;
     } else if (option === "--no-profile-write") {
       options.noProfileWrite = true;
+    } else if (option === "--llm") {
+      options.llm = true;
+    } else if (option === "--deterministic") {
+      options.deterministic = true;
+    } else if (option === "--allow-repo-content-provider") {
+      options.allowRepoContentProvider = true;
+    } else if (option === "--provider-base-url") {
+      options.providerBaseUrl = rawOptions[index + 1] ?? null;
+      index += 1;
+    } else if (option === "--provider-model") {
+      options.providerModel = rawOptions[index + 1] ?? null;
+      index += 1;
+    } else if (option === "--provider-api-key") {
+      options.providerApiKey = rawOptions[index + 1] ?? null;
+      index += 1;
     } else {
       throw new Error(`Unknown option: ${option}`);
     }

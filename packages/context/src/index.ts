@@ -18,6 +18,21 @@ export type StructuredContextOutput = z.infer<
   typeof StructuredContextOutputSchema
 >;
 
+export const ModelArtifactContentSchema = z.object({
+  agentsMd: z.string().min(80),
+  copilotInstructions: z.string().min(80),
+  cursorRule: z.string().min(80),
+  repoOverviewSkill: z.string().min(80),
+  testingWorkflowSkill: z.string().min(80),
+  prReviewSkill: z.string().min(80),
+});
+export type ModelArtifactContent = z.infer<typeof ModelArtifactContentSchema>;
+
+export type ContextSourceFile = {
+  path: string;
+  content: string;
+};
+
 export type ContextArtifactTarget =
   | "agents"
   | "copilot"
@@ -262,6 +277,7 @@ export function createContextArtifacts(input: {
   repoId: string;
   profile: RepoProfile;
   output: StructuredContextOutput;
+  modelArtifacts?: ModelArtifactContent;
   modelProvider: string | null;
   model: string | null;
   nextVersion: number;
@@ -273,7 +289,9 @@ export function createContextArtifacts(input: {
   if (targets.has("agents")) {
     definitions.push({
       type: "AGENTS.md",
-      content: renderAgentsMd(input.profile, input.output),
+      content:
+        input.modelArtifacts?.agentsMd ??
+        renderAgentsMd(input.profile, input.output),
     });
   }
   if (targets.has("config")) {
@@ -289,28 +307,38 @@ export function createContextArtifacts(input: {
   if (targets.has("copilot")) {
     definitions.push({
       type: ".github/copilot-instructions.md",
-      content: renderCopilotInstructions(input.profile, input.output),
+      content:
+        input.modelArtifacts?.copilotInstructions ??
+        renderCopilotInstructions(input.profile, input.output),
     });
   }
   if (targets.has("cursor")) {
     definitions.push({
       type: ".cursor/rules/open-maintainer.md",
-      content: renderCursorRule(input.profile, input.output),
+      content:
+        input.modelArtifacts?.cursorRule ??
+        renderCursorRule(input.profile, input.output),
     });
   }
   if (targets.has("skills")) {
     definitions.push(
       {
         type: ".skills/repo-overview/SKILL.md",
-        content: renderSkill(input.profile, "repo-overview", input.output),
+        content:
+          input.modelArtifacts?.repoOverviewSkill ??
+          renderSkill(input.profile, "repo-overview", input.output),
       },
       {
         type: ".skills/testing-workflow/SKILL.md",
-        content: renderSkill(input.profile, "testing-workflow", input.output),
+        content:
+          input.modelArtifacts?.testingWorkflowSkill ??
+          renderSkill(input.profile, "testing-workflow", input.output),
       },
       {
         type: ".skills/pr-review/SKILL.md",
-        content: renderSkill(input.profile, "pr-review", input.output),
+        content:
+          input.modelArtifacts?.prReviewSkill ??
+          renderSkill(input.profile, "pr-review", input.output),
       },
     );
   }
@@ -383,11 +411,53 @@ export function buildContextSynthesisPrompt(profile: RepoProfile): {
   };
 }
 
+export function buildArtifactSynthesisPrompt(input: {
+  profile: RepoProfile;
+  files: ContextSourceFile[];
+}): {
+  system: string;
+  user: string;
+} {
+  return {
+    system: [
+      "You generate complete, repo-specific AI coding-agent context files.",
+      "Use only the repository evidence and file excerpts provided.",
+      "Do not produce generic boilerplate. Name exact subsystems, commands, risks, generated files, and review rules.",
+      "Return only JSON with keys: agentsMd, copilotInstructions, cursorRule, repoOverviewSkill, testingWorkflowSkill, prReviewSkill.",
+      "Each value must be complete Markdown content for that file. Include YAML frontmatter for skill files. Include Cursor frontmatter for cursorRule.",
+      "Do not include markdown fences around the JSON.",
+    ].join(" "),
+    user: JSON.stringify({
+      repo: {
+        owner: input.profile.owner,
+        name: input.profile.name,
+        defaultBranch: input.profile.defaultBranch,
+        languages: input.profile.primaryLanguages,
+        frameworks: input.profile.frameworks,
+        packageManager: input.profile.packageManager,
+        commands: input.profile.commands,
+        ciWorkflows: input.profile.ciWorkflows,
+        docs: input.profile.importantDocs,
+        architecturePathGroups: input.profile.architecturePathGroups,
+        riskAreas: input.profile.detectedRiskAreas,
+        reviewRules: input.profile.reviewRuleCandidates,
+        readiness: input.profile.agentReadiness,
+      },
+      selectedFiles: selectPromptFileExcerpts(input.files),
+    }),
+  };
+}
+
 export function parseStructuredContextOutput(
   text: string,
 ): StructuredContextOutput {
-  const parsed = JSON.parse(text) as unknown;
+  const parsed = JSON.parse(stripJsonFence(text)) as unknown;
   return StructuredContextOutputSchema.parse(parsed);
+}
+
+export function parseModelArtifactContent(text: string): ModelArtifactContent {
+  const parsed = JSON.parse(stripJsonFence(text)) as unknown;
+  return ModelArtifactContentSchema.parse(parsed);
 }
 
 export function profileFingerprint(profile: RepoProfile): string {
@@ -452,4 +522,59 @@ function listOrFallback(items: string[], fallback: string): string[] {
 
 function metadataComment(profile: RepoProfile): string {
   return `${generatedMarker}; sourceProfileVersion=${profile.version}; profileHash=${profileFingerprint(profile)}`;
+}
+
+function stripJsonFence(text: string): string {
+  return text
+    .trim()
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/, "")
+    .trim();
+}
+
+function selectPromptFileExcerpts(
+  files: ContextSourceFile[],
+): ContextSourceFile[] {
+  const preferredPatterns = [
+    /^README\.md$/,
+    /^AGENTS\.md$/,
+    /^Makefile$/,
+    /^contracts\/Scarb\.toml$/,
+    /^contracts\/src\/.*\.cairo$/,
+    /^contracts\/tests\/.*\.cairo$/,
+    /^packages\/frontend\/package\.json$/,
+    /^packages\/frontend\/README\.md$/,
+    /^packages\/frontend\/src\/.*\.(ts|tsx)$/,
+    /^packages\/indexer\/package\.json$/,
+    /^packages\/indexer\/README\.md$/,
+    /^packages\/indexer\/src\/.*\.ts$/,
+    /^docs\/(spec|TEST_QUALITY_AUDIT|INDEXER_FRONTEND_INTEGRATION|EVENTS|SENTRY|HORIZON-SPEC-COMPRESSED)\.md$/,
+    /^\.github\/workflows\/.*\.ya?ml$/,
+  ];
+  const sorted = [...files].sort((left, right) => {
+    const leftRank = preferredPatterns.findIndex((pattern) =>
+      pattern.test(left.path),
+    );
+    const rightRank = preferredPatterns.findIndex((pattern) =>
+      pattern.test(right.path),
+    );
+    return (
+      rank(leftRank) - rank(rightRank) || left.path.localeCompare(right.path)
+    );
+  });
+  const excerpts: ContextSourceFile[] = [];
+  let totalCharacters = 0;
+  for (const file of sorted) {
+    if (totalCharacters >= 80_000) {
+      break;
+    }
+    const content = file.content.slice(0, 6_000);
+    excerpts.push({ path: file.path, content });
+    totalCharacters += content.length;
+  }
+  return excerpts;
+}
+
+function rank(value: number): number {
+  return value === -1 ? 999 : value;
 }

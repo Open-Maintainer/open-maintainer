@@ -54,6 +54,7 @@
         "open-maintainer": "./src/index.ts",
       },
       "dependencies": {
+        "@open-maintainer/ai": "workspace:*",
         "@open-maintainer/analyzer": "workspace:*",
         "@open-maintainer/context": "workspace:*",
       },
