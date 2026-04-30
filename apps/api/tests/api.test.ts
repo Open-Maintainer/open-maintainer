@@ -195,22 +195,45 @@ describe("MVP API", () => {
                 documentationAlignment: [],
                 unknowns: ["No PR template was detected."],
               })
-            : JSON.stringify({
-                agentsMd:
-                  "# AGENTS.md instructions for demo-org/demo-repo\n\nLLM-generated repository instructions with Bun, Fastify, Next.js, and CI context.",
-                claudeMd:
-                  "# CLAUDE.md instructions for demo-org/demo-repo\n\nLLM-generated repository instructions with Bun, Fastify, Next.js, and CI context.",
-                copilotInstructions:
-                  "# Copilot instructions for demo-org/demo-repo\n\nUse Bun scripts and inspect package manifests before editing.",
-                cursorRule:
-                  "---\ndescription: demo repo rules\nalwaysApply: true\n---\n\nUse generated repo evidence and Bun quality gates.",
-                repoOverviewSkill:
-                  "---\nname: repo-overview\ndescription: Use for demo-org/demo-repo overview.\n---\n\n# Repo Overview\n\nLLM-generated overview.",
-                testingWorkflowSkill:
-                  "---\nname: testing-workflow\ndescription: Use for demo-org/demo-repo testing.\n---\n\n# Testing Workflow\n\nRun Bun tests.",
-                prReviewSkill:
-                  "---\nname: pr-review\ndescription: Use for demo-org/demo-repo PR review.\n---\n\n# PR Review\n\nCheck generated context.",
-              });
+            : providerCalls.length === 2
+              ? JSON.stringify({
+                  agentsMd:
+                    "# AGENTS.md instructions for demo-org/demo-repo\n\nLLM-generated repository instructions with Bun, Fastify, Next.js, and CI context.",
+                  claudeMd:
+                    "# CLAUDE.md instructions for demo-org/demo-repo\n\nLLM-generated repository instructions with Bun, Fastify, Next.js, and CI context.",
+                  copilotInstructions:
+                    "# Copilot instructions for demo-org/demo-repo\n\nUse Bun scripts and inspect package manifests before editing.",
+                  cursorRule:
+                    "---\ndescription: demo repo rules\nalwaysApply: true\n---\n\nUse generated repo evidence and Bun quality gates.",
+                })
+              : JSON.stringify({
+                  skills: [
+                    {
+                      path: ".agents/skills/demo-repo-start-task/SKILL.md",
+                      name: "demo-repo-start-task",
+                      description:
+                        "Use before making bounded changes in demo-org/demo-repo.",
+                      markdown:
+                        "---\nname: demo-repo-start-task\ndescription: Use before making bounded changes in demo-org/demo-repo.\n---\n\n# Demo Repo Start Task\n\n## Use when\n- Starting a code or docs change.\n\n## Do not use when\n- Reviewing a PR.\n\n## Read first\n- README.md\n\n## Workflow\n- Inspect the changed surface.\n\n## Validation\n- Run bun test.\n\n## Documentation\n- Check README.md.\n\n## Risk checks\n- Keep generated context scoped.\n\n## Done when\n- Commands run are reported.",
+                    },
+                    {
+                      path: ".agents/skills/demo-repo-testing-workflow/SKILL.md",
+                      name: "demo-repo-testing-workflow",
+                      description:
+                        "Use when selecting validation for demo-org/demo-repo.",
+                      markdown:
+                        "---\nname: demo-repo-testing-workflow\ndescription: Use when selecting validation for demo-org/demo-repo.\n---\n\n# Demo Repo Testing Workflow\n\n## Use when\n- Tests or validation are changing.\n\n## Do not use when\n- Reviewing a PR.\n\n## Read first\n- package.json\n\n## Workflow\n- Map the changed surface to commands.\n\n## Validation\n- Run bun test.\n\n## Documentation\n- Check README.md.\n\n## Risk checks\n- Do not skip risky behavior tests.\n\n## Done when\n- Validation evidence is reported.",
+                    },
+                    {
+                      path: ".agents/skills/demo-repo-pr-review/SKILL.md",
+                      name: "demo-repo-pr-review",
+                      description:
+                        "Use when reviewing pull requests for demo-org/demo-repo.",
+                      markdown:
+                        "---\nname: demo-repo-pr-review\ndescription: Use when reviewing pull requests for demo-org/demo-repo.\n---\n\n# Demo Repo PR Review\n\n## Use when\n- Reviewing a completed diff.\n\n## Do not use when\n- Implementing the change.\n\n## Read first\n- The PR diff.\n\n## Workflow\n- Lead with correctness and security findings.\n\n## Validation\n- Check bun test evidence.\n\n## Documentation\n- Check README.md changes.\n\n## Risk checks\n- Watch generated context writes.\n\n## Done when\n- Findings and residual risks are clear.",
+                    },
+                  ],
+                });
         response.writeHead(200, { "content-type": "application/json" });
         response.end(JSON.stringify({ choices: [{ message: { content } }] }));
       });

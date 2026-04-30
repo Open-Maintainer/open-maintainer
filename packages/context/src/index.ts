@@ -5,7 +5,7 @@ import type {
   GeneratedArtifact,
   RepoProfile,
 } from "@open-maintainer/shared";
-import { newId, nowIso } from "@open-maintainer/shared";
+import { ArtifactTypeSchema, newId, nowIso } from "@open-maintainer/shared";
 import { z } from "zod";
 
 export const StructuredContextOutputSchema = z.object({
@@ -86,11 +86,21 @@ export const ModelArtifactContentSchema = z.object({
   claudeMd: z.string().min(80),
   copilotInstructions: z.string().min(80),
   cursorRule: z.string().min(80),
-  repoOverviewSkill: z.string().min(80),
-  testingWorkflowSkill: z.string().min(80),
-  prReviewSkill: z.string().min(80),
 });
 export type ModelArtifactContent = z.infer<typeof ModelArtifactContentSchema>;
+
+const ModelSkillSchema = z.object({
+  path: z
+    .string()
+    .regex(/^\.(agents|claude)\/skills\/[a-z0-9][a-z0-9-]*\/SKILL\.md$/),
+  name: z.string().regex(/^[a-z0-9][a-z0-9-]*$/),
+  description: z.string().min(20),
+  markdown: z.string().min(120),
+});
+export const ModelSkillContentSchema = z.object({
+  skills: z.array(ModelSkillSchema).min(1).max(8),
+});
+export type ModelSkillContent = z.infer<typeof ModelSkillContentSchema>;
 
 const evidenceClaimJsonSchema = {
   type: "object",
@@ -250,23 +260,43 @@ export const structuredRepoFactsJsonSchema = {
 export const modelArtifactContentJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: [
-    "agentsMd",
-    "claudeMd",
-    "copilotInstructions",
-    "cursorRule",
-    "repoOverviewSkill",
-    "testingWorkflowSkill",
-    "prReviewSkill",
-  ],
+  required: ["agentsMd", "claudeMd", "copilotInstructions", "cursorRule"],
   properties: {
     agentsMd: { type: "string", minLength: 80 },
     claudeMd: { type: "string", minLength: 80 },
     copilotInstructions: { type: "string", minLength: 80 },
     cursorRule: { type: "string", minLength: 80 },
-    repoOverviewSkill: { type: "string", minLength: 80 },
-    testingWorkflowSkill: { type: "string", minLength: 80 },
-    prReviewSkill: { type: "string", minLength: 80 },
+  },
+} as const;
+
+export const modelSkillContentJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: ["skills"],
+  properties: {
+    skills: {
+      type: "array",
+      minItems: 1,
+      maxItems: 8,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path", "name", "description", "markdown"],
+        properties: {
+          path: {
+            type: "string",
+            pattern:
+              "^\\.(agents|claude)/skills/[a-z0-9][a-z0-9-]*/SKILL\\.md$",
+          },
+          name: {
+            type: "string",
+            pattern: "^[a-z0-9][a-z0-9-]*$",
+          },
+          description: { type: "string", minLength: 20 },
+          markdown: { type: "string", minLength: 120 },
+        },
+      },
+    },
   },
 } as const;
 
@@ -459,22 +489,85 @@ export function renderCursorRule(
 
 export function renderSkill(
   profile: RepoProfile,
-  name: "repo-overview" | "testing-workflow" | "pr-review",
+  name: "start-task" | "testing-workflow" | "pr-review",
   output: StructuredContextOutput,
 ): string {
+  const repoSkillName = `${slugify(profile.name)}-${name}`;
   const title = name
     .split("-")
     .map((part) => part[0]?.toUpperCase() + part.slice(1))
     .join(" ");
   const description =
-    name === "repo-overview"
-      ? `Use when working in ${profile.owner}/${profile.name}; summarizes architecture, commands, generated files, and risk areas.`
+    name === "start-task"
+      ? `Orient inside ${profile.owner}/${profile.name} before making a bounded code, docs, workflow, or generated-artifact change.`
       : name === "testing-workflow"
         ? `Use when changing tests or running validation in ${profile.owner}/${profile.name}.`
         : `Use when preparing or reviewing pull requests in ${profile.owner}/${profile.name}.`;
+  const commands = commandLines(profile);
+  const docs = profile.importantDocs.length > 0 ? profile.importantDocs : [];
+  const riskAreas =
+    profile.detectedRiskAreas.length > 0
+      ? profile.detectedRiskAreas
+      : [
+          "Not detected; treat auth, write paths, generated files, deployment, and lockfiles with caution.",
+        ];
+  const readFirst =
+    name === "start-task"
+      ? [
+          "The target file.",
+          "One related caller, test, type definition, route, command, or config.",
+          "The nearest package manifest and tsconfig for app/package changes.",
+        ]
+      : name === "testing-workflow"
+        ? [
+            "The changed source file.",
+            "Nearby tests or fixtures for the changed behavior.",
+            "Package manifests, tsconfig, and CI workflow files that define validation.",
+          ]
+        : [
+            "The PR diff.",
+            "Changed tests, fixtures, docs, and generated artifacts.",
+            "Relevant manifests, workflows, and high-risk files touched by the PR.",
+          ];
+  const workflow =
+    name === "start-task"
+      ? [
+          "Classify the changed surface before editing.",
+          "Confirm whether the change crosses app, package, docs, workflow, Docker, or generated-artifact boundaries.",
+          "Keep the diff bounded: no unrelated formatting, broad refactors, dependency churn, or lockfile churn.",
+          "Choose scoped validation before making the final change.",
+        ]
+      : name === "testing-workflow"
+        ? [
+            "Map the changed surface to the narrowest relevant validation command.",
+            "Add or update regression coverage for behavior changes and bug fixes.",
+            "Run focused tests first, then broader checks when the change crosses contracts or packages.",
+            "If a command needs unavailable services, record the skipped command and reason.",
+          ]
+        : [
+            "Review correctness, security, data loss, auth, generated artifacts, docs, and validation evidence before style.",
+            "Separate blockers from non-blocking notes.",
+            "Avoid requesting broad refactors unless the diff introduces a concrete risk.",
+            "Ground every finding in a file path, command, or documented behavior.",
+          ];
+  const doNotUse =
+    name === "start-task"
+      ? [
+          "Reviewing an existing PR; use the PR review skill.",
+          "Selecting final validation only; use the testing workflow skill.",
+        ]
+      : name === "testing-workflow"
+        ? [
+            "Starting a broad implementation; use the start-task skill first.",
+            "Reviewing another author's completed diff; use the PR review skill.",
+          ]
+        : [
+            "Implementing the change yourself.",
+            "Doing first-pass repo orientation; use the start-task skill.",
+          ];
   return [
     "---",
-    `name: ${name}`,
+    `name: ${repoSkillName}`,
     `description: ${description}`,
     "---",
     "",
@@ -482,21 +575,52 @@ export function renderSkill(
     "",
     `<!-- ${metadataComment(profile)} -->`,
     "",
-    output.summary,
+    "## Use when",
     "",
-    "## Commands",
+    `- ${description}`,
     "",
-    ...commandLines(profile).map((command) => `- ${command}`),
+    "## Do not use when",
     "",
-    "## Rules",
+    ...doNotUse.map((item) => `- ${item}`),
     "",
-    ...output.qualityRules.map((rule) => `- ${rule}`),
+    "## Read first",
     "",
-    "## Evidence",
+    ...readFirst.map((item) => `- ${item}`),
+    ...docs.slice(0, 8).map((item) => `- ${item}`),
     "",
-    ...profile.evidence
-      .slice(0, 20)
-      .map((item) => `- ${item.path}: ${item.reason}`),
+    "## Workflow",
+    "",
+    ...workflow.map((item, index) => `${index + 1}. ${item}`),
+    "",
+    "## Validation",
+    "",
+    ...(commands.length > 0
+      ? commands.map((command) => `- ${command}`)
+      : [
+          "- Not detected; inspect local manifests and CI workflows before selecting validation.",
+        ]),
+    "",
+    "## Documentation",
+    "",
+    ...(docs.length > 0
+      ? docs
+          .slice(0, 8)
+          .map((item) => `- Check or update ${item} when behavior changes.`)
+      : [
+          "- Not detected; update user-facing docs when commands, setup, public behavior, or generated outputs change.",
+        ]),
+    "",
+    "## Risk checks",
+    "",
+    ...riskAreas.map((item) => `- ${item}`),
+    ...output.qualityRules.slice(0, 8).map((rule) => `- ${rule}`),
+    "",
+    "## Done when",
+    "",
+    "- The changed surface is clear.",
+    "- Required files were read before editing or reviewing.",
+    "- Relevant tests, docs, and validation were updated or explicitly ruled out.",
+    "- Final notes include commands run and any skipped checks.",
   ].join("\n");
 }
 
@@ -544,6 +668,7 @@ export function createContextArtifacts(input: {
   profile: RepoProfile;
   output: StructuredContextOutput;
   modelArtifacts?: ModelArtifactContent;
+  modelSkills?: ModelSkillContent;
   modelProvider: string | null;
   model: string | null;
   nextVersion: number;
@@ -596,46 +721,22 @@ export function createContextArtifacts(input: {
   }
   if (targets.has("skills")) {
     definitions.push(
-      {
-        type: ".agents/skills/repo-overview/SKILL.md",
-        content:
-          input.modelArtifacts?.repoOverviewSkill ??
-          renderSkill(input.profile, "repo-overview", input.output),
-      },
-      {
-        type: ".agents/skills/testing-workflow/SKILL.md",
-        content:
-          input.modelArtifacts?.testingWorkflowSkill ??
-          renderSkill(input.profile, "testing-workflow", input.output),
-      },
-      {
-        type: ".agents/skills/pr-review/SKILL.md",
-        content:
-          input.modelArtifacts?.prReviewSkill ??
-          renderSkill(input.profile, "pr-review", input.output),
-      },
+      ...skillDefinitionsForTarget(
+        ".agents",
+        input.profile,
+        input.output,
+        input.modelSkills,
+      ),
     );
   }
   if (targets.has("claude-skills")) {
     definitions.push(
-      {
-        type: ".claude/skills/repo-overview/SKILL.md",
-        content:
-          input.modelArtifacts?.repoOverviewSkill ??
-          renderSkill(input.profile, "repo-overview", input.output),
-      },
-      {
-        type: ".claude/skills/testing-workflow/SKILL.md",
-        content:
-          input.modelArtifacts?.testingWorkflowSkill ??
-          renderSkill(input.profile, "testing-workflow", input.output),
-      },
-      {
-        type: ".claude/skills/pr-review/SKILL.md",
-        content:
-          input.modelArtifacts?.prReviewSkill ??
-          renderSkill(input.profile, "pr-review", input.output),
-      },
+      ...skillDefinitionsForTarget(
+        ".claude",
+        input.profile,
+        input.output,
+        input.modelSkills,
+      ),
     );
   }
   if (targets.has("profile")) {
@@ -668,6 +769,37 @@ export function createContextArtifacts(input: {
     modelProvider: input.modelProvider,
     model: input.model,
     createdAt,
+  }));
+}
+
+function skillDefinitionsForTarget(
+  targetRoot: ".agents" | ".claude",
+  profile: RepoProfile,
+  output: StructuredContextOutput,
+  modelSkills?: ModelSkillContent,
+): Array<{ type: ArtifactType; content: string }> {
+  if (modelSkills && modelSkills.skills.length > 0) {
+    const seen = new Set<string>();
+    return modelSkills.skills.flatMap((skill) => {
+      const slug = skillSlugFromPath(skill.path) ?? slugify(skill.name);
+      const path = ArtifactTypeSchema.parse(
+        `${targetRoot}/skills/${slug}/SKILL.md`,
+      );
+      if (seen.has(path)) {
+        return [];
+      }
+      seen.add(path);
+      return [{ type: path, content: skill.markdown }];
+    });
+  }
+
+  const defaultSkills: Array<"start-task" | "testing-workflow" | "pr-review"> =
+    ["start-task", "testing-workflow", "pr-review"];
+  return defaultSkills.map((name) => ({
+    type: ArtifactTypeSchema.parse(
+      `${targetRoot}/skills/${slugify(profile.name)}-${name}/SKILL.md`,
+    ),
+    content: renderSkill(profile, name, output),
   }));
 }
 
@@ -882,10 +1014,9 @@ export function buildArtifactSynthesisPrompt(input: {
       "- Prefer a documentation routing table with columns like change type, docs to update, and evidence/source.",
       "",
       "Tool-specific outputs:",
-      "- Generate tool-specific files from the same facts as AGENTS.md.",
+      "- Generate Claude, Copilot, and Cursor files from the same facts as AGENTS.md.",
       "- AGENTS.md is the source of truth.",
       "- Tool-specific files should be shorter mirrors, not independent reinterpretations.",
-      "- Skill files must describe repeatable workflows using only repo evidence.",
       "",
       "Return only valid JSON.",
       "Do not include markdown fences around the JSON.",
@@ -896,11 +1027,8 @@ export function buildArtifactSynthesisPrompt(input: {
       "claudeMd",
       "copilotInstructions",
       "cursorRule",
-      "repoOverviewSkill",
-      "testingWorkflowSkill",
-      "prReviewSkill",
       "",
-      "Each value must be complete Markdown content for that file. Include YAML frontmatter for skill files. Include Cursor frontmatter for cursorRule.",
+      "Each value must be complete Markdown content for that file. Include Cursor frontmatter for cursorRule.",
       "",
       "Quality bar:",
       "- Specific beats complete.",
@@ -969,6 +1097,161 @@ export function buildArtifactSynthesisPrompt(input: {
   };
 }
 
+export function buildSkillSynthesisPrompt(input: {
+  profile: RepoProfile;
+  repoFacts: StructuredRepoFacts;
+  agentsMd: string;
+  files: ContextSourceFile[];
+}): {
+  system: string;
+  user: string;
+} {
+  return {
+    system: [
+      "You generate repository-specific Agent Skills for AI coding agents.",
+      "",
+      "A skill is not a general documentation summary.",
+      "A skill is a compact, task-specific operating procedure for a repeated workflow in this repository.",
+      "",
+      "Use only the provided repository facts, evidence map, selected file excerpts, and AGENTS.md.",
+      "Do not invent commands, paths, services, owners, policies, release processes, deployment behavior, or test locations.",
+      "",
+      "AGENTS.md is the source of truth.",
+      "Skills must be consistent with AGENTS.md and may only compress, specialize, or route its instructions.",
+      "",
+      "Evidence policy:",
+      "- Prefer directly observed paths, commands, manifests, docs, and workflows.",
+      "- Label cautious inferences as apparent or inferred.",
+      "- If evidence is missing, say 'Not detected' and give the safest fallback.",
+      "- Never present guessed repo behavior as fact.",
+      "",
+      "Generate skills that improve real agent execution.",
+      "Prefer workflow-specific skills over generic summaries.",
+      "",
+      "Skill selection rules:",
+      "- Always generate a start-task/orientation skill.",
+      "- Always generate a validation/testing skill.",
+      "- Always generate a PR-review skill.",
+      "- Additionally generate up to 5 repo-specific workflow skills when the evidence supports them.",
+      "- Repo-specific skills should target repeated, high-value, or high-risk workflows in this repository.",
+      "",
+      "Examples of repo-specific workflow skills:",
+      "- add-cli-command",
+      "- update-api-route",
+      "- update-github-webhook",
+      "- update-contract",
+      "- update-indexer-event-handler",
+      "- update-frontend-page",
+      "- update-database-schema",
+      "- update-docker-compose-stack",
+      "- update-release-workflow",
+      "- update-generated-context-artifacts",
+      "",
+      "Do not generate a repo-specific skill unless there is enough evidence to make it operational.",
+      "If evidence is insufficient, prefer fewer better skills.",
+      "",
+      "Each skill must include YAML frontmatter:",
+      "---",
+      "name: <kebab-case repo-specific name>",
+      "description: <one sentence saying when to use the skill>",
+      "---",
+      "",
+      "Each skill body must include these sections:",
+      "# <Title>",
+      "",
+      "## Use when",
+      "- Specific conditions for using this skill.",
+      "",
+      "## Do not use when",
+      "- Cases where another skill or human instruction is more appropriate.",
+      "",
+      "## Read first",
+      "- Exact files, directories, docs, manifests, tests, or configs to inspect before editing.",
+      "",
+      "## Workflow",
+      "- Step-by-step procedure for the task.",
+      "",
+      "## Validation",
+      "- Exact commands to run, routed by changed surface when needed.",
+      "- If no exact command is detected, say 'Not detected' and give the safest fallback.",
+      "",
+      "## Documentation",
+      "- Docs that must be checked or updated when behavior changes.",
+      "",
+      "## Risk checks",
+      "- Repo-specific risks, sharp edges, security concerns, generated files, lockfiles, migrations, deployment behavior, or public API concerns.",
+      "",
+      "## Done when",
+      "- Concrete completion criteria.",
+      "",
+      "Style rules:",
+      "- Be concise and operational.",
+      "- Prefer bullets and small tables over prose.",
+      "- Avoid generic advice that would apply to any repo.",
+      "- Avoid copying large sections of AGENTS.md.",
+      "- Do not include motivational text.",
+      "- Do not include markdown fences.",
+      "",
+      "Return only valid JSON.",
+      "Do not include comments or trailing commas.",
+      "",
+      "Return shape:",
+      "{",
+      '  "skills": [',
+      "    {",
+      '      "path": ".agents/skills/<skill-slug>/SKILL.md",',
+      '      "name": "<frontmatter name>",',
+      '      "description": "<frontmatter description>",',
+      '      "markdown": "<complete SKILL.md content>"',
+      "    }",
+      "  ]",
+      "}",
+      "",
+      "Path rules:",
+      "- Use .agents/skills/<skill-slug>/SKILL.md for every path.",
+      "- Use kebab-case skill slugs.",
+      "- The caller will map paths to .claude/skills when Claude project skills are requested.",
+      "",
+      "Quality bar:",
+      "- Specific beats comprehensive.",
+      "- Workflow beats summary.",
+      "- Evidence beats speculation.",
+      "- Fewer high-quality skills beat many generic skills.",
+    ].join("\n"),
+    user: JSON.stringify({
+      task: "Generate repository-specific Agent Skills.",
+      repo: {
+        owner: input.profile.owner,
+        name: input.profile.name,
+        defaultBranch: input.profile.defaultBranch,
+        languages: input.profile.primaryLanguages,
+        frameworks: input.profile.frameworks,
+        packageManager: input.profile.packageManager,
+        commands: input.profile.commands,
+        ciWorkflows: input.profile.ciWorkflows,
+        docs: input.profile.importantDocs,
+        architecturePathGroups: input.profile.architecturePathGroups,
+        riskAreas: input.profile.detectedRiskAreas,
+        reviewRules: input.profile.reviewRuleCandidates,
+        readiness: input.profile.agentReadiness,
+      },
+      agentsMd: input.agentsMd,
+      selectedFiles: selectPromptFileExcerpts(input.files),
+      repoFacts: input.repoFacts,
+      outputRules: {
+        evidenceOnly: true,
+        agentsMdIsSourceOfTruth: true,
+        noGenericAdvice: true,
+        preferExactPathsAndCommands: true,
+        labelInferences: true,
+        includeUnknowns: true,
+        preferFewerBetterSkills: true,
+        maxSkills: 8,
+      },
+    }),
+  };
+}
+
 export function parseStructuredContextOutput(
   text: string,
 ): StructuredContextOutput {
@@ -1031,6 +1314,11 @@ export function parseModelArtifactContent(text: string): ModelArtifactContent {
   return ModelArtifactContentSchema.parse(parsed);
 }
 
+export function parseModelSkillContent(text: string): ModelSkillContent {
+  const parsed = JSON.parse(stripJsonFence(text)) as unknown;
+  return ModelSkillContentSchema.parse(parsed);
+}
+
 export function profileFingerprint(profile: RepoProfile): string {
   return createHash("sha256")
     .update(
@@ -1091,6 +1379,22 @@ function formatCommandFact(command: z.infer<typeof CommandFactSchema>): string {
 
 function uniqueStrings(items: string[]): string[] {
   return [...new Set(items.filter((item) => item.trim().length > 0))];
+}
+
+function slugify(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "repo";
+}
+
+function skillSlugFromPath(path: string): string | null {
+  return (
+    /^\.(?:agents|claude)\/skills\/(?<slug>[a-z0-9][a-z0-9-]*)\/SKILL\.md$/.exec(
+      path,
+    )?.groups?.slug ?? null
+  );
 }
 
 function listOrFallback(items: string[], fallback: string): string[] {

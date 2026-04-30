@@ -11,11 +11,14 @@ import {
   type ContextArtifactTarget,
   buildArtifactSynthesisPrompt,
   buildRepoFactsSynthesisPrompt,
+  buildSkillSynthesisPrompt,
   createContextArtifacts,
   defaultArtifactTargets,
   deterministicContextOutput,
   modelArtifactContentJsonSchema,
+  modelSkillContentJsonSchema,
   parseModelArtifactContent,
+  parseModelSkillContent,
   parseStructuredRepoFacts,
   planArtifactWrites,
   profileFingerprint,
@@ -272,6 +275,7 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
     profile,
     output: modelArtifacts?.output ?? deterministicContextOutput(profile),
     ...(modelArtifacts ? { modelArtifacts: modelArtifacts.content } : {}),
+    ...(modelArtifacts?.skills ? { modelSkills: modelArtifacts.skills } : {}),
     modelProvider: modelArtifacts?.provider ?? null,
     model: modelArtifacts?.model ?? null,
     nextVersion: 1,
@@ -380,6 +384,7 @@ async function generateModelArtifacts(input: {
   if (input.options.model === "codex") {
     const model =
       input.options.llmModel ?? process.env.OPEN_MAINTAINER_CODEX_MODEL;
+    const needsSkills = input.options.skills !== null;
     console.log(
       `codex: analyzing repo evidence${model ? ` with ${model}` : ""}`,
     );
@@ -401,16 +406,36 @@ async function generateModelArtifacts(input: {
       ...(model ? { model } : {}),
       outputSchema: modelArtifactContentJsonSchema,
     }).complete(artifactPrompt);
+    const artifactContent = parseModelArtifactContent(artifactCompletion.text);
+    const skills = needsSkills
+      ? await generateModelSkills({
+          label: "codex",
+          complete: (prompt) =>
+            buildCodexCliProvider({
+              cwd: input.repoRoot,
+              ...(model ? { model } : {}),
+              outputSchema: modelSkillContentJsonSchema,
+            }).complete(prompt),
+          prompt: buildSkillSynthesisPrompt({
+            profile: input.profile,
+            repoFacts,
+            agentsMd: artifactContent.agentsMd,
+            files: input.files,
+          }),
+        })
+      : undefined;
     return {
       provider: "Codex CLI",
       model: artifactCompletion.model,
       output: structuredContextOutputFromRepoFacts(input.profile, repoFacts),
-      content: parseModelArtifactContent(artifactCompletion.text),
+      content: artifactContent,
+      skills,
     };
   }
   if (input.options.model === "claude") {
     const model =
       input.options.llmModel ?? process.env.OPEN_MAINTAINER_CLAUDE_MODEL;
+    const needsSkills = input.options.skills !== null;
     console.log(
       `claude: analyzing repo evidence${model ? ` with ${model}` : ""}`,
     );
@@ -432,14 +457,53 @@ async function generateModelArtifacts(input: {
       ...(model ? { model } : {}),
       outputSchema: modelArtifactContentJsonSchema,
     }).complete(artifactPrompt);
+    const artifactContent = parseModelArtifactContent(artifactCompletion.text);
+    const skills = needsSkills
+      ? await generateModelSkills({
+          label: "claude",
+          complete: (prompt) =>
+            buildClaudeCliProvider({
+              cwd: input.repoRoot,
+              ...(model ? { model } : {}),
+              outputSchema: modelSkillContentJsonSchema,
+            }).complete(prompt),
+          prompt: buildSkillSynthesisPrompt({
+            profile: input.profile,
+            repoFacts,
+            agentsMd: artifactContent.agentsMd,
+            files: input.files,
+          }),
+        })
+      : undefined;
     return {
       provider: "Claude CLI",
       model: artifactCompletion.model,
       output: structuredContextOutputFromRepoFacts(input.profile, repoFacts),
-      content: parseModelArtifactContent(artifactCompletion.text),
+      content: artifactContent,
+      skills,
     };
   }
   throw new Error("Unknown model backend.");
+}
+
+async function generateModelSkills(input: {
+  label: string;
+  complete: (
+    prompt: ReturnType<typeof buildSkillSynthesisPrompt>,
+  ) => Promise<{ text: string }>;
+  prompt: ReturnType<typeof buildSkillSynthesisPrompt>;
+}) {
+  try {
+    console.log(`${input.label}: generating workflow skills`);
+    const completion = await input.complete(input.prompt);
+    return parseModelSkillContent(completion.text);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "unknown error";
+    console.warn(
+      `${input.label}: skill generation fell back to deterministic skills (${message})`,
+    );
+    return undefined;
+  }
 }
 
 function parseOptions(rawOptions: string[]): CliOptions {

@@ -47,11 +47,16 @@ const after = scoreFrom(await runCli(["audit", workdir]));
 const doctor = await runCli(["doctor", workdir]);
 await runCli(["pr", workdir, "--create"]);
 
+const repoSlug = path
+  .basename(workdir)
+  .toLowerCase()
+  .replace(/[^a-z0-9]+/g, "-")
+  .replace(/^-+|-+$/g, "");
 const required = [
   "AGENTS.md",
-  ".agents/skills/repo-overview/SKILL.md",
-  ".agents/skills/testing-workflow/SKILL.md",
-  ".agents/skills/pr-review/SKILL.md",
+  `.agents/skills/${repoSlug}-start-task/SKILL.md`,
+  `.agents/skills/${repoSlug}-testing-workflow/SKILL.md`,
+  `.agents/skills/${repoSlug}-pr-review/SKILL.md`,
   ".open-maintainer/profile.json",
   ".open-maintainer/report.md",
 ];

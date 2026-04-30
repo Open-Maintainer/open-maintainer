@@ -4,8 +4,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildArtifactSynthesisPrompt,
   buildRepoFactsSynthesisPrompt,
+  buildSkillSynthesisPrompt,
   createContextArtifacts,
   parseModelArtifactContent,
+  parseModelSkillContent,
   parseStructuredRepoFacts,
   renderAgentsMd,
   renderOpenMaintainerYaml,
@@ -233,12 +235,19 @@ describe("context renderers", () => {
           "# Copilot instructions for acme/tool\n\nPrefer Bun commands and keep Next.js app-router code under apps/.",
         cursorRule:
           "---\ndescription: acme tool repo rules\nalwaysApply: true\n---\n\nUse Bun scripts and inspect app routes before editing.",
-        repoOverviewSkill:
-          "---\nname: repo-overview\ndescription: Use when working in acme/tool.\n---\n\n# Repo Overview\n\nNext.js app with Bun tests.",
-        testingWorkflowSkill:
-          "---\nname: testing-workflow\ndescription: Use when testing acme/tool.\n---\n\n# Testing Workflow\n\nRun bun test for unit coverage.",
-        prReviewSkill:
-          "---\nname: pr-review\ndescription: Use when reviewing acme/tool PRs.\n---\n\n# PR Review\n\nCheck Bun quality gates.",
+      }),
+    );
+    const modelSkills = parseModelSkillContent(
+      JSON.stringify({
+        skills: [
+          {
+            path: ".agents/skills/tool-start-task/SKILL.md",
+            name: "tool-start-task",
+            description: "Use before making bounded changes in acme/tool.",
+            markdown:
+              "---\nname: tool-start-task\ndescription: Use before making bounded changes in acme/tool.\n---\n\n# Tool Start Task\n\n## Use when\n- Starting work.\n\n## Do not use when\n- Reviewing PRs.\n\n## Read first\n- README.md\n\n## Workflow\n- Inspect the real app router.\n\n## Validation\n- Run bun test.\n\n## Documentation\n- Check README.md.\n\n## Risk checks\n- Keep changes scoped.\n\n## Done when\n- Evidence is reported.",
+          },
+        ],
       }),
     );
     const artifacts = createContextArtifacts({
@@ -251,6 +260,7 @@ describe("context renderers", () => {
         notes: [],
       },
       modelArtifacts,
+      modelSkills,
       modelProvider: "local",
       model: "llama",
       nextVersion: 1,
@@ -258,7 +268,8 @@ describe("context renderers", () => {
     });
 
     expect(artifacts[0]?.content).toContain("real app router");
-    expect(artifacts[1]?.content).toContain("Next.js app with Bun tests");
+    expect(artifacts[1]?.content).toContain("real app router");
+    expect(artifacts[1]?.type).toBe(".agents/skills/tool-start-task/SKILL.md");
     expect(artifacts.map((artifact) => artifact.type)).not.toContain(
       ".claude/skills/repo-overview/SKILL.md",
     );
@@ -275,12 +286,6 @@ describe("context renderers", () => {
           "# Copilot instructions for acme/tool\n\nPrefer Bun commands and keep Next.js app-router code under apps/.",
         cursorRule:
           "---\ndescription: acme tool repo rules\nalwaysApply: true\n---\n\nUse Bun scripts and inspect app routes before editing.",
-        repoOverviewSkill:
-          "---\nname: repo-overview\ndescription: Use when working in acme/tool.\n---\n\n# Repo Overview\n\nNext.js app with Bun tests.",
-        testingWorkflowSkill:
-          "---\nname: testing-workflow\ndescription: Use when testing acme/tool.\n---\n\n# Testing Workflow\n\nRun bun test for unit coverage.",
-        prReviewSkill:
-          "---\nname: pr-review\ndescription: Use when reviewing acme/tool PRs.\n---\n\n# PR Review\n\nCheck Bun quality gates.",
       }),
     );
     const artifacts = createContextArtifacts({
@@ -302,7 +307,7 @@ describe("context renderers", () => {
     expect(artifacts[0]?.type).toBe("CLAUDE.md");
     expect(artifacts[0]?.content).toContain("Claude project guidance");
     expect(artifacts.map((artifact) => artifact.type)).toContain(
-      ".claude/skills/repo-overview/SKILL.md",
+      ".claude/skills/tool-start-task/SKILL.md",
     );
   });
 
@@ -323,9 +328,9 @@ describe("context renderers", () => {
     });
 
     expect(artifacts.map((artifact) => artifact.type)).toEqual([
-      ".claude/skills/repo-overview/SKILL.md",
-      ".claude/skills/testing-workflow/SKILL.md",
-      ".claude/skills/pr-review/SKILL.md",
+      ".claude/skills/tool-start-task/SKILL.md",
+      ".claude/skills/tool-testing-workflow/SKILL.md",
+      ".claude/skills/tool-pr-review/SKILL.md",
     ]);
   });
 
@@ -374,6 +379,32 @@ describe("context renderers", () => {
     expect(prompt.user).toContain(
       '"targetAgentsMdLineCount":"180-250 unless unusually complex"',
     );
+  });
+
+  it("builds dedicated skill synthesis prompts from AGENTS.md and repo facts", () => {
+    const prompt = buildSkillSynthesisPrompt({
+      profile,
+      repoFacts,
+      agentsMd: "# AGENTS.md instructions for acme/tool\n\nUse Bun.",
+      files: [
+        { path: "README.md", content: "# Tool\n\nImportant domain details." },
+      ],
+    });
+
+    expect(prompt.system).toContain(
+      "A skill is not a general documentation summary",
+    );
+    expect(prompt.system).toContain(
+      "Always generate a start-task/orientation skill",
+    );
+    expect(prompt.system).toContain(
+      "Additionally generate up to 5 repo-specific workflow skills",
+    );
+    expect(prompt.system).toContain("## Do not use when");
+    expect(prompt.system).toContain("## Done when");
+    expect(prompt.user).toContain("AGENTS.md instructions for acme/tool");
+    expect(prompt.user).toContain('"preferFewerBetterSkills":true');
+    expect(prompt.user).toContain('"maxSkills":8');
   });
 
   it("derives deterministic fallback output from structured repo facts", () => {

@@ -76,9 +76,9 @@ const configFilePatterns = [
 
 const contextArtifactPaths = [
   "AGENTS.md",
-  ".agents/skills/repo-overview/SKILL.md",
-  ".agents/skills/testing-workflow/SKILL.md",
-  ".agents/skills/pr-review/SKILL.md",
+  ".agents/skills/<repo>-start-task/SKILL.md",
+  ".agents/skills/<repo>-testing-workflow/SKILL.md",
+  ".agents/skills/<repo>-pr-review/SKILL.md",
   ".open-maintainer/profile.json",
   ".open-maintainer/report.md",
   ".open-maintainer.yml",
@@ -88,9 +88,9 @@ const optionalContextArtifactPaths = [
   "CLAUDE.md",
   ".github/copilot-instructions.md",
   ".cursor/rules/open-maintainer.md",
-  ".claude/skills/repo-overview/SKILL.md",
-  ".claude/skills/testing-workflow/SKILL.md",
-  ".claude/skills/pr-review/SKILL.md",
+  ".claude/skills/<repo>-start-task/SKILL.md",
+  ".claude/skills/<repo>-testing-workflow/SKILL.md",
+  ".claude/skills/<repo>-pr-review/SKILL.md",
 ];
 
 const recognizedContextArtifactPaths = [
@@ -269,8 +269,11 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
   const importantDocs = paths.filter((repoPath) =>
     /^(README|CONTRIBUTING|docs\/|local-docs\/)/i.test(repoPath),
   );
-  const existingContextFiles = paths.filter((repoPath) =>
-    recognizedContextArtifactPaths.includes(repoPath),
+  const existingContextFiles = paths.filter(
+    (repoPath) =>
+      recognizedContextArtifactPaths.includes(repoPath) ||
+      repoPath.startsWith(".agents/skills/") ||
+      repoPath.startsWith(".claude/skills/"),
   );
   const configFiles = paths.filter((repoPath) =>
     configFilePatterns.some((pattern) =>

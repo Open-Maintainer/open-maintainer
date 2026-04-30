@@ -7,11 +7,14 @@ import {
 import { analyzeRepo } from "@open-maintainer/analyzer";
 import {
   type ModelArtifactContent,
+  type ModelSkillContent,
   buildArtifactSynthesisPrompt,
   buildRepoFactsSynthesisPrompt,
+  buildSkillSynthesisPrompt,
   createContextArtifacts,
   deterministicContextOutput,
   parseModelArtifactContent,
+  parseModelSkillContent,
   parseStructuredRepoFacts,
   structuredContextOutputFromRepoFacts,
 } from "@open-maintainer/context";
@@ -293,6 +296,7 @@ export function buildApp() {
     });
     let output = deterministicContextOutput(profile);
     let modelArtifacts: ModelArtifactContent | undefined;
+    let modelSkills: ModelSkillContent | undefined;
     if (provider) {
       try {
         const modelProvider = buildProvider(provider);
@@ -310,6 +314,18 @@ export function buildApp() {
         });
         const artifactCompletion = await modelProvider.complete(artifactPrompt);
         modelArtifacts = parseModelArtifactContent(artifactCompletion.text);
+        try {
+          const skillPrompt = buildSkillSynthesisPrompt({
+            profile,
+            repoFacts,
+            agentsMd: modelArtifacts.agentsMd,
+            files: repoFiles,
+          });
+          const skillCompletion = await modelProvider.complete(skillPrompt);
+          modelSkills = parseModelSkillContent(skillCompletion.text);
+        } catch {
+          modelSkills = undefined;
+        }
       } catch (error) {
         store.updateRun(run.id, {
           status: "failed",
@@ -330,6 +346,7 @@ export function buildApp() {
       profile,
       output,
       ...(modelArtifacts ? { modelArtifacts } : {}),
+      ...(modelSkills ? { modelSkills } : {}),
       modelProvider: provider?.displayName ?? null,
       model: provider?.model ?? null,
       nextVersion: currentArtifactCount + 1,

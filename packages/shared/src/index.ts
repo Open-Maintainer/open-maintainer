@@ -68,7 +68,7 @@ export const RepoProfileSchema = z.object({
 });
 export type RepoProfile = z.infer<typeof RepoProfileSchema>;
 
-export const ArtifactTypeSchema = z.enum([
+const StaticArtifactTypeSchema = z.enum([
   "repo_profile",
   "AGENTS.md",
   "CLAUDE.md",
@@ -83,6 +83,13 @@ export const ArtifactTypeSchema = z.enum([
   ".claude/skills/pr-review/SKILL.md",
   ".open-maintainer/profile.json",
   ".open-maintainer/report.md",
+]);
+const SkillArtifactTypeSchema = z
+  .string()
+  .regex(/^\.(agents|claude)\/skills\/[a-z0-9][a-z0-9-]*\/SKILL\.md$/);
+export const ArtifactTypeSchema = z.union([
+  StaticArtifactTypeSchema,
+  SkillArtifactTypeSchema,
 ]);
 export type ArtifactType = z.infer<typeof ArtifactTypeSchema>;
 
