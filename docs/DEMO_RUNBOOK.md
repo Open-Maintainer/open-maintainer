@@ -110,6 +110,13 @@ Profile: .open-maintainer/profile.json
 Report: .open-maintainer/report.md
 ```
 
+For scores below 100, output also includes concrete improvement guidance:
+
+```text
+Next steps:
+- Add <missing file or command guidance>
+```
+
 Inspect the missing-context report:
 
 ```sh

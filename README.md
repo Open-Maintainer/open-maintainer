@@ -70,6 +70,9 @@ bun run cli generate "$TARGET_REPO" --model codex --context both --skills both -
 - `.open-maintainer/profile.json`
 - `.open-maintainer/report.md`
 
+When the score is below 100, `audit` also prints a `Next steps` block with
+concrete missing files or commands that would improve the readiness score.
+
 `generate` writes the full MVP context set when files are absent:
 
 - `AGENTS.md`
