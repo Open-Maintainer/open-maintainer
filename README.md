@@ -2,7 +2,7 @@
 
 Open Maintainer audits a repository for agent readiness, generates repo-specific context files, and can open a context PR through a GitHub App.
 
-The primary MVP demo is CLI-first and uses Codex for generated context files:
+The primary MVP demo is CLI-first and uses a local LLM CLI for generated context files:
 
 ```text
 audit repo -> show readiness score -> generate context -> doctor -> dry-run PR summary
@@ -29,7 +29,7 @@ Run the demo smoke gate against the bundled fixture repo:
 bun run smoke:mvp
 ```
 
-The smoke gate uses explicit deterministic mode to validate offline plumbing. For real generated files, use the LLM flow in `docs/DEMO_RUNBOOK.md`.
+The smoke gate uses explicit deterministic mode to validate offline plumbing. For real generated files, use the LLM-backed flow in `docs/DEMO_RUNBOOK.md`.
 
 For the full narrated terminal flow, see `docs/DEMO_RUNBOOK.md`.
 
@@ -43,6 +43,27 @@ bun run cli audit "$DEMO_REPO"
 bun run cli generate "$DEMO_REPO" --model codex --codex --allow-repo-content-provider
 bun run cli doctor "$DEMO_REPO"
 bun run cli pr "$DEMO_REPO" --create
+```
+
+Generation uses two separate choices:
+
+| Flag | Options | Meaning |
+| --- | --- | --- |
+| `--model` | `codex`, `claude` | Selects which LLM CLI generates artifact content. |
+| `--codex` | none | Writes Codex artifacts: `AGENTS.md` and `.agents/skills/...`. |
+| `--claude` | none | Writes Claude Code artifacts: `CLAUDE.md` and `.claude/skills/...`. |
+
+Examples:
+
+```sh
+# Generate Codex artifacts with Codex CLI
+bun run cli generate "$DEMO_REPO" --model codex --codex --allow-repo-content-provider
+
+# Generate Claude Code artifacts with Claude CLI
+bun run cli generate "$DEMO_REPO" --model claude --claude --allow-repo-content-provider
+
+# Use Codex CLI to generate both Codex and Claude Code artifact families
+bun run cli generate "$DEMO_REPO" --model codex --codex --claude --allow-repo-content-provider
 ```
 
 `audit` writes:
@@ -60,7 +81,7 @@ bun run cli pr "$DEMO_REPO" --create
 - `.open-maintainer/report.md`
 - `.open-maintainer.yml`
 
-`--model` chooses the LLM CLI backend. `--codex` writes Codex artifacts (`AGENTS.md` and `.agents/skills`). Add `--claude` when you also want Claude Code artifacts (`CLAUDE.md` and `.claude/skills`).
+`--model` chooses the LLM CLI backend. `--codex` and `--claude` choose where the generated instructions and skills are written.
 
 Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Repo content is sent to the selected LLM CLI only when `--allow-repo-content-provider` is present; offline deterministic mode is reserved for smoke tests.
 

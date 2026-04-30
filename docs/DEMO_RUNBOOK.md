@@ -1,12 +1,13 @@
 # Open Maintainer Demo Runbook
 
-This runbook shows the CLI-first MVP demo from a fresh checkout. The real artifact-generation demo uses Codex CLI with explicit repo-content consent. It does not require GitHub OAuth, Postgres, Redis, Docker, or a separate OpenAI API key, and it does not mutate the Open Maintainer source repository.
+This runbook shows the CLI-first MVP demo from a fresh checkout. The real artifact-generation demo uses a local LLM CLI with explicit repo-content consent. It does not require GitHub OAuth, Postgres, Redis, Docker, or a separate OpenAI API key, and it does not mutate the Open Maintainer source repository.
 
 ## Prerequisites
 
 - Bun 1.1 or newer
 - A local checkout of `ametel01/open-maintainer`
-- Codex CLI installed and logged in
+- Codex CLI installed and logged in for `--model codex`
+- Claude CLI installed and logged in for `--model claude`
 
 Start from the repository root:
 
@@ -36,7 +37,7 @@ MVP smoke passed: 53/100 -> 79/100
 
 The smoke gate uses explicit deterministic mode to validate plumbing without network access. It is not the content-quality demo. For real files, run the LLM-backed manual demo below.
 
-## Configure Codex
+## Configure LLM CLI
 
 Confirm Codex is available:
 
@@ -44,12 +45,47 @@ Confirm Codex is available:
 codex --version
 ```
 
-Generation uses `codex exec` in read-only mode and writes schema-constrained JSON back to Open Maintainer. Generation fails unless you also pass `--allow-repo-content-provider`; that flag is the explicit consent that lets Open Maintainer send scanned repository content to Codex.
+Confirm Claude is available if you want to use Claude as the backend:
+
+```sh
+claude --version
+```
+
+Generation fails unless you pass `--allow-repo-content-provider`; that flag is the explicit consent that lets Open Maintainer send scanned repository content to the selected local LLM CLI.
 
 Optionally choose a Codex model:
 
 ```sh
 export OPEN_MAINTAINER_CODEX_MODEL="gpt-5.3-codex"
+```
+
+Optionally choose a Claude model:
+
+```sh
+export OPEN_MAINTAINER_CLAUDE_MODEL="claude-sonnet-4-6"
+```
+
+## Generation Flags
+
+Generation uses two independent choices:
+
+| Flag | Options | Meaning |
+| --- | --- | --- |
+| `--model` | `codex`, `claude` | Selects which LLM CLI generates artifact content. |
+| `--codex` | none | Writes Codex artifacts: `AGENTS.md` and `.agents/skills/...`. |
+| `--claude` | none | Writes Claude Code artifacts: `CLAUDE.md` and `.claude/skills/...`. |
+
+Common combinations:
+
+```sh
+# Generate Codex artifacts with Codex CLI
+bun run cli generate "$DEMO_REPO" --model codex --codex --allow-repo-content-provider
+
+# Generate Claude Code artifacts with Claude CLI
+bun run cli generate "$DEMO_REPO" --model claude --claude --allow-repo-content-provider
+
+# Use Codex CLI to generate both artifact families
+bun run cli generate "$DEMO_REPO" --model codex --codex --claude --allow-repo-content-provider
 ```
 
 ## Manual Demo
@@ -82,7 +118,7 @@ Inspect the missing-context report:
 sed -n '1,180p' "$DEMO_REPO/.open-maintainer/report.md"
 ```
 
-Generate the full MVP context artifact set with the LLM:
+Generate the full MVP Codex context artifact set with the LLM:
 
 ```sh
 bun run cli generate "$DEMO_REPO" \
@@ -113,7 +149,28 @@ AGENTS.md
 .open-maintainer.yml
 ```
 
-`--model` selects the LLM CLI backend. `--codex` writes `AGENTS.md` plus `.agents/skills`; add `--claude` to also write `CLAUDE.md` plus `.claude/skills`.
+`--model` selects the LLM CLI backend. `--codex` and `--claude` choose where the generated instructions and skills are written.
+
+To generate the Claude Code artifact family instead:
+
+```sh
+bun run cli generate "$DEMO_REPO" \
+  --model claude \
+  --claude \
+  --allow-repo-content-provider
+```
+
+Claude Code generated files should include:
+
+```text
+CLAUDE.md
+.claude/skills/repo-overview/SKILL.md
+.claude/skills/testing-workflow/SKILL.md
+.claude/skills/pr-review/SKILL.md
+.open-maintainer/profile.json
+.open-maintainer/report.md
+.open-maintainer.yml
+```
 
 Run audit again to show the before/after improvement:
 
