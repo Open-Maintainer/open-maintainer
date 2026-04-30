@@ -10,6 +10,7 @@ import {
 import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
 import {
   type ContextArtifactTarget,
+  availableArtifactTargets,
   buildArtifactSynthesisPrompt,
   createContextArtifacts,
   defaultArtifactTargets,
@@ -51,7 +52,7 @@ Commands:
 Options:
   --force                               Overwrite existing generated artifact files
   --dry-run                             Print planned writes without writing files
-  --targets agents,copilot,cursor,skills,profile,report,config
+  --targets agents,copilot,cursor,skills,claude-skills,profile,report,config
   --fail-on-score-below <number>        Exit non-zero when audit score is below threshold
   --report-path <path>                  Write audit report to a custom path
   --no-profile-write                    Skip .open-maintainer/profile.json writes during audit
@@ -391,7 +392,7 @@ function parseOptions(rawOptions: string[]): CliOptions {
 
 function parseTargets(value: string): ContextArtifactTarget[] {
   const targets = value.split(",").filter(Boolean) as ContextArtifactTarget[];
-  const allowed = new Set(defaultArtifactTargets);
+  const allowed = new Set(availableArtifactTargets);
   for (const target of targets) {
     if (!allowed.has(target)) {
       throw new Error(`Unknown target: ${target}`);

@@ -59,9 +59,6 @@ describe("MVP fixture golden output", () => {
       ".agents/skills/repo-overview/SKILL.md",
       ".agents/skills/testing-workflow/SKILL.md",
       ".agents/skills/pr-review/SKILL.md",
-      ".claude/skills/repo-overview/SKILL.md",
-      ".claude/skills/testing-workflow/SKILL.md",
-      ".claude/skills/pr-review/SKILL.md",
       ".open-maintainer/profile.json",
       ".open-maintainer/report.md",
     ]);

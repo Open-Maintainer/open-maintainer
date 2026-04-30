@@ -42,6 +42,11 @@ describe("analyzeRepo", () => {
           content: "export default function Page() {}",
         },
         { path: ".github/workflows/ci.yml", content: "name: CI" },
+        {
+          path: ".claude/skills/repo-overview/SKILL.md",
+          content:
+            "---\nname: repo-overview\ndescription: Claude project skill.\n---\n\n# Repo Overview",
+        },
       ],
     });
 
@@ -60,6 +65,12 @@ describe("analyzeRepo", () => {
       "cd contracts && snforge test",
     );
     expect(profile.agentReadiness.score).toBeGreaterThan(40);
+    expect(profile.generatedFileHints).not.toContain(
+      ".claude/skills/repo-overview/SKILL.md",
+    );
+    expect(profile.existingContextFiles).toContain(
+      ".claude/skills/repo-overview/SKILL.md",
+    );
     expect(profile.agentReadiness.missingItems).toContain(
       "agent instructions: AGENTS.md is missing.",
     );

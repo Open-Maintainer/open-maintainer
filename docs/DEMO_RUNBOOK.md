@@ -110,13 +110,12 @@ AGENTS.md
 .agents/skills/repo-overview/SKILL.md
 .agents/skills/testing-workflow/SKILL.md
 .agents/skills/pr-review/SKILL.md
-.claude/skills/repo-overview/SKILL.md
-.claude/skills/testing-workflow/SKILL.md
-.claude/skills/pr-review/SKILL.md
 .open-maintainer/profile.json
 .open-maintainer/report.md
 .open-maintainer.yml
 ```
+
+`skills` writes Codex repo skills under `.agents/skills`. Add `claude-skills` to the target list when the demo should also produce Claude Code project skills under `.claude/skills`.
 
 Run audit again to show the before/after improvement:
 

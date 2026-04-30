@@ -81,12 +81,20 @@ const contextArtifactPaths = [
   ".agents/skills/repo-overview/SKILL.md",
   ".agents/skills/testing-workflow/SKILL.md",
   ".agents/skills/pr-review/SKILL.md",
-  ".claude/skills/repo-overview/SKILL.md",
-  ".claude/skills/testing-workflow/SKILL.md",
-  ".claude/skills/pr-review/SKILL.md",
   ".open-maintainer/profile.json",
   ".open-maintainer/report.md",
   ".open-maintainer.yml",
+];
+
+const optionalContextArtifactPaths = [
+  ".claude/skills/repo-overview/SKILL.md",
+  ".claude/skills/testing-workflow/SKILL.md",
+  ".claude/skills/pr-review/SKILL.md",
+];
+
+const recognizedContextArtifactPaths = [
+  ...contextArtifactPaths,
+  ...optionalContextArtifactPaths,
 ];
 
 export async function scanRepository(
@@ -261,7 +269,7 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     /^(README|CONTRIBUTING|docs\/|local-docs\/)/i.test(repoPath),
   );
   const existingContextFiles = paths.filter((repoPath) =>
-    contextArtifactPaths.includes(repoPath),
+    recognizedContextArtifactPaths.includes(repoPath),
   );
   const configFiles = paths.filter((repoPath) =>
     configFilePatterns.some((pattern) =>

@@ -59,9 +59,21 @@ export type ContextArtifactTarget =
   | "copilot"
   | "cursor"
   | "skills"
+  | "claude-skills"
   | "profile"
   | "report"
   | "config";
+
+export const availableArtifactTargets: ContextArtifactTarget[] = [
+  "agents",
+  "copilot",
+  "cursor",
+  "skills",
+  "claude-skills",
+  "profile",
+  "report",
+  "config",
+];
 
 export const defaultArtifactTargets: ContextArtifactTarget[] = [
   "agents",
@@ -361,6 +373,10 @@ export function createContextArtifacts(input: {
           input.modelArtifacts?.prReviewSkill ??
           renderSkill(input.profile, "pr-review", input.output),
       },
+    );
+  }
+  if (targets.has("claude-skills")) {
+    definitions.push(
       {
         type: ".claude/skills/repo-overview/SKILL.md",
         content:

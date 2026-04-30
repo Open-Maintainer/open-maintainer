@@ -91,7 +91,7 @@ describe("context renderers", () => {
       nextVersion: 1,
     });
 
-    expect(artifacts).toHaveLength(12);
+    expect(artifacts).toHaveLength(9);
     expect(
       artifacts.every((artifact) => artifact.sourceProfileVersion === 2),
     ).toBe(true);
@@ -135,6 +135,32 @@ describe("context renderers", () => {
 
     expect(artifacts[0]?.content).toContain("real app router");
     expect(artifacts[1]?.content).toContain("Next.js app with Bun tests");
+    expect(artifacts.map((artifact) => artifact.type)).not.toContain(
+      ".claude/skills/repo-overview/SKILL.md",
+    );
+  });
+
+  it("emits Claude Code skills only when the claude-skills target is requested", () => {
+    const artifacts = createContextArtifacts({
+      repoId: "repo_1",
+      profile,
+      output: {
+        summary: "A repo.",
+        qualityRules: ["Use Bun."],
+        commands: ["test: bun test"],
+        notes: [],
+      },
+      modelProvider: "local",
+      model: "llama",
+      nextVersion: 1,
+      targets: ["claude-skills"],
+    });
+
+    expect(artifacts.map((artifact) => artifact.type)).toEqual([
+      ".claude/skills/repo-overview/SKILL.md",
+      ".claude/skills/testing-workflow/SKILL.md",
+      ".claude/skills/pr-review/SKILL.md",
+    ]);
   });
 
   it("builds artifact synthesis prompts with source excerpts", () => {

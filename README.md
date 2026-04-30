@@ -58,12 +58,11 @@ bun run cli pr "$DEMO_REPO" --create
 - `.agents/skills/repo-overview/SKILL.md`
 - `.agents/skills/testing-workflow/SKILL.md`
 - `.agents/skills/pr-review/SKILL.md`
-- `.claude/skills/repo-overview/SKILL.md`
-- `.claude/skills/testing-workflow/SKILL.md`
-- `.claude/skills/pr-review/SKILL.md`
 - `.open-maintainer/profile.json`
 - `.open-maintainer/report.md`
 - `.open-maintainer.yml`
+
+`skills` writes Codex repo skills under `.agents/skills`. Add `claude-skills` to `--targets` when you also want Claude Code project skills under `.claude/skills`.
 
 Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Repo content is sent to Codex only when `--allow-repo-content-provider` is present; offline deterministic mode is reserved for smoke tests.
 
