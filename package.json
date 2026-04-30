@@ -2,10 +2,7 @@
   "name": "open-maintainer",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "apps/*",
-    "packages/*"
-  ],
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "cli": "bun apps/cli/src/index.ts",
     "open-maintainer": "bun apps/cli/src/index.ts",
