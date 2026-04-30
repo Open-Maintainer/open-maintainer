@@ -1,0 +1,17 @@
+{
+  "name": "@open-maintainer/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/server.ts",
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@open-maintainer/ai": "workspace:*",
+    "@open-maintainer/analyzer": "workspace:*",
+    "@open-maintainer/context": "workspace:*",
+    "@open-maintainer/db": "workspace:*",
+    "@open-maintainer/github": "workspace:*",
+    "@open-maintainer/shared": "workspace:*"
+  }
+}

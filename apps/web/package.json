@@ -1,0 +1,12 @@
+{
+  "name": "@open-maintainer/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0 -p ${WEB_PORT:-3000}",
+    "build": "next build"
+  },
+  "dependencies": {
+    "@open-maintainer/shared": "workspace:*"
+  }
+}

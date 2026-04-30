@@ -1,0 +1,14 @@
+{
+  "files": [],
+  "references": [
+    { "path": "./packages/shared" },
+    { "path": "./packages/db" },
+    { "path": "./packages/config" },
+    { "path": "./packages/github" },
+    { "path": "./packages/analyzer" },
+    { "path": "./packages/ai" },
+    { "path": "./packages/context" },
+    { "path": "./apps/api" },
+    { "path": "./apps/worker" }
+  ]
+}
