@@ -23,7 +23,7 @@ Install dependencies:
 bun install --frozen-lockfile
 ```
 
-Run the demo smoke gate against the bundled fixture repo:
+Run the demo smoke gate:
 
 ```sh
 bun run smoke:mvp
@@ -36,13 +36,12 @@ For the full narrated terminal flow, see `docs/DEMO_RUNBOOK.md`.
 Manual terminal flow:
 
 ```sh
-DEMO_REPO="$(mktemp -d)"
-cp -R tests/fixtures/low-context-ts/. "$DEMO_REPO"
+TARGET_REPO="/path/to/selected/repository"
 
-bun run cli audit "$DEMO_REPO"
-bun run cli generate "$DEMO_REPO" --model codex --context codex --skills codex --allow-write
-bun run cli doctor "$DEMO_REPO"
-bun run cli pr "$DEMO_REPO" --create
+bun run cli audit "$TARGET_REPO"
+bun run cli generate "$TARGET_REPO" --model codex --context codex --skills codex --allow-write
+bun run cli doctor "$TARGET_REPO"
+bun run cli pr "$TARGET_REPO" --create
 ```
 
 Generation uses three separate choices:
@@ -57,13 +56,13 @@ Examples:
 
 ```sh
 # Generate Codex context and skills with Codex CLI
-bun run cli generate "$DEMO_REPO" --model codex --context codex --skills codex --allow-write
+bun run cli generate "$TARGET_REPO" --model codex --context codex --skills codex --allow-write
 
 # Generate Claude Code context and skills with Claude CLI
-bun run cli generate "$DEMO_REPO" --model claude --context claude --skills claude --allow-write
+bun run cli generate "$TARGET_REPO" --model claude --context claude --skills claude --allow-write
 
 # Use Codex CLI to generate both context files and both skill families
-bun run cli generate "$DEMO_REPO" --model codex --context both --skills both --allow-write
+bun run cli generate "$TARGET_REPO" --model codex --context both --skills both --allow-write
 ```
 
 `audit` writes:
@@ -74,14 +73,15 @@ bun run cli generate "$DEMO_REPO" --model codex --context both --skills both --a
 `generate` writes the full MVP context set when files are absent:
 
 - `AGENTS.md`
-- `.agents/skills/repo-overview/SKILL.md`
-- `.agents/skills/testing-workflow/SKILL.md`
-- `.agents/skills/pr-review/SKILL.md`
+- `.agents/skills/<repo>-start-task/SKILL.md`
+- `.agents/skills/<repo>-testing-workflow/SKILL.md`
+- `.agents/skills/<repo>-pr-review/SKILL.md`
 - `.open-maintainer/profile.json`
 - `.open-maintainer/report.md`
 - `.open-maintainer.yml`
 
 `--model` chooses the LLM CLI backend. `--context` chooses instruction files, and `--skills` chooses repo-local skill directories.
+Model-backed skill generation may add additional repo-specific workflow skills when repository evidence supports them.
 
 Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Repo content is sent to the selected LLM CLI only when `--allow-write` is present; offline deterministic mode is reserved for smoke tests.
 

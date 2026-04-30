@@ -5,14 +5,14 @@ This runbook shows the CLI-first MVP demo from a fresh checkout. The real artifa
 ## Prerequisites
 
 - Bun 1.1 or newer
-- A local checkout of `ametel01/open-maintainer`
+- A local checkout of this repository
 - Codex CLI installed and logged in for `--model codex`
 - Claude CLI installed and logged in for `--model claude`
 
 Start from the repository root:
 
 ```sh
-cd /Users/alexmetelli/source/open-maintainer
+cd /path/to/open-maintainer
 ```
 
 Install dependencies:
@@ -32,7 +32,7 @@ bun run smoke:mvp
 Expected output looks like:
 
 ```text
-MVP smoke passed: 53/100 -> 79/100
+MVP smoke passed: <before>/100 -> <after>/100
 ```
 
 The smoke gate uses explicit deterministic mode to validate plumbing without network access. It is not the content-quality demo. For real files, run the LLM-backed manual demo below.
@@ -79,35 +79,33 @@ Common combinations:
 
 ```sh
 # Generate Codex context and skills with Codex CLI
-bun run cli generate "$DEMO_REPO" --model codex --context codex --skills codex --allow-write
+bun run cli generate "$TARGET_REPO" --model codex --context codex --skills codex --allow-write
 
 # Generate Claude Code context and skills with Claude CLI
-bun run cli generate "$DEMO_REPO" --model claude --context claude --skills claude --allow-write
+bun run cli generate "$TARGET_REPO" --model claude --context claude --skills claude --allow-write
 
 # Use Codex CLI to generate both context files and both skill families
-bun run cli generate "$DEMO_REPO" --model codex --context both --skills both --allow-write
+bun run cli generate "$TARGET_REPO" --model codex --context both --skills both --allow-write
 ```
 
 ## Manual Demo
 
-Create a disposable demo repository from the low-context fixture:
+Choose the repository to audit and generate context for:
 
 ```sh
-DEMO_REPO="$(mktemp -d)"
-cp -R tests/fixtures/low-context-ts/. "$DEMO_REPO"
-echo "$DEMO_REPO"
+TARGET_REPO="/path/to/selected/repository"
 ```
 
-Audit the fixture before generation:
+Audit the selected repository before generation:
 
 ```sh
-bun run cli audit "$DEMO_REPO"
+bun run cli audit "$TARGET_REPO"
 ```
 
 Expected output includes:
 
 ```text
-Agent Readiness: 53/100
+Agent Readiness: <score>/100
 Profile: .open-maintainer/profile.json
 Report: .open-maintainer/report.md
 ```
@@ -115,13 +113,13 @@ Report: .open-maintainer/report.md
 Inspect the missing-context report:
 
 ```sh
-sed -n '1,180p' "$DEMO_REPO/.open-maintainer/report.md"
+sed -n '1,180p' "$TARGET_REPO/.open-maintainer/report.md"
 ```
 
 Generate the full MVP Codex context artifact set with the LLM:
 
 ```sh
-bun run cli generate "$DEMO_REPO" \
+bun run cli generate "$TARGET_REPO" \
   --model codex \
   --context codex \
   --skills codex \
@@ -131,10 +129,10 @@ bun run cli generate "$DEMO_REPO" \
 List the generated files:
 
 ```sh
-find "$DEMO_REPO" \
-  -path "$DEMO_REPO/node_modules" -prune -o \
+find "$TARGET_REPO" \
+  -path "$TARGET_REPO/node_modules" -prune -o \
   -type f \
-  | sed "s#^$DEMO_REPO/##" \
+  | sed "s#^$TARGET_REPO/##" \
   | sort
 ```
 
@@ -142,20 +140,21 @@ Key generated files should include:
 
 ```text
 AGENTS.md
-.agents/skills/repo-overview/SKILL.md
-.agents/skills/testing-workflow/SKILL.md
-.agents/skills/pr-review/SKILL.md
+.agents/skills/<repo>-start-task/SKILL.md
+.agents/skills/<repo>-testing-workflow/SKILL.md
+.agents/skills/<repo>-pr-review/SKILL.md
 .open-maintainer/profile.json
 .open-maintainer/report.md
 .open-maintainer.yml
 ```
 
 `--model` selects the LLM CLI backend. `--context` chooses instruction files, and `--skills` chooses repo-local skill directories.
+Model-backed skill generation may add additional repo-specific workflow skills when repository evidence supports them.
 
 To generate the Claude Code artifact family instead:
 
 ```sh
-bun run cli generate "$DEMO_REPO" \
+bun run cli generate "$TARGET_REPO" \
   --model claude \
   --context claude \
   --skills claude \
@@ -166,9 +165,9 @@ Claude Code generated files should include:
 
 ```text
 CLAUDE.md
-.claude/skills/repo-overview/SKILL.md
-.claude/skills/testing-workflow/SKILL.md
-.claude/skills/pr-review/SKILL.md
+.claude/skills/<repo>-start-task/SKILL.md
+.claude/skills/<repo>-testing-workflow/SKILL.md
+.claude/skills/<repo>-pr-review/SKILL.md
 .open-maintainer/profile.json
 .open-maintainer/report.md
 .open-maintainer.yml
@@ -177,13 +176,13 @@ CLAUDE.md
 Run audit again to show the before/after improvement:
 
 ```sh
-bun run cli audit "$DEMO_REPO"
+bun run cli audit "$TARGET_REPO"
 ```
 
 Run doctor to verify required artifacts are present and not stale:
 
 ```sh
-bun run cli doctor "$DEMO_REPO"
+bun run cli doctor "$TARGET_REPO"
 ```
 
 Expected output includes:
@@ -195,7 +194,7 @@ all required artifacts are present
 Show the dry-run PR summary:
 
 ```sh
-bun run cli pr "$DEMO_REPO" --create
+bun run cli pr "$TARGET_REPO" --create
 ```
 
 This CLI command prints the branch name and readiness score. A real remote PR is created through the GitHub App API flow when installation credentials are configured.
@@ -205,7 +204,7 @@ This CLI command prints the branch name and readiness score. A real remote PR is
 Generation preserves existing context files by default. Run generation a second time:
 
 ```sh
-bun run cli generate "$DEMO_REPO" \
+bun run cli generate "$TARGET_REPO" \
   --model codex \
   --context codex \
   --skills codex \
@@ -215,37 +214,18 @@ bun run cli generate "$DEMO_REPO" \
 Expected output includes `skip:` entries for files that already exist. Use `--force` only when you explicitly want generated files overwritten:
 
 ```sh
-bun run cli generate "$DEMO_REPO" \
+bun run cli generate "$TARGET_REPO" \
   --model codex \
   --context codex \
   --skills codex \
   --allow-write \
   --force
-```
-
-## Horizon Starknet Demo
-
-To run against the real Horizon repo:
-
-```sh
-HORIZON_REPO="/Users/alexmetelli/source/horizon-starknet"
-
-bun run cli audit "$HORIZON_REPO"
-
-bun run cli generate "$HORIZON_REPO" \
-  --model codex \
-  --context codex \
-  --skills codex \
-  --allow-write \
-  --force
-
-bun run cli doctor "$HORIZON_REPO"
 ```
 
 To override the Codex model for one run:
 
 ```sh
-bun run cli generate "$HORIZON_REPO" \
+bun run cli generate "$TARGET_REPO" \
   --model codex \
   --context codex \
   --skills codex \
@@ -278,10 +258,10 @@ http://localhost:4000
 
 ## Cleanup
 
-Remove the disposable fixture repo:
+If you created a disposable copy for the demo, remove that copy:
 
 ```sh
-rm -rf "$DEMO_REPO"
+rm -rf /path/to/disposable-copy
 ```
 
 If you started Docker Compose, stop it:
