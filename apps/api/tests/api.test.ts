@@ -145,7 +145,7 @@ describe("MVP API", () => {
     });
     server.close();
     expect(generated.statusCode).toBe(200);
-    expect(generated.json().artifacts).toHaveLength(9);
+    expect(generated.json().artifacts).toHaveLength(12);
     expect(generated.json().artifacts[0].content).toContain("LLM-generated");
 
     const pr = await app.inject({

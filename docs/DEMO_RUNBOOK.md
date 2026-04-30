@@ -107,9 +107,12 @@ Key generated files should include:
 AGENTS.md
 .github/copilot-instructions.md
 .cursor/rules/open-maintainer.md
-.skills/repo-overview/SKILL.md
-.skills/testing-workflow/SKILL.md
-.skills/pr-review/SKILL.md
+.agents/skills/repo-overview/SKILL.md
+.agents/skills/testing-workflow/SKILL.md
+.agents/skills/pr-review/SKILL.md
+.claude/skills/repo-overview/SKILL.md
+.claude/skills/testing-workflow/SKILL.md
+.claude/skills/pr-review/SKILL.md
 .open-maintainer/profile.json
 .open-maintainer/report.md
 .open-maintainer.yml

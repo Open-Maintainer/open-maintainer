@@ -91,7 +91,7 @@ describe("context renderers", () => {
       nextVersion: 1,
     });
 
-    expect(artifacts).toHaveLength(9);
+    expect(artifacts).toHaveLength(12);
     expect(
       artifacts.every((artifact) => artifact.sourceProfileVersion === 2),
     ).toBe(true);

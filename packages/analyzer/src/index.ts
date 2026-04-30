@@ -78,9 +78,12 @@ const contextArtifactPaths = [
   "AGENTS.md",
   ".github/copilot-instructions.md",
   ".cursor/rules/open-maintainer.md",
-  ".skills/repo-overview/SKILL.md",
-  ".skills/testing-workflow/SKILL.md",
-  ".skills/pr-review/SKILL.md",
+  ".agents/skills/repo-overview/SKILL.md",
+  ".agents/skills/testing-workflow/SKILL.md",
+  ".agents/skills/pr-review/SKILL.md",
+  ".claude/skills/repo-overview/SKILL.md",
+  ".claude/skills/testing-workflow/SKILL.md",
+  ".claude/skills/pr-review/SKILL.md",
   ".open-maintainer/profile.json",
   ".open-maintainer/report.md",
   ".open-maintainer.yml",
@@ -417,8 +420,10 @@ export function scoreAgentReadiness(
           "Copilot instructions are missing.",
         ),
         check(
-          profile.existingContextFiles.some((repoPath) =>
-            repoPath.startsWith(".skills/"),
+          profile.existingContextFiles.some(
+            (repoPath) =>
+              repoPath.startsWith(".agents/skills/") ||
+              repoPath.startsWith(".claude/skills/"),
           ),
           "Repo-local skills are missing.",
         ),
@@ -471,7 +476,8 @@ function shouldReadFile(repoPath: string): boolean {
   if (
     repoPath.startsWith(".github/workflows/") ||
     repoPath.startsWith(".cursor/rules/") ||
-    repoPath.startsWith(".skills/")
+    repoPath.startsWith(".agents/skills/") ||
+    repoPath.startsWith(".claude/skills/")
   ) {
     return true;
   }

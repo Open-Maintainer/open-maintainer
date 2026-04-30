@@ -344,19 +344,37 @@ export function createContextArtifacts(input: {
   if (targets.has("skills")) {
     definitions.push(
       {
-        type: ".skills/repo-overview/SKILL.md",
+        type: ".agents/skills/repo-overview/SKILL.md",
         content:
           input.modelArtifacts?.repoOverviewSkill ??
           renderSkill(input.profile, "repo-overview", input.output),
       },
       {
-        type: ".skills/testing-workflow/SKILL.md",
+        type: ".agents/skills/testing-workflow/SKILL.md",
         content:
           input.modelArtifacts?.testingWorkflowSkill ??
           renderSkill(input.profile, "testing-workflow", input.output),
       },
       {
-        type: ".skills/pr-review/SKILL.md",
+        type: ".agents/skills/pr-review/SKILL.md",
+        content:
+          input.modelArtifacts?.prReviewSkill ??
+          renderSkill(input.profile, "pr-review", input.output),
+      },
+      {
+        type: ".claude/skills/repo-overview/SKILL.md",
+        content:
+          input.modelArtifacts?.repoOverviewSkill ??
+          renderSkill(input.profile, "repo-overview", input.output),
+      },
+      {
+        type: ".claude/skills/testing-workflow/SKILL.md",
+        content:
+          input.modelArtifacts?.testingWorkflowSkill ??
+          renderSkill(input.profile, "testing-workflow", input.output),
+      },
+      {
+        type: ".claude/skills/pr-review/SKILL.md",
         content:
           input.modelArtifacts?.prReviewSkill ??
           renderSkill(input.profile, "pr-review", input.output),
