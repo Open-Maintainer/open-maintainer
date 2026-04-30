@@ -200,6 +200,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
             : "Profile: .open-maintainer/profile.json",
         );
         console.log(`Report: ${path.relative(repoRoot, reportPath)}`);
+        for (const line of formatReadinessSuggestions(profile)) {
+          console.log(line);
+        }
         return thresholdExit(profile.agentReadiness.score, options);
       }
       case "generate":
@@ -620,6 +623,100 @@ function parseArtifactModel(value: string): ArtifactModel {
     return value;
   }
   throw new Error("Unknown model. Expected --model codex or --model claude.");
+}
+
+function formatReadinessSuggestions(
+  profile: ReturnType<typeof analyzeRepo>,
+): string[] {
+  const suggestions = readinessSuggestions(profile);
+  if (suggestions.length === 0) {
+    return [];
+  }
+  return ["Next steps:", ...suggestions.map((suggestion) => `- ${suggestion}`)];
+}
+
+function readinessSuggestions(
+  profile: ReturnType<typeof analyzeRepo>,
+): string[] {
+  const suggestions = new Map<string, string>();
+  for (const category of profile.agentReadiness.categories) {
+    for (const missing of category.missing) {
+      const suggestion = suggestionForMissingItem(
+        category.name,
+        missing,
+        profile,
+      );
+      suggestions.set(suggestion, suggestion);
+    }
+  }
+  return [...suggestions.values()];
+}
+
+function suggestionForMissingItem(
+  categoryName: string,
+  missing: string,
+  profile: ReturnType<typeof analyzeRepo>,
+): string {
+  switch (missing) {
+    case "README is missing.":
+      return "Add `README.md` with setup steps, core commands, architecture notes, and validation expectations.";
+    case "No runnable scripts or Make targets detected.":
+      return "Add runnable scripts in `package.json` or Make targets for common workflows such as test, build, lint, and typecheck.";
+    case "No lockfile or dependency lock evidence detected.":
+      return "Commit a dependency lockfile such as `bun.lock`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `uv.lock`, `Cargo.lock`, `Scarb.lock`, or `go.sum`.";
+    case "No major source directories detected.":
+      return "Organize code under detectable source directories such as `src/`, `apps/`, `packages/`, `contracts/`, or `cmd/`.";
+    case "No docs directory detected.":
+      return "Add a `docs/` directory with architecture, operations, or runbook notes.";
+    case "No toolchain config files detected.":
+      return "Add toolchain config such as `tsconfig.json`, `biome.json`, `pyproject.toml`, `go.mod`, `Scarb.toml`, or `docker-compose.yml`.";
+    case "No test command detected.":
+      return "Add a `test` script in `package.json`, a `test` Make target, or an equivalent workspace test command.";
+    case "No lint/check command detected.":
+      return "Add a `lint` or `check` script in `package.json`, a Make target, or an equivalent quality command.";
+    case "No GitHub Actions workflow detected.":
+      return "Add `.github/workflows/ci.yml` running the repository's install and validation commands.";
+    case "AGENTS.md or CLAUDE.md is missing.":
+      return "Add `AGENTS.md` or `CLAUDE.md` with repo-specific agent instructions.";
+    case "Repo-local skills are missing.":
+      return `Add repo-local skills such as ${joinInlineList(defaultSkillPaths(profile))}.`;
+    case ".open-maintainer.yml policy file is missing.":
+      return "Add `.open-maintainer.yml` with repository policy and generated-context metadata.";
+    case "CONTRIBUTING.md is missing.":
+      return "Add `CONTRIBUTING.md` with PR workflow, review rules, and validation commands.";
+    default:
+      return `Address ${categoryName}: ${missing}`;
+  }
+}
+
+function defaultSkillPaths(profile: ReturnType<typeof analyzeRepo>): string[] {
+  const repoSlug = slugify(profile.name);
+  const hints = profile.generatedFileHints
+    .filter((hint) => hint.startsWith(".agents/skills/"))
+    .map((hint) => hint.replace("<repo>", repoSlug));
+  return hints.length > 0
+    ? hints
+    : [
+        `.agents/skills/${repoSlug}-start-task/SKILL.md`,
+        `.agents/skills/${repoSlug}-testing-workflow/SKILL.md`,
+        `.agents/skills/${repoSlug}-pr-review/SKILL.md`,
+      ];
+}
+
+function joinInlineList(items: string[]): string {
+  const formatted = items.map((item) => `\`${item}\``);
+  if (formatted.length <= 1) {
+    return formatted[0] ?? "";
+  }
+  return `${formatted.slice(0, -1).join(", ")}, and ${formatted.at(-1)}`;
+}
+
+function slugify(value: string): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug || "repo";
 }
 
 function thresholdExit(score: number, options: CliOptions): number {
