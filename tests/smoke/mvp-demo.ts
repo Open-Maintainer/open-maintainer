@@ -34,7 +34,15 @@ function scoreFrom(output: string): number {
 }
 
 const before = scoreFrom(await runCli(["audit", workdir]));
-await runCli(["generate", workdir, "--deterministic", "--codex"]);
+await runCli([
+  "generate",
+  workdir,
+  "--deterministic",
+  "--context",
+  "codex",
+  "--skills",
+  "codex",
+]);
 const after = scoreFrom(await runCli(["audit", workdir]));
 const doctor = await runCli(["doctor", workdir]);
 await runCli(["pr", workdir, "--create"]);

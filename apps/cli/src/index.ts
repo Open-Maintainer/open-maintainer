@@ -28,88 +28,195 @@ type CliOptions = {
   reportPath: string | null;
   noProfileWrite: boolean;
   model: ArtifactModel | null;
-  codex: boolean;
-  claude: boolean;
+  context: ArtifactSelection | null;
+  skills: ArtifactSelection | null;
   deterministic: boolean;
-  allowRepoContentProvider: boolean;
+  allowWrite: boolean;
   llmModel: string | null;
 };
 
-const usage = `open-maintainer <command> <repo>
+type ArtifactSelection = "codex" | "claude" | "both";
+
+const rootUsage = `open-maintainer <command> <repo>
 
 Commands:
   audit <repo>                         Analyze repo and write .open-maintainer/profile.json and report.md
-  generate <repo> --model codex --codex Generate context artifacts safely
+  generate <repo> --model codex --context codex --skills codex
+                                       Generate context artifacts safely
   init <repo>                           Run audit, then generate missing artifacts
   doctor <repo>                         Report missing or stale generated context
   pr <repo> --create                    Print a dry-run PR summary for generated artifacts
 
+Help:
+  open-maintainer --help
+  open-maintainer help
+  open-maintainer help <command>
+  open-maintainer <command> --help
+  open-maintainer <command> help
+`;
+
+const commandUsages = {
+  audit: `open-maintainer audit <repo>
+
+Analyze a repository and write an agent-readiness profile and markdown report.
+
+Writes:
+  .open-maintainer/profile.json
+  .open-maintainer/report.md
+
 Options:
+  --fail-on-score-below <number>        Exit non-zero when audit score is below threshold
+  --report-path <path>                  Write audit report to a custom path
+  --no-profile-write                    Skip .open-maintainer/profile.json writes
+
+Examples:
+  open-maintainer audit .
+  open-maintainer audit ./repo --fail-on-score-below 60
+  open-maintainer audit ./repo --report-path .open-maintainer/report.md --no-profile-write
+`,
+  generate: `open-maintainer generate <repo>
+
+Generate repository context artifacts safely. Existing files are preserved unless --force is used.
+
+Required artifact target:
+  --context codex|claude|both           Generate AGENTS.md, CLAUDE.md, or both
+  --skills codex|claude|both            Generate .agents skills, .claude skills, or both
+
+Model options:
+  --model codex|claude                  LLM CLI backend used to generate artifact bodies
+  --llm-model <model>                   Optional backend model override
+  --allow-write                         Required with --model; permits model-backed artifact writes
+  --deterministic                       Use template-only artifact generation for offline smoke tests
+
+Write options:
   --force                               Overwrite existing generated artifact files
   --dry-run                             Print planned writes without writing files
-  --model codex|claude                  LLM CLI backend used to generate artifact bodies
-  --codex                               Generate AGENTS.md and Codex skills under .agents/skills
-  --claude                              Generate CLAUDE.md and Claude skills under .claude/skills
-  --llm-model <model>                   Optional backend model override
+
+Examples:
+  open-maintainer generate ./repo --model codex --context codex --skills codex --allow-write
+  open-maintainer generate ./repo --model claude --context claude --skills claude --allow-write
+  open-maintainer generate ./repo --model codex --context both --skills both --allow-write
+  open-maintainer generate ./repo --deterministic --context codex --skills codex
+`,
+  init: `open-maintainer init <repo>
+
+Run audit, then generate missing context artifacts.
+
+Audit options:
   --fail-on-score-below <number>        Exit non-zero when audit score is below threshold
   --report-path <path>                  Write audit report to a custom path
   --no-profile-write                    Skip .open-maintainer/profile.json writes during audit
+
+Generate options:
+  --model codex|claude                  LLM CLI backend used to generate artifact bodies
+  --context codex|claude|both           Generate AGENTS.md, CLAUDE.md, or both
+  --skills codex|claude|both            Generate .agents skills, .claude skills, or both
+  --llm-model <model>                   Optional backend model override
+  --allow-write                         Required with --model; permits model-backed artifact writes
   --deterministic                       Use template-only artifact generation for offline smoke tests
-  --allow-repo-content-provider         Required with --model; permits sending scanned repo content to the backend
-`;
+  --force                               Overwrite existing generated artifact files
+  --dry-run                             Print planned writes without writing files
+
+Examples:
+  open-maintainer init ./repo --model codex --context codex --skills codex --allow-write
+  open-maintainer init ./repo --deterministic --context codex --skills codex
+`,
+  doctor: `open-maintainer doctor <repo>
+
+Check that required generated context artifacts are present and that the stored profile is not stale.
+
+Outputs:
+  Agent readiness score
+  Missing required artifacts, if any
+  Profile drift, if detected
+
+Examples:
+  open-maintainer doctor .
+  open-maintainer doctor ./repo
+`,
+  pr: `open-maintainer pr <repo> --create
+
+Print a dry-run context PR summary for generated artifacts.
+
+Options:
+  --create                              Required; print the dry-run PR summary
+
+Examples:
+  open-maintainer pr ./repo --create
+`,
+} as const;
+
+type CommandName = keyof typeof commandUsages;
 
 export async function main(argv = process.argv.slice(2)): Promise<number> {
-  const [command, repoArg, ...rawOptions] = argv;
-  const options = parseOptions(rawOptions);
+  const [command, ...rest] = argv;
   if (!command || command === "--help" || command === "-h") {
-    console.log(usage);
+    console.log(rootUsage);
     return 0;
   }
+  if (command === "help") {
+    const helpCommand = rest[0];
+    if (isCommandName(helpCommand)) {
+      console.log(commandUsages[helpCommand]);
+      return 0;
+    }
+    console.log(rootUsage);
+    return 0;
+  }
+  if (!isCommandName(command)) {
+    console.error(`Unknown command: ${command}\n`);
+    console.error(rootUsage);
+    return 2;
+  }
+  if (rest.some(isHelpToken)) {
+    console.log(commandUsages[command]);
+    return 0;
+  }
+
+  const [repoArg, ...rawOptions] = rest;
   if (!repoArg) {
     console.error("Missing repository path.\n");
-    console.error(usage);
+    console.error(commandUsages[command]);
     return 2;
   }
 
   const repoRoot = path.resolve(repoArg);
   try {
-    if (command === "audit") {
-      const { profile, reportPath } = await audit(repoRoot, options);
-      console.log(`Agent Readiness: ${profile.agentReadiness.score}/100`);
-      console.log(
-        options.noProfileWrite
-          ? "Profile: skipped (--no-profile-write)"
-          : "Profile: .open-maintainer/profile.json",
-      );
-      console.log(`Report: ${path.relative(repoRoot, reportPath)}`);
-      return thresholdExit(profile.agentReadiness.score, options);
-    }
-    if (command === "generate") {
-      await generate(repoRoot, options);
-      return 0;
-    }
-    if (command === "init") {
-      const { profile } = await audit(repoRoot, options);
-      await generate(repoRoot, options);
-      console.log(
-        `Initialized Open Maintainer context at score ${profile.agentReadiness.score}/100.`,
-      );
-      return thresholdExit(profile.agentReadiness.score, options);
-    }
-    if (command === "doctor") {
-      const result = await doctor(repoRoot);
-      for (const line of result.messages) {
-        console.log(line);
+    const options = parseOptions(rawOptions);
+    switch (command) {
+      case "audit": {
+        const { profile, reportPath } = await audit(repoRoot, options);
+        console.log(`Agent Readiness: ${profile.agentReadiness.score}/100`);
+        console.log(
+          options.noProfileWrite
+            ? "Profile: skipped (--no-profile-write)"
+            : "Profile: .open-maintainer/profile.json",
+        );
+        console.log(`Report: ${path.relative(repoRoot, reportPath)}`);
+        return thresholdExit(profile.agentReadiness.score, options);
       }
-      return result.ok ? 0 : 1;
+      case "generate":
+        await generate(repoRoot, options);
+        return 0;
+      case "init": {
+        const { profile } = await audit(repoRoot, options);
+        await generate(repoRoot, options);
+        console.log(
+          `Initialized Open Maintainer context at score ${profile.agentReadiness.score}/100.`,
+        );
+        return thresholdExit(profile.agentReadiness.score, options);
+      }
+      case "doctor": {
+        const result = await doctor(repoRoot);
+        for (const line of result.messages) {
+          console.log(line);
+        }
+        return result.ok ? 0 : 1;
+      }
+      case "pr":
+        await pr(repoRoot, options);
+        return 0;
     }
-    if (command === "pr") {
-      await pr(repoRoot, options);
-      return 0;
-    }
-    console.error(`Unknown command: ${command}\n`);
-    console.error(usage);
-    return 2;
   } catch (error) {
     console.error(error instanceof Error ? error.message : String(error));
     return 1;
@@ -257,9 +364,9 @@ async function generateModelArtifacts(input: {
   files: Awaited<ReturnType<typeof scanRepository>>;
   options: CliOptions;
 }) {
-  if (!input.options.allowRepoContentProvider) {
+  if (!input.options.allowWrite) {
     throw new Error(
-      "--model requires --allow-repo-content-provider because repository content will be sent to the selected CLI backend.",
+      "--model requires --allow-write because repository content will be sent to the selected CLI backend.",
     );
   }
   const prompt = buildArtifactSynthesisPrompt({
@@ -312,10 +419,10 @@ function parseOptions(rawOptions: string[]): CliOptions {
     reportPath: null,
     noProfileWrite: false,
     model: null,
-    codex: false,
-    claude: false,
+    context: null,
+    skills: null,
     deterministic: false,
-    allowRepoContentProvider: false,
+    allowWrite: false,
     llmModel: null,
   };
   for (let index = 0; index < rawOptions.length; index += 1) {
@@ -337,17 +444,25 @@ function parseOptions(rawOptions: string[]): CliOptions {
     } else if (option === "--model") {
       options.model = parseArtifactModel(rawOptions[index + 1] ?? "");
       index += 1;
-    } else if (option === "--codex") {
-      options.codex = true;
-    } else if (option === "--claude") {
-      options.claude = true;
+    } else if (option === "--context") {
+      options.context = parseArtifactSelection(
+        rawOptions[index + 1] ?? "",
+        "--context",
+      );
+      index += 1;
+    } else if (option === "--skills") {
+      options.skills = parseArtifactSelection(
+        rawOptions[index + 1] ?? "",
+        "--skills",
+      );
+      index += 1;
     } else if (option === "--llm-model") {
       options.llmModel = rawOptions[index + 1] ?? null;
       index += 1;
     } else if (option === "--deterministic") {
       options.deterministic = true;
-    } else if (option === "--allow-repo-content-provider") {
-      options.allowRepoContentProvider = true;
+    } else if (option === "--allow-write") {
+      options.allowWrite = true;
     } else {
       throw new Error(`Unknown option: ${option}`);
     }
@@ -355,19 +470,53 @@ function parseOptions(rawOptions: string[]): CliOptions {
   return options;
 }
 
+function isHelpToken(value: string | undefined): boolean {
+  return value === "--help" || value === "-h" || value === "help";
+}
+
+function isCommandName(value: string | undefined): value is CommandName {
+  return (
+    value === "audit" ||
+    value === "generate" ||
+    value === "init" ||
+    value === "doctor" ||
+    value === "pr"
+  );
+}
+
 function resolveTargets(options: CliOptions): ContextArtifactTarget[] {
   const targets: ContextArtifactTarget[] = [];
-  if (options.codex) {
-    targets.push("agents", "skills");
+  if (options.context === "codex" || options.context === "both") {
+    targets.push("agents");
   }
-  if (options.claude) {
-    targets.push("claude", "claude-skills");
+  if (options.context === "claude" || options.context === "both") {
+    targets.push("claude");
+  }
+  if (options.skills === "codex" || options.skills === "both") {
+    targets.push("skills");
+  }
+  if (options.skills === "claude" || options.skills === "both") {
+    targets.push("claude-skills");
   }
   if (targets.length === 0) {
-    throw new Error("generate requires --codex, --claude, or both.");
+    throw new Error(
+      "generate requires --context codex|claude|both, --skills codex|claude|both, or both.",
+    );
   }
   targets.push("profile", "report", "config");
   return targets;
+}
+
+function parseArtifactSelection(
+  value: string,
+  flag: "--context" | "--skills",
+): ArtifactSelection {
+  if (value === "codex" || value === "claude" || value === "both") {
+    return value;
+  }
+  throw new Error(
+    `Unknown value for ${flag}. Expected codex, claude, or both.`,
+  );
 }
 
 function parseArtifactModel(value: string): ArtifactModel {
