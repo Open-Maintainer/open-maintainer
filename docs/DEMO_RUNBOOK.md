@@ -51,7 +51,7 @@ Confirm Claude is available if you want to use Claude as the backend:
 claude --version
 ```
 
-Generation fails unless you pass `--allow-repo-content-provider`; that flag is the explicit consent that lets Open Maintainer send scanned repository content to the selected local LLM CLI.
+Generation fails unless you pass `--allow-write`; that flag is the explicit consent that lets Open Maintainer send scanned repository content to the selected local LLM CLI and write generated artifacts.
 
 Optionally choose a Codex model:
 
@@ -67,25 +67,25 @@ export OPEN_MAINTAINER_CLAUDE_MODEL="claude-sonnet-4-6"
 
 ## Generation Flags
 
-Generation uses two independent choices:
+Generation uses three independent choices:
 
 | Flag | Options | Meaning |
 | --- | --- | --- |
 | `--model` | `codex`, `claude` | Selects which LLM CLI generates artifact content. |
-| `--codex` | none | Writes Codex artifacts: `AGENTS.md` and `.agents/skills/...`. |
-| `--claude` | none | Writes Claude Code artifacts: `CLAUDE.md` and `.claude/skills/...`. |
+| `--context` | `codex`, `claude`, `both` | Writes `AGENTS.md`, `CLAUDE.md`, or both. |
+| `--skills` | `codex`, `claude`, `both` | Writes skills under `.agents/skills`, `.claude/skills`, or both. |
 
 Common combinations:
 
 ```sh
-# Generate Codex artifacts with Codex CLI
-bun run cli generate "$DEMO_REPO" --model codex --codex --allow-repo-content-provider
+# Generate Codex context and skills with Codex CLI
+bun run cli generate "$DEMO_REPO" --model codex --context codex --skills codex --allow-write
 
-# Generate Claude Code artifacts with Claude CLI
-bun run cli generate "$DEMO_REPO" --model claude --claude --allow-repo-content-provider
+# Generate Claude Code context and skills with Claude CLI
+bun run cli generate "$DEMO_REPO" --model claude --context claude --skills claude --allow-write
 
-# Use Codex CLI to generate both artifact families
-bun run cli generate "$DEMO_REPO" --model codex --codex --claude --allow-repo-content-provider
+# Use Codex CLI to generate both context files and both skill families
+bun run cli generate "$DEMO_REPO" --model codex --context both --skills both --allow-write
 ```
 
 ## Manual Demo
@@ -123,8 +123,9 @@ Generate the full MVP Codex context artifact set with the LLM:
 ```sh
 bun run cli generate "$DEMO_REPO" \
   --model codex \
-  --codex \
-  --allow-repo-content-provider
+  --context codex \
+  --skills codex \
+  --allow-write
 ```
 
 List the generated files:
@@ -149,15 +150,16 @@ AGENTS.md
 .open-maintainer.yml
 ```
 
-`--model` selects the LLM CLI backend. `--codex` and `--claude` choose where the generated instructions and skills are written.
+`--model` selects the LLM CLI backend. `--context` chooses instruction files, and `--skills` chooses repo-local skill directories.
 
 To generate the Claude Code artifact family instead:
 
 ```sh
 bun run cli generate "$DEMO_REPO" \
   --model claude \
-  --claude \
-  --allow-repo-content-provider
+  --context claude \
+  --skills claude \
+  --allow-write
 ```
 
 Claude Code generated files should include:
@@ -205,8 +207,9 @@ Generation preserves existing context files by default. Run generation a second 
 ```sh
 bun run cli generate "$DEMO_REPO" \
   --model codex \
-  --codex \
-  --allow-repo-content-provider
+  --context codex \
+  --skills codex \
+  --allow-write
 ```
 
 Expected output includes `skip:` entries for files that already exist. Use `--force` only when you explicitly want generated files overwritten:
@@ -214,8 +217,9 @@ Expected output includes `skip:` entries for files that already exist. Use `--fo
 ```sh
 bun run cli generate "$DEMO_REPO" \
   --model codex \
-  --codex \
-  --allow-repo-content-provider \
+  --context codex \
+  --skills codex \
+  --allow-write \
   --force
 ```
 
@@ -230,8 +234,9 @@ bun run cli audit "$HORIZON_REPO"
 
 bun run cli generate "$HORIZON_REPO" \
   --model codex \
-  --codex \
-  --allow-repo-content-provider \
+  --context codex \
+  --skills codex \
+  --allow-write \
   --force
 
 bun run cli doctor "$HORIZON_REPO"
@@ -242,9 +247,10 @@ To override the Codex model for one run:
 ```sh
 bun run cli generate "$HORIZON_REPO" \
   --model codex \
-  --codex \
+  --context codex \
+  --skills codex \
   --llm-model "gpt-5.3-codex" \
-  --allow-repo-content-provider \
+  --allow-write \
   --force
 ```
 

@@ -40,30 +40,30 @@ DEMO_REPO="$(mktemp -d)"
 cp -R tests/fixtures/low-context-ts/. "$DEMO_REPO"
 
 bun run cli audit "$DEMO_REPO"
-bun run cli generate "$DEMO_REPO" --model codex --codex --allow-repo-content-provider
+bun run cli generate "$DEMO_REPO" --model codex --context codex --skills codex --allow-write
 bun run cli doctor "$DEMO_REPO"
 bun run cli pr "$DEMO_REPO" --create
 ```
 
-Generation uses two separate choices:
+Generation uses three separate choices:
 
 | Flag | Options | Meaning |
 | --- | --- | --- |
 | `--model` | `codex`, `claude` | Selects which LLM CLI generates artifact content. |
-| `--codex` | none | Writes Codex artifacts: `AGENTS.md` and `.agents/skills/...`. |
-| `--claude` | none | Writes Claude Code artifacts: `CLAUDE.md` and `.claude/skills/...`. |
+| `--context` | `codex`, `claude`, `both` | Writes `AGENTS.md`, `CLAUDE.md`, or both. |
+| `--skills` | `codex`, `claude`, `both` | Writes skills under `.agents/skills`, `.claude/skills`, or both. |
 
 Examples:
 
 ```sh
-# Generate Codex artifacts with Codex CLI
-bun run cli generate "$DEMO_REPO" --model codex --codex --allow-repo-content-provider
+# Generate Codex context and skills with Codex CLI
+bun run cli generate "$DEMO_REPO" --model codex --context codex --skills codex --allow-write
 
-# Generate Claude Code artifacts with Claude CLI
-bun run cli generate "$DEMO_REPO" --model claude --claude --allow-repo-content-provider
+# Generate Claude Code context and skills with Claude CLI
+bun run cli generate "$DEMO_REPO" --model claude --context claude --skills claude --allow-write
 
-# Use Codex CLI to generate both Codex and Claude Code artifact families
-bun run cli generate "$DEMO_REPO" --model codex --codex --claude --allow-repo-content-provider
+# Use Codex CLI to generate both context files and both skill families
+bun run cli generate "$DEMO_REPO" --model codex --context both --skills both --allow-write
 ```
 
 `audit` writes:
@@ -81,9 +81,9 @@ bun run cli generate "$DEMO_REPO" --model codex --codex --claude --allow-repo-co
 - `.open-maintainer/report.md`
 - `.open-maintainer.yml`
 
-`--model` chooses the LLM CLI backend. `--codex` and `--claude` choose where the generated instructions and skills are written.
+`--model` chooses the LLM CLI backend. `--context` chooses instruction files, and `--skills` chooses repo-local skill directories.
 
-Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Repo content is sent to the selected LLM CLI only when `--allow-repo-content-provider` is present; offline deterministic mode is reserved for smoke tests.
+Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Repo content is sent to the selected LLM CLI only when `--allow-write` is present; offline deterministic mode is reserved for smoke tests.
 
 ## GitHub Action Audit Mode
 
