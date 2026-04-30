@@ -1,0 +1,9 @@
+{
+  "name": "@open-maintainer/worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --watch src/worker.ts",
+    "build": "tsc -p tsconfig.json"
+  }
+}
