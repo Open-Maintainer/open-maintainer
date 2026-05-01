@@ -280,10 +280,20 @@ docker exec open-maintainer-api-1 claude --version
 Context PR creation requires authenticated GitHub CLI inside the API container:
 
 ```sh
+GH_TOKEN=github_pat_xxx
+```
+
+Compose passes `GH_TOKEN` from `.env` into the API container. Recreate the API container after adding or rotating the token:
+
+```sh
+docker compose up -d --force-recreate api
+```
+
+```sh
 docker exec open-maintainer-api-1 gh auth status
 ```
 
-If that fails, authenticate on the host and restart Compose so `${HOME}/.config/gh` is mounted into `/root/.config/gh`, or run `gh auth login` inside the API container.
+If that fails, confirm the token has repository Contents read/write and Pull requests read/write permissions, or run `gh auth login` inside the API container.
 
 To run the compose smoke gate:
 

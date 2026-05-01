@@ -844,7 +844,7 @@ async function requireGhAuthentication(cwd: string): Promise<void> {
     await runGh(cwd, ["auth", "status"]);
   } catch {
     throw new Error(
-      "gh is not authenticated in the API environment. Run gh auth login inside the API container or mount an authenticated GitHub CLI config.",
+      "gh is not authenticated in the API environment. Set GH_TOKEN in .env and recreate the API container, run gh auth login inside the API container, or mount an authenticated GitHub CLI config.",
     );
   }
 }
