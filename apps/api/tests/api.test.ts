@@ -1,13 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHmac } from "node:crypto";
-import {
-  chmod,
-  mkdir,
-  mkdtemp,
-  readFile,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -183,6 +176,8 @@ describe("MVP API", () => {
     const remoteRoot = path.join(directory, "remote.git");
     const previousCodexCommand = process.env.OPEN_MAINTAINER_CODEX_COMMAND;
     const previousGhCommand = process.env.OPEN_MAINTAINER_GH_COMMAND;
+    const previousMountedRoots =
+      process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS;
     try {
       await execFileAsync("git", ["init", "-b", "main", repoRoot]);
       await writeFile(
@@ -214,6 +209,16 @@ describe("MVP API", () => {
       await execFileAsync("git", ["push", "-u", "origin", "main"], {
         cwd: repoRoot,
       });
+      await execFileAsync("git", ["checkout", "-b", "feature/context-base"], {
+        cwd: repoRoot,
+      });
+      await execFileAsync(
+        "git",
+        ["push", "-u", "origin", "feature/context-base"],
+        {
+          cwd: repoRoot,
+        },
+      );
       await writeFile(
         command,
         `#!/usr/bin/env node
@@ -283,6 +288,11 @@ if (args[0] === "auth" && args[1] === "status") {
   process.exit(0);
 }
 if (args[0] === "pr" && args[1] === "create") {
+  const baseIndex = args.indexOf("--base");
+  if (args[baseIndex + 1] !== "feature/context-base") {
+    process.stderr.write("wrong base branch: " + args[baseIndex + 1]);
+    process.exit(4);
+  }
   process.stdout.write("https://github.com/local/cli-dashboard-tool/pull/42\\n");
   process.exit(0);
 }
@@ -293,13 +303,29 @@ process.exit(2);
       await chmod(ghCommand, 0o755);
       process.env.OPEN_MAINTAINER_CODEX_COMMAND = command;
       process.env.OPEN_MAINTAINER_GH_COMMAND = ghCommand;
+      process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS = repoRoot;
 
       const repoResponse = await app.inject({
         method: "POST",
-        url: "/repos/local",
-        payload: { repoRoot },
+        url: "/repos/local-files",
+        payload: {
+          name: "cli-dashboard-tool",
+          files: [
+            {
+              path: "package.json",
+              content: JSON.stringify({
+                name: "cli-dashboard-tool",
+                scripts: { test: "bun test" },
+              }),
+            },
+            { path: "src/index.ts", content: "export const ok = true;\n" },
+          ],
+        },
       });
       expect(repoResponse.statusCode).toBe(200);
+      expect(repoResponse.json().repo.defaultBranch).toBe(
+        "feature/context-base",
+      );
       const repoId = repoResponse.json().repo.id;
       const analysis = await app.inject({
         method: "POST",
@@ -371,9 +397,18 @@ process.exit(2);
       expect(pr.json().contextPr.prUrl).toBe(
         "https://github.com/local/cli-dashboard-tool/pull/42",
       );
-      expect(
-        await readFile(path.join(repoRoot, "AGENTS.md"), "utf8"),
-      ).toContain("cli-dashboard-tool");
+      const { stdout: agentsMd } = await execFileAsync(
+        "git",
+        ["show", "open-maintainer/context-1:AGENTS.md"],
+        { cwd: repoRoot },
+      );
+      expect(agentsMd).toContain("cli-dashboard-tool");
+      const { stdout: currentBranch } = await execFileAsync(
+        "git",
+        ["branch", "--show-current"],
+        { cwd: repoRoot },
+      );
+      expect(currentBranch.trim()).toBe("feature/context-base");
     } finally {
       if (previousCodexCommand === undefined) {
         Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
@@ -384,6 +419,14 @@ process.exit(2);
         Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_GH_COMMAND");
       } else {
         process.env.OPEN_MAINTAINER_GH_COMMAND = previousGhCommand;
+      }
+      if (previousMountedRoots === undefined) {
+        Reflect.deleteProperty(
+          process.env,
+          "OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS",
+        );
+      } else {
+        process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS = previousMountedRoots;
       }
       await rm(directory, { recursive: true, force: true });
     }

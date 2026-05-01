@@ -247,7 +247,7 @@ The dashboard runs the API and worker in a Docker backend image that includes Bu
 
 When you add a mounted repository path, the dashboard scans that Git checkout in the API container, runs Codex or Claude with that checkout as the CLI working directory, writes generated context files to a branch, pushes it, and opens the PR with authenticated `gh`.
 
-When you upload a local repository from the browser, the dashboard uploads readable files, honors the selected repository's root `.gitignore`, and materializes those files into an API-side worktree for analysis and generation. Browser-uploaded files are not a Git checkout, so PR creation requires adding a mounted repository path instead.
+When you upload a local repository from the browser, the dashboard uploads readable files, honors the selected repository's root `.gitignore`, and materializes those files into an API-side worktree for analysis and generation. If the upload matches a Git checkout mounted into the API container, the dashboard uses that mounted checkout for generation and `gh` PR creation so the PR targets the checkout's current branch.
 
 Start or rebuild the self-hosted stack:
 

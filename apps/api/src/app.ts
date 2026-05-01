@@ -148,20 +148,27 @@ export function buildApp() {
           });
         }
 
+        const repoName = body.name ?? "uploaded-repo";
+        const mountedWorktree = await resolveMountedWorktreeForUploadedFiles({
+          name: repoName,
+          files,
+        });
         const pendingRepo = localRepositoryRecord({
           owner: "local",
-          name: body.name ?? "uploaded-repo",
+          name: repoName,
         });
-        const worktreeRoot = await materializeRepositoryFiles(
-          pendingRepo.id,
-          files,
-        );
+        const worktreeRoot =
+          mountedWorktree?.worktreeRoot ??
+          (await materializeRepositoryFiles(pendingRepo.id, files));
         const repo = registerLocalRepository({
           owner: "local",
-          name: body.name ?? "uploaded-repo",
-          files,
+          name: repoName,
+          files: mountedWorktree?.files ?? files,
           id: pendingRepo.id,
           worktreeRoot,
+          ...(mountedWorktree
+            ? { defaultBranch: mountedWorktree.defaultBranch }
+            : {}),
         });
         return { repo, files: files.length };
       },
@@ -513,20 +520,14 @@ export function buildApp() {
         }
         const localWorktreeRoot = store.repoWorktrees.get(repoId);
         if (localWorktreeRoot) {
-          let savedPaths: string[] = [];
           try {
             await requireLocalGhPrReady(localWorktreeRoot);
-            savedPaths = await saveArtifactsToLocalWorktree(
-              localWorktreeRoot,
-              artifacts,
-            );
             const contextPr = await createLocalContextPrWithGh({
               repoId,
               worktreeRoot: localWorktreeRoot,
               defaultBranch: repo.defaultBranch,
               profileVersion: profile.version,
               artifacts,
-              savedPaths,
               runReference: run.id,
               generatedAt: nowIso(),
             });
@@ -542,12 +543,9 @@ export function buildApp() {
               error instanceof Error
                 ? error.message
                 : "local gh PR creation failed.";
-            const savedPrefix = savedPaths.length
-              ? `Saved ${savedPaths.length} context files to ${localWorktreeRoot}, but `
-              : "";
             store.updateRun(run.id, {
               status: "failed",
-              safeMessage: `${savedPrefix}gh PR creation failed: ${message}`,
+              safeMessage: `gh PR creation failed: ${message}`,
               externalId: null,
             });
             return reply.code(502).send({
@@ -751,70 +749,88 @@ async function createLocalContextPrWithGh(input: {
   defaultBranch: string;
   profileVersion: number;
   artifacts: GeneratedArtifact[];
-  savedPaths: string[];
   runReference: string;
   generatedAt: string;
 }) {
   await requireLocalGhPrReady(input.worktreeRoot);
 
+  const originalBranch = await detectLocalDefaultBranch(input.worktreeRoot);
   const branchName = createContextBranchName(input.profileVersion);
-  await runGit(input.worktreeRoot, ["checkout", "-B", branchName]);
-  await runGit(input.worktreeRoot, ["add", "--", ...input.savedPaths]);
-  const hasStagedChanges = await gitHasStagedChanges(input.worktreeRoot);
-  if (hasStagedChanges) {
+  try {
+    await runGit(input.worktreeRoot, [
+      "checkout",
+      "-B",
+      branchName,
+      input.defaultBranch,
+    ]);
+    const savedPaths = await saveArtifactsToLocalWorktree(
+      input.worktreeRoot,
+      input.artifacts,
+    );
+    await runGit(input.worktreeRoot, ["add", "--", ...savedPaths]);
+    const hasStagedChanges = await gitHasStagedChanges(input.worktreeRoot);
+    if (!hasStagedChanges) {
+      throw new Error("generated context files did not change the worktree.");
+    }
     await runGit(input.worktreeRoot, [
       "commit",
       "-m",
       "Update Open Maintainer context",
     ]);
-  }
-  const commitSha = (
-    await runGit(input.worktreeRoot, ["rev-parse", "HEAD"])
-  ).trim();
-  await runGit(input.worktreeRoot, [
-    "push",
-    "--set-upstream",
-    "origin",
-    branchName,
-  ]);
-
-  const body = renderContextPrBody({
-    repoProfileVersion: input.profileVersion,
-    artifacts: input.artifacts,
-    modelProvider: input.artifacts[0]?.modelProvider ?? null,
-    model: input.artifacts[0]?.model ?? null,
-    runReference: input.runReference,
-    generatedAt: input.generatedAt,
-  });
-  const prUrl = findFirstUrl(
-    await runGh(input.worktreeRoot, [
-      "pr",
-      "create",
-      "--base",
-      input.defaultBranch,
-      "--head",
+    const commitSha = (
+      await runGit(input.worktreeRoot, ["rev-parse", "HEAD"])
+    ).trim();
+    await runGit(input.worktreeRoot, [
+      "push",
+      "--set-upstream",
+      "origin",
       branchName,
-      "--title",
-      "Update Open Maintainer context",
-      "--body",
-      body,
-    ]),
-  );
-  if (!prUrl) {
-    throw new Error("gh did not return a pull request URL.");
-  }
+    ]);
 
-  return {
-    id: newId("context_pr"),
-    repoId: input.repoId,
-    branchName,
-    commitSha,
-    prNumber: pullRequestNumber(prUrl),
-    prUrl,
-    artifactVersions: input.artifacts.map((artifact) => artifact.version),
-    status: "succeeded" as const,
-    createdAt: nowIso(),
-  };
+    const body = renderContextPrBody({
+      repoProfileVersion: input.profileVersion,
+      artifacts: input.artifacts,
+      modelProvider: input.artifacts[0]?.modelProvider ?? null,
+      model: input.artifacts[0]?.model ?? null,
+      runReference: input.runReference,
+      generatedAt: input.generatedAt,
+    });
+    const prUrl = findFirstUrl(
+      await runGh(input.worktreeRoot, [
+        "pr",
+        "create",
+        "--base",
+        input.defaultBranch,
+        "--head",
+        branchName,
+        "--title",
+        "Update Open Maintainer context",
+        "--body",
+        body,
+      ]),
+    );
+    if (!prUrl) {
+      throw new Error("gh did not return a pull request URL.");
+    }
+
+    return {
+      id: newId("context_pr"),
+      repoId: input.repoId,
+      branchName,
+      commitSha,
+      prNumber: pullRequestNumber(prUrl),
+      prUrl,
+      artifactVersions: input.artifacts.map((artifact) => artifact.version),
+      status: "succeeded" as const,
+      createdAt: nowIso(),
+    };
+  } finally {
+    if (originalBranch !== "local" && originalBranch !== branchName) {
+      await runGit(input.worktreeRoot, ["checkout", originalBranch]).catch(
+        () => undefined,
+      );
+    }
+  }
 }
 
 async function requireLocalGhPrReady(cwd: string): Promise<void> {
@@ -1009,6 +1025,107 @@ function localInstallation(): Installation {
     },
     createdAt,
   };
+}
+
+async function resolveMountedWorktreeForUploadedFiles(input: {
+  name: string;
+  files: Array<{ path: string; content: string }>;
+}): Promise<{
+  worktreeRoot: string;
+  files: Array<{ path: string; content: string }>;
+  defaultBranch: string;
+} | null> {
+  for (const candidateRoot of mountedWorktreeCandidates()) {
+    try {
+      await requireGitRepository(candidateRoot);
+      const candidateFiles = await scanRepository(candidateRoot, {
+        maxFiles: 800,
+      });
+      if (
+        uploadedFilesMatchMountedWorktree({
+          uploadName: input.name,
+          uploadedFiles: input.files,
+          candidateRoot,
+          candidateFiles,
+        })
+      ) {
+        return {
+          worktreeRoot: candidateRoot,
+          files: candidateFiles,
+          defaultBranch: await detectLocalDefaultBranch(candidateRoot),
+        };
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function mountedWorktreeCandidates(): string[] {
+  const configuredRoots = (
+    process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS ??
+    process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOT ??
+    ""
+  )
+    .split(path.delimiter)
+    .map((candidate) => candidate.trim())
+    .filter((candidate) => candidate.length > 0);
+  const candidates = [...configuredRoots, process.cwd(), "/app"];
+  return [...new Set(candidates.map((candidate) => path.resolve(candidate)))];
+}
+
+function uploadedFilesMatchMountedWorktree(input: {
+  uploadName: string;
+  uploadedFiles: Array<{ path: string; content: string }>;
+  candidateRoot: string;
+  candidateFiles: Array<{ path: string; content: string }>;
+}): boolean {
+  const uploadedPackageName = packageNameFromFiles(input.uploadedFiles);
+  const candidatePackageName = packageNameFromFiles(input.candidateFiles);
+  if (
+    uploadedPackageName &&
+    candidatePackageName &&
+    uploadedPackageName === candidatePackageName
+  ) {
+    return true;
+  }
+
+  const uploadedSlug = slugId(input.uploadName);
+  const candidateSlug = slugId(path.basename(input.candidateRoot));
+  const uploadedPackageJson = rootFileContent(
+    input.uploadedFiles,
+    "package.json",
+  );
+  const candidatePackageJson = rootFileContent(
+    input.candidateFiles,
+    "package.json",
+  );
+  return (
+    uploadedSlug === candidateSlug &&
+    !!uploadedPackageJson &&
+    uploadedPackageJson === candidatePackageJson
+  );
+}
+
+function packageNameFromFiles(
+  files: Array<{ path: string; content: string }>,
+): string | null {
+  const packageJson = rootFileContent(files, "package.json");
+  if (!packageJson) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(packageJson) as { name?: unknown };
+    return typeof parsed.name === "string" ? parsed.name : null;
+  } catch {
+    return null;
+  }
+}
+
+function rootFileContent(
+  files: Array<{ path: string; content: string }>,
+  filePath: string,
+): string | null {
+  return files.find((file) => file.path === filePath)?.content ?? null;
 }
 
 async function materializeRepositoryFiles(
