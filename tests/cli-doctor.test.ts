@@ -181,4 +181,47 @@ describe("CLI doctor", () => {
       "drift: context artifact AGENTS.md was changed; rerun generation or review the artifact",
     );
   });
+
+  it("names lockfile, config, package boundary, and risk path drift", async () => {
+    const workdir = await mkdtemp(
+      path.join(tmpdir(), "open-maintainer-doctor-risk-"),
+    );
+    await cp(fixtureRoot, workdir, { recursive: true });
+
+    const generate = await runCli([
+      "generate",
+      workdir,
+      "--deterministic",
+      "--context",
+      "codex",
+      "--skills",
+      "codex",
+    ]);
+    expect(generate.exitCode).toBe(0);
+
+    await writeFile(path.join(workdir, "tsconfig.json"), '{"strict":true}\n');
+    await mkdir(path.join(workdir, "apps/admin"), { recursive: true });
+    await writeFile(
+      path.join(workdir, "apps/admin/package.json"),
+      '{"scripts":{"test":"bun test"}}\n',
+    );
+    await writeFile(
+      path.join(workdir, "src/security.ts"),
+      "export const requiresReview = true;\n",
+    );
+
+    const doctor = await runCli(["doctor", workdir]);
+
+    expect(doctor.exitCode).toBe(1);
+    expect(doctor.stderr).toBe("");
+    expect(doctor.stdout).toContain(
+      "drift: lockfile/config tsconfig.json was changed; review setup and validation context",
+    );
+    expect(doctor.stdout).toContain(
+      "drift: package boundary apps/admin was added; review package/app context",
+    );
+    expect(doctor.stdout).toContain(
+      "drift: risk path src/security.ts was added; review high-risk area guidance",
+    );
+  });
 });

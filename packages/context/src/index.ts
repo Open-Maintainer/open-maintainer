@@ -1340,7 +1340,15 @@ function contentHash(content: string): string {
 }
 
 export type DriftFinding = {
-  group: "commands" | "ci" | "docs" | "templates" | "context";
+  group:
+    | "commands"
+    | "ci"
+    | "docs"
+    | "templates"
+    | "context"
+    | "lock_config"
+    | "boundaries"
+    | "risk";
   changeType: "added" | "removed" | "changed";
   path: string;
   subject: string;
@@ -1367,6 +1375,9 @@ export function compareProfileDrift(input: {
     ...compareDocsDrift(input.stored, input.current),
     ...compareTemplateDrift(input.stored, input.current),
     ...compareContextArtifactDrift(input.stored, input.current),
+    ...compareLockConfigDrift(input.stored, input.current),
+    ...compareBoundaryDrift(input.stored, input.current),
+    ...compareRiskHintDrift(input.stored, input.current),
   ].sort(
     (left, right) =>
       left.group.localeCompare(right.group) ||
@@ -1496,6 +1507,45 @@ function compareContextArtifactDrift(
   });
 }
 
+function compareLockConfigDrift(
+  stored: RepoProfile,
+  current: RepoProfile,
+): DriftFinding[] {
+  return comparePathListDrift({
+    group: "lock_config",
+    storedPaths: [...stored.lockfiles, ...stored.configFiles],
+    currentPaths: [...current.lockfiles, ...current.configFiles],
+    storedHashes: stored.trackedFileHashes,
+    currentHashes: current.trackedFileHashes,
+  });
+}
+
+function compareBoundaryDrift(
+  stored: RepoProfile,
+  current: RepoProfile,
+): DriftFinding[] {
+  return comparePathListDrift({
+    group: "boundaries",
+    storedPaths: stored.architecturePathGroups,
+    currentPaths: current.architecturePathGroups,
+    storedHashes: [],
+    currentHashes: [],
+  });
+}
+
+function compareRiskHintDrift(
+  stored: RepoProfile,
+  current: RepoProfile,
+): DriftFinding[] {
+  return comparePathListDrift({
+    group: "risk",
+    storedPaths: stored.riskHintPaths,
+    currentPaths: current.riskHintPaths,
+    storedHashes: stored.trackedFileHashes,
+    currentHashes: current.trackedFileHashes,
+  });
+}
+
 function comparePathListDrift(input: {
   group: DriftFinding["group"];
   storedPaths: string[];
@@ -1576,6 +1626,7 @@ function fingerprintableProfile(profile: RepoProfile) {
     detectedRiskAreas: profile.detectedRiskAreas.filter(
       (area) => area !== "No repo-local agent context files detected.",
     ),
+    riskHintPaths: profile.riskHintPaths,
     reviewRuleCandidates: profile.reviewRuleCandidates,
     evidence: profile.evidence.filter(
       (item) => !isContextArtifactPath(item.path),

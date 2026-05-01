@@ -45,6 +45,10 @@ describe("analyzeRepo", () => {
           path: "apps/web/app/page.tsx",
           content: "export default function Page() {}",
         },
+        {
+          path: "src/auth.ts",
+          content: "export const auth = true;",
+        },
         { path: ".github/workflows/ci.yml", content: "name: CI" },
         {
           path: ".github/pull_request_template.md",
@@ -69,6 +73,7 @@ describe("analyzeRepo", () => {
       ".github/workflows/ci.yml",
     );
     expect(profile.repoTemplates).toEqual([".github/pull_request_template.md"]);
+    expect(profile.riskHintPaths).toEqual(["src/auth.ts"]);
     expect(profile.frameworks).toContain("Scarb");
     expect(profile.commands.map((command) => command.command)).toContain(
       "make build",

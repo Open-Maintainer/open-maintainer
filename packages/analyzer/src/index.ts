@@ -293,6 +293,7 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
       pattern.test(path.posix.basename(repoPath)),
     ),
   );
+  const riskHintPaths = detectRiskHintPaths(paths);
   const trackedDriftPaths = new Set([
     ...commands.map((command) => command.source),
     ...ciWorkflows,
@@ -302,6 +303,7 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     ...workspaceManifests,
     ...lockfiles,
     ...configFiles,
+    ...riskHintPaths,
   ]);
   const trackedFileHashes = normalizedFiles
     .filter((file) => trackedDriftPaths.has(file.path))
@@ -322,7 +324,11 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     evidence.push({ path: repoPath, reason: "detected repository context" });
   }
 
-  const riskAreas = detectRiskAreas(paths, ciWorkflows, existingContextFiles);
+  const riskAreas = detectRiskAreas(
+    riskHintPaths,
+    ciWorkflows,
+    existingContextFiles,
+  );
   const profileBase = {
     id: newId("repo_profile"),
     repoId: input.repoId,
@@ -341,6 +347,7 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     generatedFileHints: contextArtifactPaths,
     existingContextFiles,
     detectedRiskAreas: riskAreas,
+    riskHintPaths,
     reviewRuleCandidates: buildRuleCandidates(commands, packageManager),
     evidence: dedupeEvidence(evidence),
     workspaceManifests: [...new Set(workspaceManifests)],
@@ -691,16 +698,12 @@ function detectPathGroups(paths: string[]): string[] {
 }
 
 function detectRiskAreas(
-  paths: string[],
+  riskHintPaths: string[],
   ciWorkflows: string[],
   existingContextFiles: string[],
 ): string[] {
   const riskAreas = [];
-  if (
-    paths.some((repoPath) =>
-      /auth|security|secret|payment|billing/i.test(repoPath),
-    )
-  ) {
+  if (riskHintPaths.length > 0) {
     riskAreas.push(
       "Authentication, secret, payment, or security-sensitive paths are present.",
     );
@@ -712,6 +715,12 @@ function detectRiskAreas(
     riskAreas.push("No repo-local agent context files detected.");
   }
   return riskAreas;
+}
+
+function detectRiskHintPaths(paths: string[]): string[] {
+  return paths.filter((repoPath) =>
+    /auth|security|secret|payment|billing/i.test(repoPath),
+  );
 }
 
 function buildRuleCandidates(

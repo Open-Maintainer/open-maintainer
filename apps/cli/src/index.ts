@@ -374,6 +374,15 @@ function formatDriftFinding(
   if (finding.group === "context") {
     return `drift: context artifact ${finding.subject} was ${finding.changeType}; rerun generation or review the artifact`;
   }
+  if (finding.group === "lock_config") {
+    return `drift: lockfile/config ${finding.subject} was ${finding.changeType}; review setup and validation context`;
+  }
+  if (finding.group === "boundaries") {
+    return `drift: package boundary ${finding.subject} was ${finding.changeType}; review package/app context`;
+  }
+  if (finding.group === "risk") {
+    return `drift: risk path ${finding.subject} was ${finding.changeType}; review high-risk area guidance`;
+  }
   if (finding.changeType === "added") {
     return `drift: command ${finding.subject} was added: ${JSON.stringify(
       finding.currentValue,

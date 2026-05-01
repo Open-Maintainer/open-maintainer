@@ -35,6 +35,7 @@ const profile: RepoProfile = {
   generatedFileHints: ["AGENTS.md"],
   existingContextFiles: [],
   detectedRiskAreas: [],
+  riskHintPaths: [],
   reviewRuleCandidates: [
     "Run `bun test` before finishing changes that affect test.",
   ],

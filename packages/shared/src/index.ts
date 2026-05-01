@@ -46,6 +46,7 @@ export const RepoProfileSchema = z.object({
   generatedFileHints: z.array(z.string()),
   existingContextFiles: z.array(z.string()),
   detectedRiskAreas: z.array(z.string()),
+  riskHintPaths: z.array(z.string()).default([]),
   reviewRuleCandidates: z.array(z.string()),
   evidence: z.array(EvidenceReferenceSchema),
   workspaceManifests: z.array(z.string()),
