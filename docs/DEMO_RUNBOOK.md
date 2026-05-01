@@ -243,18 +243,41 @@ bun run cli generate "$TARGET_REPO" \
 
 ## Optional Dashboard Smoke
 
-The dashboard path is secondary to the CLI demo. To verify the self-hosted stack:
+The dashboard runs the API and worker in a Docker backend image that includes Bun, Git, Codex CLI, and Claude CLI. It mounts local Codex and Claude configuration into the API container so the selected provider executable is available in the API environment.
+
+Start or rebuild the self-hosted stack:
 
 ```sh
 docker compose up --build -d
-bun run smoke:compose
-docker compose down
 ```
 
-When the stack is running, open:
+Open the dashboard:
 
 ```text
 http://localhost:3000
+```
+
+Use the dashboard controls as the equivalent of the CLI flags:
+
+| Dashboard control | CLI flag |
+| --- | --- |
+| Provider | `--model codex` or `--model claude` |
+| Model | `--llm-model` |
+| Context | `--context codex`, `--context claude`, or `--context both` |
+| Skills | `--skills codex`, `--skills claude`, or `--skills both` |
+
+The provider setup step fails if the selected CLI executable is not available in the API container. Confirm the container can see both commands when needed:
+
+```sh
+docker exec open-maintainer-api-1 codex --version
+docker exec open-maintainer-api-1 claude --version
+```
+
+To run the compose smoke gate:
+
+```sh
+bun run smoke:compose
+docker compose down
 ```
 
 The API listens on:

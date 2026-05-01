@@ -1,0 +1,10 @@
+.git
+.next
+apps/web/.next
+coverage
+dist
+build
+node_modules
+**/node_modules
+*.log
+.DS_Store

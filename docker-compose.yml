@@ -24,7 +24,9 @@ services:
       retries: 20
 
   api:
-    image: oven/bun:1
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
     working_dir: /app
     command: sh -c "bun install && bun run dev:api"
     env_file: .env
@@ -32,8 +34,13 @@ services:
       API_PORT: 4000
       DATABASE_URL: postgres://open_maintainer:open_maintainer@postgres:5432/open_maintainer
       REDIS_URL: redis://redis:6379
+      OPEN_MAINTAINER_CODEX_MODEL: ${OPEN_MAINTAINER_CODEX_MODEL:-}
+      OPEN_MAINTAINER_CLAUDE_MODEL: ${OPEN_MAINTAINER_CLAUDE_MODEL:-}
     volumes:
       - .:/app
+      - ${HOME}/.codex:/root/.codex
+      - ${HOME}/.claude:/root/.claude
+      - ${HOME}/.config:/root/.config
     ports:
       - "4000:4000"
     depends_on:
@@ -43,7 +50,9 @@ services:
         condition: service_healthy
 
   worker:
-    image: oven/bun:1
+    build:
+      context: .
+      dockerfile: docker/backend.Dockerfile
     working_dir: /app
     command: sh -c "bun install && bun run dev:worker"
     env_file: .env
