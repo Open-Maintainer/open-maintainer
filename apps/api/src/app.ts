@@ -1,11 +1,13 @@
+import path from "node:path";
 import cors from "@fastify/cors";
+import formBody from "@fastify/formbody";
 import rateLimit from "@fastify/rate-limit";
 import {
   assertProviderConsent,
   buildProvider,
   createProviderConfig,
 } from "@open-maintainer/ai";
-import { analyzeRepo } from "@open-maintainer/analyzer";
+import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
 import {
   type ModelArtifactContent,
   type ModelSkillContent,
@@ -27,7 +29,12 @@ import {
   verifyWebhookSignature,
 } from "@open-maintainer/github";
 import type { GitHubAppInstallationAuth } from "@open-maintainer/github";
-import { newId, nowIso } from "@open-maintainer/shared";
+import {
+  type Installation,
+  type Repo,
+  newId,
+  nowIso,
+} from "@open-maintainer/shared";
 import Fastify from "fastify";
 import { z } from "zod";
 
@@ -35,10 +42,15 @@ const sensitiveRouteRateLimit = {
   max: 10,
   timeWindow: "1 minute",
 } as const;
+const UploadedRepositoryFileSchema = z.object({
+  path: z.string().min(1).max(1_000),
+  content: z.string().max(128_000),
+});
 
 export function buildApp() {
   const app = Fastify({ logger: false });
   app.register(cors, { origin: true });
+  app.register(formBody);
 
   app.get("/health", async () => {
     const [database, redis] = await Promise.all([
@@ -78,6 +90,64 @@ export function buildApp() {
     installations: [...store.installations.values()],
   }));
   app.get("/repos", async () => ({ repos: [...store.repos.values()] }));
+
+  app.register(async (limitedRoutes) => {
+    await limitedRoutes.register(rateLimit, { global: false });
+
+    limitedRoutes.post(
+      "/repos/local",
+      { config: { rateLimit: sensitiveRouteRateLimit } },
+      async (request, reply) => {
+        const body = z
+          .object({ repoRoot: z.string().min(1).max(500) })
+          .parse(request.body ?? {});
+        const repoRoot = path.resolve(body.repoRoot);
+        const files = await scanRepository(repoRoot, { maxFiles: 800 });
+        if (files.length === 0) {
+          return reply.code(422).send({
+            error:
+              "No readable repository files were found at the selected path.",
+          });
+        }
+
+        const owner = path.basename(path.dirname(repoRoot)) || "local";
+        const name = path.basename(repoRoot) || "repository";
+        const repo = registerLocalRepository({ owner, name, files });
+
+        return { repo, files: files.length };
+      },
+    );
+
+    limitedRoutes.post(
+      "/repos/local-files",
+      { config: { rateLimit: sensitiveRouteRateLimit } },
+      async (request, reply) => {
+        const body = z
+          .object({
+            name: z.string().min(1).max(120).optional(),
+            files: z.array(UploadedRepositoryFileSchema).min(1).max(800),
+          })
+          .parse(request.body ?? {});
+        const files = body.files.flatMap((file) => {
+          const normalizedPath = normalizeUploadedPath(file.path);
+          return normalizedPath ? [{ ...file, path: normalizedPath }] : [];
+        });
+        if (files.length === 0) {
+          return reply.code(422).send({
+            error:
+              "No readable repository files were provided by the selected directory.",
+          });
+        }
+
+        const repo = registerLocalRepository({
+          owner: "local",
+          name: body.name ?? "uploaded-repo",
+          files,
+        });
+        return { repo, files: files.length };
+      },
+    );
+  });
 
   app.post("/github/settings", async (request) => {
     const body = z
@@ -502,4 +572,74 @@ function githubAuthForInstallation(
     installationId,
     privateKey: Buffer.from(privateKeyBase64, "base64").toString("utf8"),
   };
+}
+
+function registerLocalRepository(input: {
+  owner: string;
+  name: string;
+  files: Array<{ path: string; content: string }>;
+}): Repo {
+  const createdAt = nowIso();
+  const installation: Installation = {
+    id: "installation_local",
+    accountLogin: "local",
+    accountType: "Local",
+    repositorySelection: "selected",
+    permissions: {
+      contents: "local",
+      metadata: "local",
+      pull_requests: "mock",
+    },
+    createdAt,
+  };
+  const repo: Repo = {
+    id: `local_${slugId(input.owner)}_${slugId(input.name)}`,
+    installationId: installation.id,
+    owner: input.owner,
+    name: input.name,
+    fullName: `${input.owner}/${input.name}`,
+    defaultBranch: "local",
+    private: true,
+    permissions: { contents: true, metadata: true, pull_requests: false },
+  };
+
+  store.installations.set(installation.id, installation);
+  store.repos.set(repo.id, repo);
+  store.repoFiles.set(repo.id, input.files);
+  store.profiles.delete(repo.id);
+  store.artifacts.delete(repo.id);
+
+  return repo;
+}
+
+function normalizeUploadedPath(value: string): string | null {
+  const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "");
+  const parts = normalized
+    .split("/")
+    .filter((part) => part.length > 0 && part !== ".");
+  if (parts.length === 0 || parts.some((part) => part === "..")) {
+    return null;
+  }
+  return parts.join("/");
+}
+
+function slugId(value: string): string {
+  let slug = "";
+  let needsSeparator = false;
+
+  for (const character of value.toLowerCase()) {
+    const isAsciiLetter = character >= "a" && character <= "z";
+    const isDigit = character >= "0" && character <= "9";
+    if (isAsciiLetter || isDigit) {
+      if (needsSeparator && slug.length > 0) {
+        slug += "_";
+      }
+      slug += character;
+      needsSeparator = false;
+    } else {
+      needsSeparator = slug.length > 0;
+    }
+  }
+
+  return slug || "repo";
 }

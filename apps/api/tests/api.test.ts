@@ -27,6 +27,67 @@ describe("MVP API", () => {
     await expectPostRouteIsRateLimited("/repos/missing/open-context-pr");
   });
 
+  it("accepts browser form submissions for dashboard actions", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/repos/repo_demo/open-context-pr",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: "",
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json().error).toBe("No repo profile available.");
+  });
+
+  it("registers a local filesystem repository for dashboard selection", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/repos/local",
+      payload: { repoRoot: `${process.cwd()}/tests/fixtures/low-context-ts` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().repo.id).toBe("local_fixtures_low_context_ts");
+    expect(response.json().files).toBeGreaterThan(0);
+
+    const analysis = await app.inject({
+      method: "POST",
+      url: "/repos/local_fixtures_low_context_ts/analyze",
+    });
+    expect(analysis.statusCode).toBe(200);
+    expect(analysis.json().profile.name).toBe("low-context-ts");
+  });
+
+  it("registers browser-uploaded repository files for dashboard selection", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/repos/local-files",
+      payload: {
+        name: "uploaded-tool",
+        files: [
+          {
+            path: "package.json",
+            content: JSON.stringify({
+              scripts: { test: "bun test" },
+              dependencies: { fastify: "latest" },
+            }),
+          },
+          { path: "README.md", content: "# Uploaded Tool\n" },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().repo.id).toBe("local_local_uploaded_tool");
+
+    const analysis = await app.inject({
+      method: "POST",
+      url: "/repos/local_local_uploaded_tool/analyze",
+    });
+    expect(analysis.statusCode).toBe(200);
+    expect(analysis.json().profile.frameworks).toContain("fastify");
+  });
+
   it("persists verified GitHub installation webhooks and exposes repos", async () => {
     const payload = JSON.stringify({
       installation: {
