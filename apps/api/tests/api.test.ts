@@ -22,6 +22,11 @@ describe("MVP API", () => {
     expect(response.json().worker).toBe("ok");
   });
 
+  it("rate-limits repo actions that can use GitHub installation authorization", async () => {
+    await expectPostRouteIsRateLimited("/repos/missing/analyze");
+    await expectPostRouteIsRateLimited("/repos/missing/open-context-pr");
+  });
+
   it("persists verified GitHub installation webhooks and exposes repos", async () => {
     const payload = JSON.stringify({
       installation: {
@@ -275,3 +280,19 @@ describe("MVP API", () => {
     expect(pr.json().contextPr.branchName).toBe("open-maintainer/context-1");
   });
 });
+
+async function expectPostRouteIsRateLimited(url: string): Promise<void> {
+  const limitedApp = buildApp();
+  await limitedApp.ready();
+  try {
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      const response = await limitedApp.inject({ method: "POST", url });
+      expect(response.statusCode).not.toBe(429);
+    }
+
+    const response = await limitedApp.inject({ method: "POST", url });
+    expect(response.statusCode).toBe(429);
+  } finally {
+    await limitedApp.close();
+  }
+}

@@ -1,4 +1,5 @@
 import cors from "@fastify/cors";
+import rateLimit from "@fastify/rate-limit";
 import {
   assertProviderConsent,
   buildProvider,
@@ -29,6 +30,11 @@ import type { GitHubAppInstallationAuth } from "@open-maintainer/github";
 import { newId, nowIso } from "@open-maintainer/shared";
 import Fastify from "fastify";
 import { z } from "zod";
+
+const sensitiveRouteRateLimit = {
+  max: 10,
+  timeWindow: "1 minute",
+} as const;
 
 export function buildApp() {
   const app = Fastify({ logger: false });
@@ -127,66 +133,76 @@ export function buildApp() {
     return { ok: true, installation: event.installation, repos: event.repos };
   });
 
-  app.post("/repos/:repoId/analyze", async (request, reply) => {
-    const { repoId } = z.object({ repoId: z.string() }).parse(request.params);
-    const repo = store.repos.get(repoId);
-    if (!repo) {
-      return reply.code(404).send({ error: "Unknown repo." });
-    }
-    const run = store.recordRun({
-      repoId,
-      type: "analysis",
-      status: "running",
-      inputSummary: `Analyze ${repo.fullName}`,
-      safeMessage: null,
-      artifactVersions: [],
-      repoProfileVersion: null,
-      provider: null,
-      model: null,
-      externalId: null,
-    });
-    let files = store.repoFiles.get(repoId) ?? [];
-    if (files.length === 0) {
-      const auth = githubAuthForInstallation(repo.installationId);
-      if (!auth) {
+  app.register(async (limitedRoutes) => {
+    await limitedRoutes.register(rateLimit, { global: false });
+
+    limitedRoutes.post(
+      "/repos/:repoId/analyze",
+      { config: { rateLimit: sensitiveRouteRateLimit } },
+      async (request, reply) => {
+        const { repoId } = z
+          .object({ repoId: z.string() })
+          .parse(request.params);
+        const repo = store.repos.get(repoId);
+        if (!repo) {
+          return reply.code(404).send({ error: "Unknown repo." });
+        }
+        const run = store.recordRun({
+          repoId,
+          type: "analysis",
+          status: "running",
+          inputSummary: `Analyze ${repo.fullName}`,
+          safeMessage: null,
+          artifactVersions: [],
+          repoProfileVersion: null,
+          provider: null,
+          model: null,
+          externalId: null,
+        });
+        let files = store.repoFiles.get(repoId) ?? [];
+        if (files.length === 0) {
+          const auth = githubAuthForInstallation(repo.installationId);
+          if (!auth) {
+            store.updateRun(run.id, {
+              status: "failed",
+              safeMessage:
+                "Repository files are unavailable. Configure GitHub App credentials with contents read permission or seed local files for development.",
+            });
+            return reply.code(409).send({
+              error: store.runs.get(run.id)?.safeMessage,
+              run: store.runs.get(run.id),
+            });
+          }
+          const fetched = await fetchRepositoryFilesForAnalysis({
+            owner: repo.owner,
+            repo: repo.name,
+            ref: repo.defaultBranch,
+            auth,
+          });
+          files = fetched.files.map((file) => ({
+            path: file.path,
+            content: file.content,
+          }));
+          store.repoFiles.set(repoId, files);
+        }
+        const version = (store.profiles.get(repoId)?.length ?? 0) + 1;
+        const profile = analyzeRepo({
+          repoId,
+          owner: repo.owner,
+          name: repo.name,
+          defaultBranch: repo.defaultBranch,
+          version,
+          files,
+        });
+        store.addProfile(profile);
         store.updateRun(run.id, {
-          status: "failed",
-          safeMessage:
-            "Repository files are unavailable. Configure GitHub App credentials with contents read permission or seed local files for development.",
+          status: "succeeded",
+          repoProfileVersion: profile.version,
+          safeMessage: "Repository profile generated.",
         });
-        return reply.code(409).send({
-          error: store.runs.get(run.id)?.safeMessage,
-          run: store.runs.get(run.id),
-        });
-      }
-      const fetched = await fetchRepositoryFilesForAnalysis({
-        owner: repo.owner,
-        repo: repo.name,
-        ref: repo.defaultBranch,
-        auth,
-      });
-      files = fetched.files.map((file) => ({
-        path: file.path,
-        content: file.content,
-      }));
-      store.repoFiles.set(repoId, files);
-    }
-    const version = (store.profiles.get(repoId)?.length ?? 0) + 1;
-    const profile = analyzeRepo({
-      repoId,
-      owner: repo.owner,
-      name: repo.name,
-      defaultBranch: repo.defaultBranch,
-      version,
-      files,
-    });
-    store.addProfile(profile);
-    store.updateRun(run.id, {
-      status: "succeeded",
-      repoProfileVersion: profile.version,
-      safeMessage: "Repository profile generated.",
-    });
-    return { run: store.runs.get(run.id), profile };
+        return { run: store.runs.get(run.id), profile };
+      },
+    );
   });
 
   app.get("/repos/:repoId/profile", async (request, reply) => {
@@ -367,60 +383,70 @@ export function buildApp() {
     return { artifacts: store.artifacts.get(repoId) ?? [] };
   });
 
-  app.post("/repos/:repoId/open-context-pr", async (request, reply) => {
-    const { repoId } = z.object({ repoId: z.string() }).parse(request.params);
-    const profile = store.latestProfile(repoId);
-    if (!profile) {
-      return reply.code(409).send({ error: "No repo profile available." });
-    }
-    const artifacts = (store.artifacts.get(repoId) ?? []).filter(
-      (artifact) =>
-        artifact.type === "AGENTS.md" ||
-        artifact.type === ".open-maintainer.yml",
+  app.register(async (limitedRoutes) => {
+    await limitedRoutes.register(rateLimit, { global: false });
+
+    limitedRoutes.post(
+      "/repos/:repoId/open-context-pr",
+      { config: { rateLimit: sensitiveRouteRateLimit } },
+      async (request, reply) => {
+        const { repoId } = z
+          .object({ repoId: z.string() })
+          .parse(request.params);
+        const profile = store.latestProfile(repoId);
+        if (!profile) {
+          return reply.code(409).send({ error: "No repo profile available." });
+        }
+        const artifacts = (store.artifacts.get(repoId) ?? []).filter(
+          (artifact) =>
+            artifact.type === "AGENTS.md" ||
+            artifact.type === ".open-maintainer.yml",
+        );
+        if (artifacts.length < 2) {
+          return reply
+            .code(409)
+            .send({ error: "Generate artifacts before opening a context PR." });
+        }
+        const run = store.recordRun({
+          repoId,
+          type: "context_pr",
+          status: "running",
+          inputSummary: "Open context PR from approved artifact versions.",
+          safeMessage: null,
+          artifactVersions: artifacts.map((artifact) => artifact.version),
+          repoProfileVersion: profile.version,
+          provider: artifacts[0]?.modelProvider ?? null,
+          model: artifacts[0]?.model ?? null,
+          externalId: null,
+        });
+        const repo = store.repos.get(repoId);
+        if (!repo) {
+          return reply.code(404).send({ error: "Unknown repo." });
+        }
+        const auth = githubAuthForInstallation(repo.installationId);
+        const contextPr = await createContextPr({
+          repoId,
+          owner: repo.owner,
+          repo: repo.name,
+          defaultBranch: repo.defaultBranch,
+          profileVersion: profile.version,
+          artifacts,
+          runReference: run.id,
+          generatedAt: nowIso(),
+          mock: !auth,
+          ...(auth ? { auth } : {}),
+        });
+        store.contextPrs.set(contextPr.id, contextPr);
+        store.updateRun(run.id, {
+          status: "succeeded",
+          safeMessage: auth
+            ? `Opened context PR at ${contextPr.prUrl}.`
+            : `Created development mock context PR at ${contextPr.prUrl}; configure GitHub App credentials for a real PR.`,
+          externalId: contextPr.prUrl,
+        });
+        return { run: store.runs.get(run.id), contextPr };
+      },
     );
-    if (artifacts.length < 2) {
-      return reply
-        .code(409)
-        .send({ error: "Generate artifacts before opening a context PR." });
-    }
-    const run = store.recordRun({
-      repoId,
-      type: "context_pr",
-      status: "running",
-      inputSummary: "Open context PR from approved artifact versions.",
-      safeMessage: null,
-      artifactVersions: artifacts.map((artifact) => artifact.version),
-      repoProfileVersion: profile.version,
-      provider: artifacts[0]?.modelProvider ?? null,
-      model: artifacts[0]?.model ?? null,
-      externalId: null,
-    });
-    const repo = store.repos.get(repoId);
-    if (!repo) {
-      return reply.code(404).send({ error: "Unknown repo." });
-    }
-    const auth = githubAuthForInstallation(repo.installationId);
-    const contextPr = await createContextPr({
-      repoId,
-      owner: repo.owner,
-      repo: repo.name,
-      defaultBranch: repo.defaultBranch,
-      profileVersion: profile.version,
-      artifacts,
-      runReference: run.id,
-      generatedAt: nowIso(),
-      mock: !auth,
-      ...(auth ? { auth } : {}),
-    });
-    store.contextPrs.set(contextPr.id, contextPr);
-    store.updateRun(run.id, {
-      status: "succeeded",
-      safeMessage: auth
-        ? `Opened context PR at ${contextPr.prUrl}.`
-        : `Created development mock context PR at ${contextPr.prUrl}; configure GitHub App credentials for a real PR.`,
-      externalId: contextPr.prUrl,
-    });
-    return { run: store.runs.get(run.id), contextPr };
   });
 
   app.get("/repos/:repoId/runs", async (request) => {

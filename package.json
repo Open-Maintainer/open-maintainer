@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",
+    "@fastify/rate-limit": "^10.3.0",
     "@open-maintainer/ai": "workspace:*",
     "@open-maintainer/analyzer": "workspace:*",
     "@open-maintainer/config": "workspace:*",
