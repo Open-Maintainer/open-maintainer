@@ -453,7 +453,7 @@ export function renderCopilotInstructions(
     "",
     "## Commands",
     "",
-    ...commandLines(profile).map((command) => `- ${command}`),
+    ...resolvedCommands(profile, output).map((command) => `- ${command}`),
     "",
     "## Review Rules",
     "",
@@ -479,7 +479,7 @@ export function renderCursorRule(
     "",
     "Use these commands when they apply:",
     "",
-    ...commandLines(profile).map((command) => `- ${command}`),
+    ...resolvedCommands(profile, output).map((command) => `- ${command}`),
     "",
     "Follow these review rules:",
     "",
@@ -1320,15 +1320,14 @@ export function parseModelSkillContent(text: string): ModelSkillContent {
 }
 
 export function profileFingerprint(profile: RepoProfile): string {
+  const { generatedAt: _generatedAt, ...agentReadiness } =
+    profile.agentReadiness;
+  const { createdAt: _createdAt, ...fingerprintedProfile } = profile;
   return createHash("sha256")
     .update(
       JSON.stringify({
-        owner: profile.owner,
-        name: profile.name,
-        defaultBranch: profile.defaultBranch,
-        commands: profile.commands,
-        docs: profile.importantDocs,
-        paths: profile.architecturePathGroups,
+        ...fingerprintedProfile,
+        agentReadiness,
       }),
     )
     .digest("hex")
@@ -1371,6 +1370,13 @@ function commandLines(profile: RepoProfile): string[] {
   return profile.commands.map(
     (command) => `${command.name}: ${command.command} (${command.source})`,
   );
+}
+
+function resolvedCommands(
+  profile: RepoProfile,
+  output: StructuredContextOutput,
+): string[] {
+  return output.commands.length > 0 ? output.commands : commandLines(profile);
 }
 
 function formatCommandFact(command: z.infer<typeof CommandFactSchema>): string {

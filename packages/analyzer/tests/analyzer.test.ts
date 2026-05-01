@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -26,6 +26,10 @@ describe("analyzeRepo", () => {
             workspaces: ["apps/*"],
             dependencies: { next: "15.0.0" },
           }),
+        },
+        {
+          path: "packages/npm-tool/package.json",
+          content: JSON.stringify({ scripts: { test: "npm test" } }),
         },
         { path: "bun.lock", content: "" },
         {
@@ -64,6 +68,9 @@ describe("analyzeRepo", () => {
     expect(profile.commands.map((command) => command.command)).toContain(
       "cd contracts && snforge test",
     );
+    expect(profile.commands.map((command) => command.command)).toContain(
+      "cd packages/npm-tool && npm test",
+    );
     expect(profile.agentReadiness.score).toBeGreaterThan(40);
     expect(profile.generatedFileHints).not.toContain(
       ".claude/skills/repo-overview/SKILL.md",
@@ -86,9 +93,16 @@ describe("analyzeRepo", () => {
       JSON.stringify({ scripts: { test: "bun test" } }),
     );
     await writeFile(path.join(root, "src/index.ts"), "export const ok = true;");
+    await writeFile(path.join(root, "src/unreadable.ts"), "skip me");
+    await chmod(path.join(root, "src/unreadable.ts"), 0o000);
     await writeFile(path.join(root, "node_modules/pkg/index.js"), "ignored");
 
-    const files = await scanRepository(root);
+    let files: Awaited<ReturnType<typeof scanRepository>> = [];
+    try {
+      files = await scanRepository(root);
+    } finally {
+      await chmod(path.join(root, "src/unreadable.ts"), 0o644);
+    }
 
     expect(files.map((file) => file.path).sort()).toEqual([
       "README.md",

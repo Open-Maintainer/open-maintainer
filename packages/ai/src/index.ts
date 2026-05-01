@@ -345,15 +345,19 @@ function extractClaudeOutput(stdout: string): string {
   if (!trimmed.startsWith("{")) {
     return trimmed;
   }
-  const parsed = JSON.parse(trimmed) as {
-    structured_output?: unknown;
-    result?: unknown;
-  };
-  if (parsed.structured_output !== undefined) {
-    return JSON.stringify(parsed.structured_output);
-  }
-  if (typeof parsed.result === "string") {
-    return parsed.result;
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      structured_output?: unknown;
+      result?: unknown;
+    };
+    if (parsed.structured_output !== undefined) {
+      return JSON.stringify(parsed.structured_output);
+    }
+    if (typeof parsed.result === "string") {
+      return parsed.result;
+    }
+  } catch {
+    return trimmed;
   }
   return trimmed;
 }

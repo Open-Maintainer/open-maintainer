@@ -56,4 +56,21 @@ describe("CLI help", () => {
     expect(result.stdout).toContain("--skills codex|claude|both");
     expect(result.stdout).toContain("--allow-write");
   });
+
+  it("rejects missing and invalid option values", async () => {
+    const missing = await runCli(["audit", ".", "--report-path"]);
+    expect(missing.exitCode).toBe(1);
+    expect(missing.stderr).toContain("Missing value for --report-path.");
+
+    const invalid = await runCli([
+      "audit",
+      ".",
+      "--fail-on-score-below",
+      "not-a-number",
+    ]);
+    expect(invalid.exitCode).toBe(1);
+    expect(invalid.stderr).toContain(
+      "Invalid value for --fail-on-score-below.",
+    );
+  });
 });

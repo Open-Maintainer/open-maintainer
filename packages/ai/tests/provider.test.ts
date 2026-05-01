@@ -226,4 +226,25 @@ process.stdout.write(JSON.stringify({ ok: true, source: "claude" }));
     expect(JSON.parse(result.text)).toEqual({ ok: true, source: "claude" });
     expect(result.model).toBe("claude-cli");
   });
+
+  it("returns malformed Claude JSON output for caller validation", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "claude-provider-bad-json-test-"),
+    );
+    const command = path.join(directory, "fake-claude.js");
+    await writeFile(
+      command,
+      `#!/usr/bin/env node
+process.stdout.write("{not valid json");
+`,
+    );
+    await chmod(command, 0o755);
+
+    const result = await buildClaudeCliProvider({
+      command,
+      cwd: directory,
+    }).complete({ system: "Return JSON.", user: "Use schema." });
+
+    expect(result.text).toBe("{not valid json");
+  });
 });

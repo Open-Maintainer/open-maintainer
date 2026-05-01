@@ -209,8 +209,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         await generate(repoRoot, options);
         return 0;
       case "init": {
-        const { profile } = await audit(repoRoot, options);
+        await audit(repoRoot, options);
         await generate(repoRoot, options);
+        const { profile } = await audit(repoRoot, options);
         console.log(
           `Initialized Open Maintainer context at score ${profile.agentReadiness.score}/100.`,
         );
@@ -543,30 +544,39 @@ function parseOptions(rawOptions: string[]): CliOptions {
     } else if (option === "--create") {
       options.createPr = true;
     } else if (option === "--fail-on-score-below") {
-      options.failOnScoreBelow = Number(rawOptions[index + 1]);
+      const value = requireOptionValue(rawOptions, index, option);
+      const threshold = Number(value);
+      if (!Number.isFinite(threshold)) {
+        throw new Error(
+          "Invalid value for --fail-on-score-below. Expected a number.",
+        );
+      }
+      options.failOnScoreBelow = threshold;
       index += 1;
     } else if (option === "--report-path") {
-      options.reportPath = rawOptions[index + 1] ?? null;
+      options.reportPath = requireOptionValue(rawOptions, index, option);
       index += 1;
     } else if (option === "--no-profile-write") {
       options.noProfileWrite = true;
     } else if (option === "--model") {
-      options.model = parseArtifactModel(rawOptions[index + 1] ?? "");
+      options.model = parseArtifactModel(
+        requireOptionValue(rawOptions, index, option),
+      );
       index += 1;
     } else if (option === "--context") {
       options.context = parseArtifactSelection(
-        rawOptions[index + 1] ?? "",
+        requireOptionValue(rawOptions, index, option),
         "--context",
       );
       index += 1;
     } else if (option === "--skills") {
       options.skills = parseArtifactSelection(
-        rawOptions[index + 1] ?? "",
+        requireOptionValue(rawOptions, index, option),
         "--skills",
       );
       index += 1;
     } else if (option === "--llm-model") {
-      options.llmModel = rawOptions[index + 1] ?? null;
+      options.llmModel = requireOptionValue(rawOptions, index, option);
       index += 1;
     } else if (option === "--deterministic") {
       options.deterministic = true;
@@ -577,6 +587,18 @@ function parseOptions(rawOptions: string[]): CliOptions {
     }
   }
   return options;
+}
+
+function requireOptionValue(
+  rawOptions: string[],
+  index: number,
+  flag: string,
+): string {
+  const value = rawOptions[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`Missing value for ${flag}.`);
+  }
+  return value;
 }
 
 function isHelpToken(value: string | undefined): boolean {

@@ -713,10 +713,12 @@ process.exit(2);
         repoContentConsent: false,
       },
     });
+    expect(providerWithoutConsent.statusCode).toBe(200);
+    const blockedProviderId = providerWithoutConsent.json().provider.id;
     const blocked = await app.inject({
       method: "POST",
       url: "/repos/repo_demo/generate-context",
-      payload: { providerId: providerWithoutConsent.json().provider.id },
+      payload: { providerId: blockedProviderId },
     });
     expect(blocked.statusCode).toBe(403);
     const retry = await app.inject({
@@ -726,11 +728,17 @@ process.exit(2);
     expect(retry.json().run.status).toBe("queued");
 
     const providerCalls: string[] = [];
+    let providerRequestCount = 0;
     const server = createServer((request, response) => {
-      request.on("data", (chunk) => providerCalls.push(String(chunk)));
+      let requestBody = "";
+      request.on("data", (chunk) => {
+        requestBody += String(chunk);
+      });
       request.on("end", () => {
+        providerCalls.push(requestBody);
+        providerRequestCount += 1;
         const content =
-          providerCalls.length === 1
+          providerRequestCount === 1
             ? JSON.stringify({
                 summary:
                   "demo-org/demo-repo is a Bun TypeScript repository inferred from the analyzed profile.",
@@ -830,7 +838,7 @@ process.exit(2);
                 documentationAlignment: [],
                 unknowns: ["No PR template was detected."],
               })
-            : providerCalls.length === 2
+            : providerRequestCount === 2
               ? JSON.stringify({
                   agentsMd:
                     "# AGENTS.md instructions for demo-org/demo-repo\n\nLLM-generated repository instructions with Bun, Fastify, Next.js, and CI context.",
@@ -896,7 +904,9 @@ process.exit(2);
       url: "/repos/repo_demo/generate-context",
       payload: { providerId: consentedProvider.json().provider.id },
     });
-    server.close();
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
     expect(generated.statusCode).toBe(200);
     expect(generated.json().artifacts).toHaveLength(7);
     expect(generated.json().artifacts[0].content).toContain("LLM-generated");

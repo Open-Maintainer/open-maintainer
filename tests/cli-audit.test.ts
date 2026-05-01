@@ -1,4 +1,4 @@
-import { cp, mkdtemp } from "node:fs/promises";
+import { cp, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -55,5 +55,31 @@ describe("CLI audit", () => {
     expect(result.stdout).toContain(
       "- Add `CONTRIBUTING.md` with PR workflow, review rules, and validation commands.",
     );
+  });
+
+  it("re-audits after init generates context artifacts", async () => {
+    const workdir = await mkdtemp(path.join(tmpdir(), "open-maintainer-init-"));
+    await cp(fixtureRoot, workdir, { recursive: true });
+
+    const result = await runCli([
+      "init",
+      workdir,
+      "--deterministic",
+      "--context",
+      "codex",
+      "--skills",
+      "codex",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    const profile = JSON.parse(
+      await readFile(
+        path.join(workdir, ".open-maintainer/profile.json"),
+        "utf8",
+      ),
+    ) as { existingContextFiles: string[] };
+    expect(profile.existingContextFiles).toContain("AGENTS.md");
+    expect(profile.existingContextFiles).toContain(".open-maintainer.yml");
   });
 });

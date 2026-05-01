@@ -258,19 +258,8 @@ export function buildApp() {
           externalId: null,
         });
         let files = store.repoFiles.get(repoId) ?? [];
-        if (files.length === 0) {
-          const auth = githubAuthForInstallation(repo.installationId);
-          if (!auth) {
-            store.updateRun(run.id, {
-              status: "failed",
-              safeMessage:
-                "Repository files are unavailable. Configure GitHub App credentials with contents read permission or seed local files for development.",
-            });
-            return reply.code(409).send({
-              error: store.runs.get(run.id)?.safeMessage,
-              run: store.runs.get(run.id),
-            });
-          }
+        const auth = githubAuthForInstallation(repo.installationId);
+        if (auth) {
           const fetched = await fetchRepositoryFilesForAnalysis({
             owner: repo.owner,
             repo: repo.name,
@@ -282,6 +271,16 @@ export function buildApp() {
             content: file.content,
           }));
           store.repoFiles.set(repoId, files);
+        } else if (files.length === 0) {
+          store.updateRun(run.id, {
+            status: "failed",
+            safeMessage:
+              "Repository files are unavailable. Configure GitHub App credentials with contents read permission or seed local files for development.",
+          });
+          return reply.code(409).send({
+            error: store.runs.get(run.id)?.safeMessage,
+            run: store.runs.get(run.id),
+          });
         }
         const version = (store.profiles.get(repoId)?.length ?? 0) + 1;
         const profile = analyzeRepo({

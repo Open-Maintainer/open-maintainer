@@ -112,7 +112,9 @@ export async function scanRepository(
     if (files.length >= maxFiles) {
       return;
     }
-    const entries = await readdir(directory, { withFileTypes: true });
+    const entries = await readdir(directory, { withFileTypes: true }).catch(
+      () => [],
+    );
     entries.sort((left, right) => left.name.localeCompare(right.name));
     for (const entry of entries) {
       if (files.length >= maxFiles) {
@@ -132,14 +134,18 @@ export async function scanRepository(
       if (!entry.isFile() || !shouldReadFile(relativePath)) {
         continue;
       }
-      const fileStat = await stat(absolutePath);
+      const fileStat = await stat(absolutePath).catch(() => null);
+      if (!fileStat) {
+        continue;
+      }
       if (fileStat.size > maxBytesPerFile) {
         continue;
       }
-      files.push({
-        path: relativePath,
-        content: await readFile(absolutePath, "utf8"),
-      });
+      const content = await readFile(absolutePath, "utf8").catch(() => null);
+      if (content === null) {
+        continue;
+      }
+      files.push({ path: relativePath, content });
     }
   }
 
@@ -553,7 +559,7 @@ function commandForSource(
   if (source === "package.json") {
     return command;
   }
-  return `bun run --cwd ${path.posix.dirname(source)} ${name}`;
+  return `cd ${path.posix.dirname(source)} && ${command}`;
 }
 
 function parseJson(content: string): unknown | null {

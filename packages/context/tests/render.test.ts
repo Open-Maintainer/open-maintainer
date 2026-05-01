@@ -9,7 +9,10 @@ import {
   parseModelArtifactContent,
   parseModelSkillContent,
   parseStructuredRepoFacts,
+  profileFingerprint,
   renderAgentsMd,
+  renderCopilotInstructions,
+  renderCursorRule,
   renderOpenMaintainerYaml,
   structuredContextOutputFromRepoFacts,
 } from "../src";
@@ -192,6 +195,42 @@ describe("context renderers", () => {
 
     expect(rendered).toContain("# AGENTS.md instructions for acme/tool");
     expect(rendered).toContain("- Use Bun.");
+  });
+
+  it("uses structured commands across editor instruction artifacts", () => {
+    const output = {
+      summary: "A repo.",
+      qualityRules: ["Use Bun."],
+      commands: ["verify: bun test && bun lint"],
+      notes: [],
+    };
+
+    expect(renderCopilotInstructions(profile, output)).toContain(
+      "- verify: bun test && bun lint",
+    );
+    expect(renderCursorRule(profile, output)).toContain(
+      "- verify: bun test && bun lint",
+    );
+  });
+
+  it("fingerprints profile fields that feed generated artifacts", () => {
+    const withRisk = {
+      ...profile,
+      detectedRiskAreas: ["Do not edit lockfiles."],
+    };
+    const withDifferentTimestamp = {
+      ...profile,
+      createdAt: "2026-05-01T00:00:00.000Z",
+      agentReadiness: {
+        ...profile.agentReadiness,
+        generatedAt: "2026-05-01T00:00:00.000Z",
+      },
+    };
+
+    expect(profileFingerprint(withRisk)).not.toBe(profileFingerprint(profile));
+    expect(profileFingerprint(withDifferentTimestamp)).toBe(
+      profileFingerprint(profile),
+    );
   });
 
   it("renders valid .open-maintainer.yml", () => {

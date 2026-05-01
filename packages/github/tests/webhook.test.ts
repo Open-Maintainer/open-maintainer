@@ -204,6 +204,8 @@ describe("github helpers", () => {
     });
 
     expect(shouldSkipRepositoryPath("node_modules/pkg/index.js")).toBe(true);
+    expect(shouldSkipRepositoryPath("bun.lock")).toBe(false);
+    expect(shouldSkipRepositoryPath("Cargo.lock")).toBe(false);
     expect(fetched.files.map((file) => file.path)).toEqual([
       "README.md",
       "src/second.ts",
@@ -222,7 +224,7 @@ describe("github helpers", () => {
     ]);
   });
 
-  it("updates a context branch, writes only generated context files, and updates an existing PR", async () => {
+  it("updates a context branch, preserves existing context files, and updates an existing PR", async () => {
     const updatedRefs: Array<{ ref: string; sha: string; force: boolean }> = [];
     const writes: Array<{
       path: string;
@@ -339,12 +341,6 @@ describe("github helpers", () => {
     ]);
     expect(writes).toEqual([
       {
-        path: "AGENTS.md",
-        branch: branchName,
-        sha: "agents-existing-sha",
-        content: Buffer.from("# Agent instructions").toString("base64"),
-      },
-      {
         path: ".open-maintainer.yml",
         branch: branchName,
         content: Buffer.from("generated:\n  artifactVersion: 3\n").toString(
@@ -354,9 +350,10 @@ describe("github helpers", () => {
     ]);
     expect(updatedPulls[0]?.pull_number).toBe(12);
     expect(updatedPulls[0]?.body).toContain("Dashboard run: run_1");
+    expect(updatedPulls[0]?.body).not.toContain("AGENTS.md");
     expect(contextPr.branchName).toBe(branchName);
-    expect(contextPr.commitSha).toBe("commit-2");
+    expect(contextPr.commitSha).toBe("commit-1");
     expect(contextPr.prNumber).toBe(12);
-    expect(contextPr.artifactVersions).toEqual([2, 3]);
+    expect(contextPr.artifactVersions).toEqual([3]);
   });
 });
