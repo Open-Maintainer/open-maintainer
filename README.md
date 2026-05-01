@@ -15,7 +15,10 @@ The dashboard and self-hosted GitHub App flow remain available as a secondary pa
 Prerequisites:
 
 - Bun 1.1 or newer
+- Git
 - A fresh checkout of this repository
+- Codex CLI installed and logged in for `--model codex`, or Claude Code CLI
+  installed and logged in for `--model claude`
 
 Install dependencies:
 
@@ -142,7 +145,12 @@ connect GitHub -> analyze repo -> generate context -> preview -> open context PR
 Prerequisites:
 
 - Docker Compose
+- Git
 - Bun 1.1 or newer for local quality gates
+- Codex CLI or Claude Code CLI credentials mounted into the API container for
+  real context generation
+- GitHub CLI (`gh`) authentication, or `GH_TOKEN` in `.env`, for context PR
+  creation from local Git checkouts
 - A GitHub App for real installation testing
 - Optional local OpenAI-compatible endpoint such as Ollama or vLLM
 
