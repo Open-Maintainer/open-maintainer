@@ -218,6 +218,49 @@ describe("context renderers", () => {
       ...profile,
       detectedRiskAreas: ["Do not edit lockfiles."],
     };
+    const afterGeneratedContext = {
+      ...profile,
+      existingContextFiles: [
+        "AGENTS.md",
+        ".agents/skills/tool-start-task/SKILL.md",
+        ".open-maintainer.yml",
+      ],
+      detectedRiskAreas: ["No repo-local agent context files detected."],
+      evidence: [
+        ...profile.evidence,
+        { path: "AGENTS.md", reason: "detected repository context" },
+        {
+          path: ".agents/skills/tool-start-task/SKILL.md",
+          reason: "detected repository context",
+        },
+        {
+          path: ".open-maintainer.yml",
+          reason: "detected repository context",
+        },
+      ],
+      agentReadiness: {
+        ...profile.agentReadiness,
+        score: 79,
+        categories: [
+          ...profile.agentReadiness.categories,
+          {
+            name: "safety and review rules" as const,
+            score: 20,
+            maxScore: 20 as const,
+            missing: [],
+            evidence: [
+              {
+                path: ".open-maintainer.yml",
+                reason: "detected repository context",
+              },
+            ],
+          },
+        ],
+        missingItems: profile.agentReadiness.missingItems.filter(
+          (item) => !item.startsWith("agent instructions:"),
+        ),
+      },
+    };
     const withDifferentTimestamp = {
       ...profile,
       createdAt: "2026-05-01T00:00:00.000Z",
@@ -228,6 +271,9 @@ describe("context renderers", () => {
     };
 
     expect(profileFingerprint(withRisk)).not.toBe(profileFingerprint(profile));
+    expect(profileFingerprint(afterGeneratedContext)).toBe(
+      profileFingerprint(profile),
+    );
     expect(profileFingerprint(withDifferentTimestamp)).toBe(
       profileFingerprint(profile),
     );

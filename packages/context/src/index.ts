@@ -1320,18 +1320,50 @@ export function parseModelSkillContent(text: string): ModelSkillContent {
 }
 
 export function profileFingerprint(profile: RepoProfile): string {
-  const { generatedAt: _generatedAt, ...agentReadiness } =
-    profile.agentReadiness;
-  const { createdAt: _createdAt, ...fingerprintedProfile } = profile;
   return createHash("sha256")
-    .update(
-      JSON.stringify({
-        ...fingerprintedProfile,
-        agentReadiness,
-      }),
-    )
+    .update(JSON.stringify(fingerprintableProfile(profile)))
     .digest("hex")
     .slice(0, 16);
+}
+
+function fingerprintableProfile(profile: RepoProfile) {
+  return {
+    repoId: profile.repoId,
+    owner: profile.owner,
+    name: profile.name,
+    defaultBranch: profile.defaultBranch,
+    primaryLanguages: profile.primaryLanguages,
+    frameworks: profile.frameworks,
+    packageManager: profile.packageManager,
+    commands: profile.commands,
+    ciWorkflows: profile.ciWorkflows,
+    importantDocs: profile.importantDocs,
+    architecturePathGroups: profile.architecturePathGroups,
+    generatedFileHints: profile.generatedFileHints,
+    detectedRiskAreas: profile.detectedRiskAreas.filter(
+      (area) => area !== "No repo-local agent context files detected.",
+    ),
+    reviewRuleCandidates: profile.reviewRuleCandidates,
+    evidence: profile.evidence.filter(
+      (item) => !isContextArtifactPath(item.path),
+    ),
+    workspaceManifests: profile.workspaceManifests,
+    lockfiles: profile.lockfiles,
+    configFiles: profile.configFiles,
+    agentReadiness: {
+      categories: profile.agentReadiness.categories.filter((category) =>
+        ["setup clarity", "architecture clarity", "testing and CI"].includes(
+          category.name,
+        ),
+      ),
+      missingItems: profile.agentReadiness.missingItems.filter(
+        (item) =>
+          !item.startsWith("agent instructions:") &&
+          item !==
+            "safety and review rules: .open-maintainer.yml policy file is missing.",
+      ),
+    },
+  };
 }
 
 export function planArtifactWrites(input: {
@@ -1413,6 +1445,22 @@ function skillSlugFromPath(path: string): string | null {
     /^\.(?:agents|claude)\/skills\/(?<slug>[a-z0-9][a-z0-9-]*)\/SKILL\.md$/.exec(
       path,
     )?.groups?.slug ?? null
+  );
+}
+
+function isContextArtifactPath(path: string): boolean {
+  return (
+    [
+      "AGENTS.md",
+      "CLAUDE.md",
+      ".open-maintainer.yml",
+      ".github/copilot-instructions.md",
+      ".cursor/rules/open-maintainer.md",
+      ".open-maintainer/profile.json",
+      ".open-maintainer/report.md",
+    ].includes(path) ||
+    path.startsWith(".agents/skills/") ||
+    path.startsWith(".claude/skills/")
   );
 }
 

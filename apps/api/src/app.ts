@@ -257,31 +257,21 @@ export function buildApp() {
           model: null,
           externalId: null,
         });
-        let files = store.repoFiles.get(repoId) ?? [];
-        const auth = githubAuthForInstallation(repo.installationId);
-        if (auth) {
-          const fetched = await fetchRepositoryFilesForAnalysis({
-            owner: repo.owner,
-            repo: repo.name,
-            ref: repo.defaultBranch,
-            auth,
-          });
-          files = fetched.files.map((file) => ({
-            path: file.path,
-            content: file.content,
-          }));
-          store.repoFiles.set(repoId, files);
-        } else if (files.length === 0) {
+        const filesResult = await repositoryFilesForAnalysis({
+          repoId,
+          repo,
+        });
+        if (!filesResult.ok) {
           store.updateRun(run.id, {
             status: "failed",
-            safeMessage:
-              "Repository files are unavailable. Configure GitHub App credentials with contents read permission or seed local files for development.",
+            safeMessage: filesResult.error,
           });
           return reply.code(409).send({
             error: store.runs.get(run.id)?.safeMessage,
             run: store.runs.get(run.id),
           });
         }
+        const files = filesResult.files;
         const version = (store.profiles.get(repoId)?.length ?? 0) + 1;
         const profile = analyzeRepo({
           repoId,
@@ -560,31 +550,25 @@ export function buildApp() {
             });
           }
         }
-        const auth = githubAuthForInstallation(repo.installationId);
-        if (!auth) {
+        const remoteContextPr = await createGitHubAppContextPr({
+          repoId,
+          repo,
+          profile,
+          artifacts,
+          runId: run.id,
+        });
+        if (!remoteContextPr.ok) {
           store.updateRun(run.id, {
             status: "failed",
-            safeMessage:
-              "GitHub App credentials are required to open a real context PR for this repository.",
+            safeMessage: remoteContextPr.error,
             externalId: null,
           });
-          return reply.code(422).send({
+          return reply.code(remoteContextPr.statusCode).send({
             error: store.runs.get(run.id)?.safeMessage,
             run: store.runs.get(run.id),
           });
         }
-        const contextPr = await createContextPr({
-          repoId,
-          owner: repo.owner,
-          repo: repo.name,
-          defaultBranch: repo.defaultBranch,
-          profileVersion: profile.version,
-          artifacts,
-          runReference: run.id,
-          generatedAt: nowIso(),
-          mock: false,
-          auth,
-        });
+        const contextPr = remoteContextPr.contextPr;
         store.contextPrs.set(contextPr.id, contextPr);
         store.updateRun(run.id, {
           status: "succeeded",
@@ -1098,6 +1082,75 @@ function githubAuthForInstallation(
     appId,
     installationId,
     privateKey: Buffer.from(privateKeyBase64, "base64").toString("utf8"),
+  };
+}
+
+async function repositoryFilesForAnalysis(input: {
+  repoId: string;
+  repo: Repo;
+}): Promise<
+  | { ok: true; files: Array<{ path: string; content: string }> }
+  | { ok: false; error: string }
+> {
+  const auth = githubAuthForInstallation(input.repo.installationId);
+  if (!auth) {
+    const files = store.repoFiles.get(input.repoId) ?? [];
+    if (files.length > 0) {
+      return { ok: true, files };
+    }
+    return {
+      ok: false,
+      error:
+        "Repository files are unavailable. Configure GitHub App credentials with contents read permission or seed local files for development.",
+    };
+  }
+  const fetched = await fetchRepositoryFilesForAnalysis({
+    owner: input.repo.owner,
+    repo: input.repo.name,
+    ref: input.repo.defaultBranch,
+    auth,
+  });
+  const files = fetched.files.map((file) => ({
+    path: file.path,
+    content: file.content,
+  }));
+  store.repoFiles.set(input.repoId, files);
+  return { ok: true, files };
+}
+
+async function createGitHubAppContextPr(input: {
+  repoId: string;
+  repo: Repo;
+  profile: RepoProfile;
+  artifacts: GeneratedArtifact[];
+  runId: string;
+}): Promise<
+  | { ok: true; contextPr: Awaited<ReturnType<typeof createContextPr>> }
+  | { ok: false; statusCode: 422; error: string }
+> {
+  const auth = githubAuthForInstallation(input.repo.installationId);
+  if (!auth) {
+    return {
+      ok: false,
+      statusCode: 422,
+      error:
+        "GitHub App credentials are required to open a real context PR for this repository.",
+    };
+  }
+  return {
+    ok: true,
+    contextPr: await createContextPr({
+      repoId: input.repoId,
+      owner: input.repo.owner,
+      repo: input.repo.name,
+      defaultBranch: input.repo.defaultBranch,
+      profileVersion: input.profile.version,
+      artifacts: input.artifacts,
+      runReference: input.runId,
+      generatedAt: nowIso(),
+      mock: false,
+      auth,
+    }),
   };
 }
 
