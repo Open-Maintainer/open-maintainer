@@ -629,7 +629,10 @@ export function renderSkill(
   ].join("\n");
 }
 
-export function renderReadinessReport(profile: RepoProfile): string {
+export function renderReadinessReport(
+  profile: RepoProfile,
+  options: { driftFindings?: DriftFinding[] } = {},
+): string {
   return [
     `# Open Maintainer Report: ${profile.owner}/${profile.name}`,
     "",
@@ -648,6 +651,7 @@ export function renderReadinessReport(profile: RepoProfile): string {
       ),
       "",
     ]),
+    ...renderDriftReportSection(options.driftFindings ?? []),
     "## Commands",
     "",
     ...listOrFallback(commandLines(profile), "No commands detected."),
@@ -666,6 +670,65 @@ export function renderReadinessReport(profile: RepoProfile): string {
       "No deterministic risk hints detected.",
     ),
   ].join("\n");
+}
+
+function renderDriftReportSection(findings: DriftFinding[]): string[] {
+  if (findings.length === 0) {
+    return [];
+  }
+  return [
+    "## Drift",
+    "",
+    ...findings.map((finding) => `- ${formatReportDriftFinding(finding)}`),
+    "",
+  ];
+}
+
+function formatReportDriftFinding(finding: DriftFinding): string {
+  const action = reportDriftAction(finding.group);
+  return `${reportDriftLabel(finding.group)}: ${finding.subject} was ${finding.changeType}. Evidence: ${finding.path}. Next action: ${action}`;
+}
+
+function reportDriftLabel(group: DriftFinding["group"]): string {
+  switch (group) {
+    case "commands":
+      return "Commands";
+    case "ci":
+      return "CI workflows";
+    case "docs":
+      return "Documentation";
+    case "templates":
+      return "Issue and PR templates";
+    case "context":
+      return "Context artifacts";
+    case "lock_config":
+      return "Lockfiles and config";
+    case "boundaries":
+      return "Package boundaries";
+    case "risk":
+      return "Risk paths";
+  }
+}
+
+function reportDriftAction(group: DriftFinding["group"]): string {
+  switch (group) {
+    case "commands":
+      return "review the changed command and refresh generated context if validation expectations changed.";
+    case "ci":
+      return "review workflow validation and refresh generated context if CI expectations changed.";
+    case "docs":
+      return "review generated context against the changed docs.";
+    case "templates":
+      return "review issue and PR guidance reflected in generated context.";
+    case "context":
+      return "rerun generation or review the edited context artifact.";
+    case "lock_config":
+      return "review setup and validation context for the changed file.";
+    case "boundaries":
+      return "review package/app context for the changed boundary.";
+    case "risk":
+      return "inspect the changed risk path and update high-risk guidance if needed.";
+  }
 }
 
 export function createContextArtifacts(input: {

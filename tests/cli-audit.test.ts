@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -81,5 +81,47 @@ describe("CLI audit", () => {
     ) as { existingContextFiles: string[] };
     expect(profile.existingContextFiles).toContain("AGENTS.md");
     expect(profile.existingContextFiles).toContain(".open-maintainer.yml");
+  });
+
+  it("includes drift findings and remediation in the report", async () => {
+    const workdir = await mkdtemp(
+      path.join(tmpdir(), "open-maintainer-audit-drift-"),
+    );
+    await cp(fixtureRoot, workdir, { recursive: true });
+
+    const generate = await runCli([
+      "generate",
+      workdir,
+      "--deterministic",
+      "--context",
+      "codex",
+      "--skills",
+      "codex",
+    ]);
+    expect(generate.exitCode).toBe(0);
+
+    const packageJsonPath = path.join(workdir, "package.json");
+    const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+    packageJson.scripts.typecheck = "tsc --noEmit";
+    await writeFile(
+      packageJsonPath,
+      `${JSON.stringify(packageJson, null, 2)}\n`,
+    );
+
+    const audit = await runCli(["audit", workdir]);
+
+    expect(audit.exitCode).toBe(0);
+    expect(audit.stderr).toBe("");
+    const report = await readFile(
+      path.join(workdir, ".open-maintainer/report.md"),
+      "utf8",
+    );
+    expect(report).toContain("## Drift");
+    expect(report).toContain(
+      "Commands: package.json script typecheck was added. Evidence: package.json.",
+    );
+    expect(report).toContain(
+      "Next action: review the changed command and refresh generated context if validation expectations changed.",
+    );
   });
 });

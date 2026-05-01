@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
   buildClaudeCliProvider,
@@ -242,6 +242,15 @@ async function audit(
 ): Promise<{ profile: ReturnType<typeof analyzeRepo>; reportPath: string }> {
   const profile = await createProfile(repoRoot);
   const openMaintainerDir = path.join(repoRoot, ".open-maintainer");
+  const storedProfile = await readFile(
+    path.join(openMaintainerDir, "profile.json"),
+    "utf8",
+  )
+    .then(parseRepoProfileJson)
+    .catch(() => null);
+  const driftFindings = storedProfile
+    ? compareProfileDrift({ stored: storedProfile, current: profile })
+    : [];
   if (!options.noProfileWrite) {
     await mkdir(openMaintainerDir, { recursive: true });
     await writeFile(
@@ -260,7 +269,10 @@ async function audit(
     ? path.resolve(repoRoot, options.reportPath)
     : path.join(openMaintainerDir, "report.md");
   await mkdir(path.dirname(reportPath), { recursive: true });
-  await writeFile(reportPath, renderReadinessReport(profile));
+  await writeFile(
+    reportPath,
+    renderReadinessReport(profile, { driftFindings }),
+  );
   return { profile, reportPath };
 }
 
