@@ -155,3 +155,31 @@ describe("Quality workflows", () => {
     );
   });
 });
+
+describe("Docker Compose MVP", () => {
+  it("installs dependencies once before starting app services", async () => {
+    const compose = await readYaml("docker-compose.yml");
+    const services = compose.services;
+
+    expect(services.deps).toEqual(
+      expect.objectContaining({
+        image: "oven/bun:1",
+        working_dir: "/app",
+        command: "bun install --frozen-lockfile",
+      }),
+    );
+    expect(services.deps.volumes).toContain("node_modules:/app/node_modules");
+    expect(compose.volumes).toHaveProperty("node_modules");
+
+    for (const serviceName of ["api", "worker", "web"]) {
+      const service = services[serviceName];
+
+      expect(service.command).not.toContain("bun install");
+      expect(service.volumes).toContain("node_modules:/app/node_modules");
+    }
+
+    expect(services.api.depends_on.deps).toEqual({
+      condition: "service_completed_successfully",
+    });
+  });
+});
