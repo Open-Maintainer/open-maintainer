@@ -6,6 +6,7 @@ import type {
   RepoProfile,
   RunRecord,
 } from "@open-maintainer/shared";
+import { LocalRepoPicker } from "./LocalRepoPicker";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -39,7 +40,7 @@ type RunWithContext = RunRecord & {
   prUrl?: unknown;
 };
 
-const apiBaseUrl =
+const serverApiBaseUrl =
   process.env.API_BASE_URL ??
   process.env.NEXT_PUBLIC_API_BASE_URL ??
   "http://localhost:4000";
@@ -49,7 +50,7 @@ async function fetchJson<T>(
   init?: RequestInit,
 ): Promise<T | null> {
   try {
-    const response = await fetch(`${apiBaseUrl}${path}`, {
+    const response = await fetch(`${serverApiBaseUrl}${path}`, {
       ...init,
       cache: "no-store",
       headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
@@ -67,6 +68,7 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
   const params: SearchParams = searchParams ? await searchParams : {};
   const requestedRepo = singleParam(params.repo ?? params.repoId);
   const repoQuery = singleParam(params.q)?.trim().toLowerCase() ?? "";
+  const localRepoError = singleParam(params.localRepoError);
 
   const [health, reposResponse, providersResponse] = await Promise.all([
     fetchJson<Health>("/health"),
@@ -74,8 +76,7 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
     fetchJson<{ providers: ProviderSummary[] }>("/model-providers"),
   ]);
   const repos = reposResponse?.repos ?? [];
-  const repo =
-    selectRepo({ repos, requestedRepo, repoQuery }) ?? repos[0] ?? null;
+  const repo = selectRepo({ repos, requestedRepo, repoQuery });
   const profileResponse = repo
     ? await fetchJson<{ profile: ReadinessProfile }>(
         `/repos/${repo.id}/profile`,
@@ -122,36 +123,26 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
               <h2>Repository</h2>
               <span className="count">{repos.length} installed</span>
             </div>
+            <LocalRepoPicker error={localRepoError} />
+            {repos.length ? (
+              <div className="repo-links" aria-label="Installed repos">
+                {repos.map((installedRepo) => (
+                  <a
+                    className={
+                      installedRepo.id === repo?.id
+                        ? "repo-link active"
+                        : "repo-link"
+                    }
+                    href={`/?repo=${encodeURIComponent(installedRepo.id)}`}
+                    key={installedRepo.id}
+                  >
+                    {installedRepo.fullName}
+                  </a>
+                ))}
+              </div>
+            ) : null}
             {repo ? (
               <div className="list">
-                {repos.length > 1 ? (
-                  <div className="repo-picker">
-                    <form action="/" method="get" className="search-form">
-                      <input
-                        name="q"
-                        type="search"
-                        placeholder="Find installed repo"
-                        defaultValue={repoQuery}
-                      />
-                      <button type="submit">Search</button>
-                    </form>
-                    <div className="repo-links" aria-label="Installed repos">
-                      {repos.map((installedRepo) => (
-                        <a
-                          className={
-                            installedRepo.id === repo.id
-                              ? "repo-link active"
-                              : "repo-link"
-                          }
-                          href={`/?repo=${encodeURIComponent(installedRepo.id)}`}
-                          key={installedRepo.id}
-                        >
-                          {installedRepo.fullName}
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
                 <div className="row">
                   <div>
                     <strong>{repo.fullName}</strong>
@@ -164,22 +155,27 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                   </span>
                 </div>
                 <div className="actions">
-                  <form
-                    action={`${apiBaseUrl}/repos/${repo.id}/analyze`}
-                    method="post"
-                  >
+                  <form action="/repo-actions" method="post">
+                    <input type="hidden" name="repoId" value={repo.id} />
+                    <input type="hidden" name="actionType" value="analyze" />
                     <button type="submit">Run analysis</button>
                   </form>
-                  <form
-                    action={`${apiBaseUrl}/repos/${repo.id}/generate-context`}
-                    method="post"
-                  >
+                  <form action="/repo-actions" method="post">
+                    <input type="hidden" name="repoId" value={repo.id} />
+                    <input
+                      type="hidden"
+                      name="actionType"
+                      value="generateContext"
+                    />
                     <button type="submit">Generate context</button>
                   </form>
-                  <form
-                    action={`${apiBaseUrl}/repos/${repo.id}/open-context-pr`}
-                    method="post"
-                  >
+                  <form action="/repo-actions" method="post">
+                    <input type="hidden" name="repoId" value={repo.id} />
+                    <input
+                      type="hidden"
+                      name="actionType"
+                      value="openContextPr"
+                    />
                     <button type="submit">Open context PR</button>
                   </form>
                 </div>
@@ -431,13 +427,17 @@ function getReadiness(profile: ReadinessProfile): {
   missingItems: string[];
 } {
   const readiness = profile.readiness;
+  const agentReadiness = profile.agentReadiness;
   return {
-    score: numberValue(profile.readinessScore ?? readiness?.score),
+    score: numberValue(
+      profile.readinessScore ?? readiness?.score ?? agentReadiness.score,
+    ),
     missingItems: stringArray(
       profile.missingItems ??
         profile.readinessMissingItems ??
         readiness?.missingItems ??
-        readiness?.missing,
+        readiness?.missing ??
+        agentReadiness.missingItems,
     ),
   };
 }
@@ -550,9 +550,7 @@ function SetupMessage() {
   return (
     <div>
       <p className="muted">
-        Configure the GitHub App and install it on selected repositories.
-        Missing credentials, webhook failures, and provider consent blocks are
-        surfaced in this dashboard and API run history.
+        Choose a local repository or select an installed repository.
       </p>
     </div>
   );
