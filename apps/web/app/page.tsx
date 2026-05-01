@@ -69,6 +69,7 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
   const requestedRepo = singleParam(params.repo ?? params.repoId);
   const repoQuery = singleParam(params.q)?.trim().toLowerCase() ?? "";
   const localRepoError = singleParam(params.localRepoError);
+  const actionError = singleParam(params.actionError);
 
   const [health, reposResponse, providersResponse] = await Promise.all([
     fetchJson<Health>("/health"),
@@ -179,6 +180,9 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                     <button type="submit">Open context PR</button>
                   </form>
                 </div>
+                {actionError ? (
+                  <p className="error">{actionErrorMessage(actionError)}</p>
+                ) : null}
               </div>
             ) : (
               <SetupMessage />
@@ -459,6 +463,19 @@ function formatReadinessScore(score: number | undefined): string {
     return "pending";
   }
   return score <= 1 ? `${Math.round(score * 100)}%` : `${Math.round(score)}`;
+}
+
+function actionErrorMessage(error: string): string {
+  if (error === "invalid-action") {
+    return "That repository action was not recognized.";
+  }
+  if (error === "unreachable") {
+    return "The API did not respond to that repository action.";
+  }
+  if (error === "409") {
+    return "That action needs analysis artifacts or provider consent first.";
+  }
+  return `Repository action failed with API status ${error}.`;
 }
 
 function getPrStatus(runs: RunWithContext[]): {

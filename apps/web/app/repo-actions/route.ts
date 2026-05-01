@@ -1,4 +1,5 @@
-import { type NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { redirectToDashboard } from "../redirect";
 
 const serverApiBaseUrl =
   process.env.API_BASE_URL ??
@@ -17,21 +18,34 @@ export async function POST(request: NextRequest) {
   const actionType = String(form.get("actionType") ?? "");
   const actionPath =
     actionPathByType[actionType as keyof typeof actionPathByType];
+  let actionError: string | undefined;
 
-  if (repoId && actionPath) {
-    await fetch(
-      `${serverApiBaseUrl}/repos/${encodeURIComponent(repoId)}/${actionPath}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: "{}",
-      },
-    ).catch(() => undefined);
+  if (!repoId || !actionPath) {
+    actionError = "invalid-action";
+  } else {
+    try {
+      const response = await fetch(
+        `${serverApiBaseUrl}/repos/${encodeURIComponent(repoId)}/${actionPath}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: "{}",
+        },
+      );
+      if (!response.ok) {
+        actionError = String(response.status);
+      }
+    } catch {
+      actionError = "unreachable";
+    }
   }
 
-  const url = new URL("/", request.url);
+  const params: Record<string, string> = {};
   if (repoId) {
-    url.searchParams.set("repo", repoId);
+    params.repo = repoId;
   }
-  return NextResponse.redirect(url, { status: 303 });
+  if (actionError) {
+    params.actionError = actionError;
+  }
+  return redirectToDashboard(request, params);
 }
