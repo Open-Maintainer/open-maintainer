@@ -41,6 +41,10 @@ const profile: RepoProfile = {
   workspaceManifests: ["package.json"],
   lockfiles: ["bun.lock"],
   configFiles: ["tsconfig.json"],
+  trackedFileHashes: [
+    { path: "README.md", hash: "readme-hash" },
+    { path: "package.json", hash: "package-hash" },
+  ],
   agentReadiness: {
     score: 47,
     categories: [
@@ -237,6 +241,15 @@ describe("context renderers", () => {
           path: ".open-maintainer.yml",
           reason: "detected repository context",
         },
+      ],
+      trackedFileHashes: [
+        ...profile.trackedFileHashes,
+        { path: "AGENTS.md", hash: "agents-hash" },
+        {
+          path: ".agents/skills/tool-start-task/SKILL.md",
+          hash: "skill-hash",
+        },
+        { path: ".open-maintainer.yml", hash: "config-hash" },
       ],
       agentReadiness: {
         ...profile.agentReadiness,

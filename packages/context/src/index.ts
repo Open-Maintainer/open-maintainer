@@ -1332,7 +1332,7 @@ export function profileFingerprint(profile: RepoProfile): string {
 }
 
 export type DriftFinding = {
-  group: "commands";
+  group: "commands" | "ci";
   changeType: "added" | "removed" | "changed";
   path: string;
   subject: string;
@@ -1353,7 +1353,16 @@ export function compareProfileDrift(input: {
   stored: RepoProfile;
   current: RepoProfile;
 }): DriftFinding[] {
-  return compareCommandDrift(input.stored, input.current);
+  return [
+    ...compareCommandDrift(input.stored, input.current),
+    ...compareCiWorkflowDrift(input.stored, input.current),
+  ].sort(
+    (left, right) =>
+      left.group.localeCompare(right.group) ||
+      left.path.localeCompare(right.path) ||
+      left.subject.localeCompare(right.subject) ||
+      left.changeType.localeCompare(right.changeType),
+  );
 }
 
 function compareCommandDrift(
@@ -1407,12 +1416,7 @@ function compareCommandDrift(
     });
   }
 
-  return findings.sort(
-    (left, right) =>
-      left.path.localeCompare(right.path) ||
-      left.subject.localeCompare(right.subject) ||
-      left.changeType.localeCompare(right.changeType),
-  );
+  return findings;
 }
 
 function commandKey(command: RepoProfile["commands"][number]): string {
@@ -1424,6 +1428,82 @@ function commandSubject(command: RepoProfile["commands"][number]): string {
     ? "script"
     : "command";
   return `${command.source} ${sourceKind} ${command.name}`;
+}
+
+function compareCiWorkflowDrift(
+  stored: RepoProfile,
+  current: RepoProfile,
+): DriftFinding[] {
+  const findings = comparePathListDrift({
+    group: "ci",
+    storedPaths: stored.ciWorkflows,
+    currentPaths: current.ciWorkflows,
+    storedHashes: stored.trackedFileHashes,
+    currentHashes: current.trackedFileHashes,
+  });
+  return findings;
+}
+
+function comparePathListDrift(input: {
+  group: DriftFinding["group"];
+  storedPaths: string[];
+  currentPaths: string[];
+  storedHashes: RepoProfile["trackedFileHashes"];
+  currentHashes: RepoProfile["trackedFileHashes"];
+}): DriftFinding[] {
+  const storedPaths = new Set(input.storedPaths);
+  const currentPaths = new Set(input.currentPaths);
+  const storedHashes = new Map(
+    input.storedHashes.map((item) => [item.path, item.hash]),
+  );
+  const currentHashes = new Map(
+    input.currentHashes.map((item) => [item.path, item.hash]),
+  );
+  const allPaths = [...new Set([...input.storedPaths, ...input.currentPaths])]
+    .filter(
+      (repoPath) => storedPaths.has(repoPath) || currentPaths.has(repoPath),
+    )
+    .sort();
+  const findings: DriftFinding[] = [];
+
+  for (const repoPath of allPaths) {
+    if (!storedPaths.has(repoPath)) {
+      findings.push({
+        group: input.group,
+        changeType: "added",
+        path: repoPath,
+        subject: repoPath,
+        previousValue: null,
+        currentValue: currentHashes.get(repoPath) ?? null,
+      });
+      continue;
+    }
+    if (!currentPaths.has(repoPath)) {
+      findings.push({
+        group: input.group,
+        changeType: "removed",
+        path: repoPath,
+        subject: repoPath,
+        previousValue: storedHashes.get(repoPath) ?? null,
+        currentValue: null,
+      });
+      continue;
+    }
+    const previousHash = storedHashes.get(repoPath);
+    const currentHash = currentHashes.get(repoPath);
+    if (previousHash && currentHash && previousHash !== currentHash) {
+      findings.push({
+        group: input.group,
+        changeType: "changed",
+        path: repoPath,
+        subject: repoPath,
+        previousValue: previousHash,
+        currentValue: currentHash,
+      });
+    }
+  }
+
+  return findings;
 }
 
 function fingerprintableProfile(profile: RepoProfile) {
@@ -1450,6 +1530,9 @@ function fingerprintableProfile(profile: RepoProfile) {
     workspaceManifests: profile.workspaceManifests,
     lockfiles: profile.lockfiles,
     configFiles: profile.configFiles,
+    trackedFileHashes: profile.trackedFileHashes.filter(
+      (item) => !isContextArtifactPath(item.path),
+    ),
     agentReadiness: {
       categories: profile.agentReadiness.categories.filter((category) =>
         ["setup clarity", "architecture clarity", "testing and CI"].includes(

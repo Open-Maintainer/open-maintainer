@@ -1,4 +1,4 @@
-import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -66,6 +66,61 @@ describe("CLI doctor", () => {
     expect(doctor.stdout).toContain("drift: .agents/skills/");
     expect(doctor.stdout).toContain(
       "-start-task/SKILL.md was generated from a different repository profile",
+    );
+  });
+
+  it("names CI workflow drift from the stored profile", async () => {
+    const workdir = await mkdtemp(
+      path.join(tmpdir(), "open-maintainer-doctor-ci-"),
+    );
+    await cp(fixtureRoot, workdir, { recursive: true });
+    const workflowDir = path.join(workdir, ".github/workflows");
+    await mkdir(workflowDir, { recursive: true });
+    await writeFile(
+      path.join(workflowDir, "ci.yml"),
+      "name: CI\non: [push]\njobs:\n  test:\n    runs-on: ubuntu-latest\n",
+    );
+    await writeFile(
+      path.join(workflowDir, "lint.yml"),
+      "name: Lint\non: [push]\njobs:\n  lint:\n    runs-on: ubuntu-latest\n",
+    );
+
+    const generate = await runCli([
+      "generate",
+      workdir,
+      "--deterministic",
+      "--context",
+      "codex",
+      "--skills",
+      "codex",
+    ]);
+    expect(generate.exitCode).toBe(0);
+
+    await writeFile(
+      path.join(workflowDir, "ci.yml"),
+      "name: CI\non: [push, pull_request]\njobs:\n  test:\n    runs-on: ubuntu-latest\n",
+    );
+    await rm(path.join(workflowDir, "lint.yml"));
+    await writeFile(
+      path.join(workflowDir, "release.yml"),
+      "name: Release\non: [workflow_dispatch]\njobs:\n  build:\n    runs-on: ubuntu-latest\n",
+    );
+
+    const doctor = await runCli(["doctor", workdir]);
+
+    expect(doctor.exitCode).toBe(1);
+    expect(doctor.stderr).toBe("");
+    expect(doctor.stdout).toContain(
+      "drift: CI workflow .github/workflows/ci.yml was changed",
+    );
+    expect(doctor.stdout).toContain(
+      "drift: CI workflow .github/workflows/lint.yml was removed",
+    );
+    expect(doctor.stdout).toContain(
+      "drift: CI workflow .github/workflows/release.yml was added",
+    );
+    expect(doctor.stdout).toContain(
+      "drift: .open-maintainer/profile.json was generated from a different repository profile",
     );
   });
 });

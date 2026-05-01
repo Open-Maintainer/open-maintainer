@@ -362,6 +362,9 @@ async function doctor(
 function formatDriftFinding(
   finding: ReturnType<typeof compareProfileDrift>[number],
 ): string {
+  if (finding.group === "ci") {
+    return `drift: CI workflow ${finding.subject} was ${finding.changeType}`;
+  }
   if (finding.changeType === "added") {
     return `drift: command ${finding.subject} was added: ${JSON.stringify(
       finding.currentValue,

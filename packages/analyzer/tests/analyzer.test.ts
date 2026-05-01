@@ -61,6 +61,9 @@ describe("analyzeRepo", () => {
     expect(profile.evidence.map((item) => item.path)).toContain("README.md");
     expect(profile.workspaceManifests).toEqual(["package.json"]);
     expect(profile.lockfiles).toEqual(["bun.lock"]);
+    expect(profile.trackedFileHashes.map((item) => item.path)).toContain(
+      ".github/workflows/ci.yml",
+    );
     expect(profile.frameworks).toContain("Scarb");
     expect(profile.commands.map((command) => command.command)).toContain(
       "make build",

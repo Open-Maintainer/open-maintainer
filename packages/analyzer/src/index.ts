@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 import type {
@@ -286,6 +287,21 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
       pattern.test(path.posix.basename(repoPath)),
     ),
   );
+  const trackedDriftPaths = new Set([
+    ...commands.map((command) => command.source),
+    ...ciWorkflows,
+    ...importantDocs,
+    ...existingContextFiles,
+    ...workspaceManifests,
+    ...lockfiles,
+    ...configFiles,
+  ]);
+  const trackedFileHashes = normalizedFiles
+    .filter((file) => trackedDriftPaths.has(file.path))
+    .map((file) => ({
+      path: file.path,
+      hash: fileHash(file.content),
+    }));
   const packageManager = detectPackageManager(lockfiles, paths);
 
   for (const repoPath of [
@@ -321,6 +337,7 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     workspaceManifests: [...new Set(workspaceManifests)],
     lockfiles,
     configFiles,
+    trackedFileHashes,
     createdAt: nowIso(),
   };
 
@@ -568,6 +585,10 @@ function parseJson(content: string): unknown | null {
   } catch {
     return null;
   }
+}
+
+function fileHash(content: string): string {
+  return createHash("sha256").update(content).digest("hex").slice(0, 16);
 }
 
 function detectMakeTargets(content: string): string[] {

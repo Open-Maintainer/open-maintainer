@@ -22,6 +22,12 @@ export const DetectedCommandSchema = z.object({
 });
 export type DetectedCommand = z.infer<typeof DetectedCommandSchema>;
 
+export const TrackedFileHashSchema = z.object({
+  path: z.string(),
+  hash: z.string(),
+});
+export type TrackedFileHash = z.infer<typeof TrackedFileHashSchema>;
+
 export const RepoProfileSchema = z.object({
   id: z.string(),
   repoId: z.string(),
@@ -44,6 +50,7 @@ export const RepoProfileSchema = z.object({
   workspaceManifests: z.array(z.string()),
   lockfiles: z.array(z.string()),
   configFiles: z.array(z.string()),
+  trackedFileHashes: z.array(TrackedFileHashSchema).default([]),
   agentReadiness: z.object({
     score: z.number().int().min(0).max(100),
     categories: z.array(
