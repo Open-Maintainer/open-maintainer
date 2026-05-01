@@ -1,3 +1,7 @@
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import type {
   ModelProviderConfig,
   ModelProviderKind,
@@ -22,9 +26,36 @@ export type CompletionOutput = {
   };
 };
 
+export type CompletionOptions = {
+  outputSchema?: unknown;
+};
+
+export type BuildProviderOptions = {
+  cwd?: string;
+};
+
 export interface ModelProvider {
-  complete(input: CompletionInput): Promise<CompletionOutput>;
+  complete(
+    input: CompletionInput,
+    options?: CompletionOptions,
+  ): Promise<CompletionOutput>;
 }
+
+export type CodexCliProviderOptions = {
+  command?: string;
+  cwd: string;
+  model?: string;
+  outputSchema?: unknown;
+  timeoutMs?: number;
+};
+
+export type ClaudeCliProviderOptions = {
+  command?: string;
+  cwd: string;
+  model?: string;
+  outputSchema?: unknown;
+  timeoutMs?: number;
+};
 
 export type ProviderSettingsInput = {
   kind: ModelProviderKind;
@@ -67,7 +98,50 @@ export function assertGenerationAllowed(
   }
 }
 
-export function buildProvider(config: ModelProviderConfig): ModelProvider {
+export function assertProviderConsent(
+  provider: ModelProviderConfig,
+): asserts provider is ModelProviderConfig {
+  if (!provider.repoContentConsent) {
+    throw new Error(
+      "Generation is blocked until repo-content consent is enabled for this provider.",
+    );
+  }
+}
+
+export function buildProvider(
+  config: ModelProviderConfig,
+  options: BuildProviderOptions = {},
+): ModelProvider {
+  const cwd = options.cwd ?? process.cwd();
+  if (config.kind === "codex-cli") {
+    return {
+      complete(input, options) {
+        return buildCodexCliProvider({
+          command: codexCommand(),
+          cwd,
+          ...(config.model === "codex-cli" ? {} : { model: config.model }),
+          ...(options?.outputSchema
+            ? { outputSchema: options.outputSchema }
+            : {}),
+        }).complete(input);
+      },
+    };
+  }
+  if (config.kind === "claude-cli") {
+    return {
+      complete(input, options) {
+        return buildClaudeCliProvider({
+          command: claudeCommand(),
+          cwd,
+          ...(config.model === "claude-cli" ? {} : { model: config.model }),
+          ...(options?.outputSchema
+            ? { outputSchema: options.outputSchema }
+            : {}),
+        }).complete(input);
+      },
+    };
+  }
+
   return {
     async complete(input) {
       const response = await fetch(
@@ -107,6 +181,133 @@ export function buildProvider(config: ModelProviderConfig): ModelProvider {
   };
 }
 
+export async function assertProviderExecutableAvailable(
+  config: ModelProviderConfig,
+): Promise<void> {
+  if (config.kind === "codex-cli") {
+    await runProcess({
+      label: "Codex CLI",
+      command: codexCommand(),
+      args: ["--version"],
+      stdin: "",
+      timeoutMs: 10_000,
+    });
+  }
+  if (config.kind === "claude-cli") {
+    await runProcess({
+      label: "Claude CLI",
+      command: claudeCommand(),
+      args: ["--version"],
+      stdin: "",
+      timeoutMs: 10_000,
+    });
+  }
+}
+
+export function buildCodexCliProvider(
+  options: CodexCliProviderOptions,
+): ModelProvider {
+  return {
+    async complete(input) {
+      const workdir = await mkdtemp(
+        path.join(tmpdir(), "open-maintainer-codex-"),
+      );
+      const outputPath = path.join(workdir, "last-message.txt");
+      const schemaPath = path.join(workdir, "schema.json");
+      try {
+        const args = [
+          "exec",
+          "--sandbox",
+          "read-only",
+          "--ephemeral",
+          "--skip-git-repo-check",
+          "--cd",
+          options.cwd,
+          "--output-last-message",
+          outputPath,
+        ];
+        if (options.model) {
+          args.push("--model", options.model);
+        }
+        if (options.outputSchema) {
+          await writeFile(schemaPath, JSON.stringify(options.outputSchema));
+          args.push("--output-schema", schemaPath);
+        }
+        args.push("-");
+
+        const prompt = [
+          input.system,
+          "",
+          "Return the final answer only. If an output schema is provided, return JSON that satisfies it.",
+          "",
+          input.user,
+        ].join("\n");
+        const result = await runProcess({
+          label: "Codex CLI",
+          command: options.command ?? "codex",
+          args,
+          stdin: prompt,
+          timeoutMs: options.timeoutMs ?? 300_000,
+        });
+        const text = await readFile(outputPath, "utf8").catch(
+          () => result.stdout,
+        );
+        return {
+          text: text.trim(),
+          model: options.model ?? "codex-cli",
+        };
+      } finally {
+        await rm(workdir, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
+export function buildClaudeCliProvider(
+  options: ClaudeCliProviderOptions,
+): ModelProvider {
+  return {
+    async complete(input) {
+      const args = [
+        "--print",
+        "--permission-mode",
+        "dontAsk",
+        "--add-dir",
+        options.cwd,
+        "--output-format",
+        "json",
+      ];
+      if (options.model) {
+        args.push("--model", options.model);
+      }
+      if (options.outputSchema) {
+        args.push("--json-schema", JSON.stringify(options.outputSchema));
+      }
+
+      const prompt = [
+        input.system,
+        "",
+        "Return the final answer only. If an output schema is provided, return JSON that satisfies it.",
+        "",
+        input.user,
+      ].join("\n");
+      args.push(prompt);
+      const result = await runProcess({
+        label: "Claude CLI",
+        command: options.command ?? "claude",
+        args,
+        stdin: "",
+        cwd: options.cwd,
+        timeoutMs: options.timeoutMs ?? 300_000,
+      });
+      return {
+        text: extractClaudeOutput(result.stdout),
+        model: options.model ?? "claude-cli",
+      };
+    },
+  };
+}
+
 export async function testProviderConnection(
   provider: ModelProvider,
 ): Promise<CompletionOutput> {
@@ -129,4 +330,82 @@ function encryptForLocalDev(value: string): string {
 
 function decryptForLocalDev(value: string): string {
   return Buffer.from(value, "base64").toString("utf8");
+}
+
+function codexCommand(): string {
+  return process.env.OPEN_MAINTAINER_CODEX_COMMAND ?? "codex";
+}
+
+function claudeCommand(): string {
+  return process.env.OPEN_MAINTAINER_CLAUDE_COMMAND ?? "claude";
+}
+
+function extractClaudeOutput(stdout: string): string {
+  const trimmed = stdout.trim();
+  if (!trimmed.startsWith("{")) {
+    return trimmed;
+  }
+  try {
+    const parsed = JSON.parse(trimmed) as {
+      structured_output?: unknown;
+      result?: unknown;
+    };
+    if (parsed.structured_output !== undefined) {
+      return JSON.stringify(parsed.structured_output);
+    }
+    if (typeof parsed.result === "string") {
+      return parsed.result;
+    }
+  } catch {
+    return trimmed;
+  }
+  return trimmed;
+}
+
+async function runProcess(input: {
+  label: string;
+  command: string;
+  args: string[];
+  stdin: string;
+  cwd?: string;
+  timeoutMs: number;
+}): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(input.command, input.args, {
+      cwd: input.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+    const timeout = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error(`${input.label} timed out after ${input.timeoutMs}ms.`));
+    }, input.timeoutMs);
+    const stdout: Buffer[] = [];
+    const stderr: Buffer[] = [];
+    child.stdout.on("data", (chunk) => stdout.push(Buffer.from(chunk)));
+    child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
+    child.on("error", (error) => {
+      clearTimeout(timeout);
+      const errorWithCode = error as NodeJS.ErrnoException;
+      reject(
+        errorWithCode.code === "ENOENT"
+          ? new Error(`Executable not found in $PATH: "${input.command}"`)
+          : error,
+      );
+    });
+    child.on("close", (code) => {
+      clearTimeout(timeout);
+      const stdoutText = Buffer.concat(stdout).toString("utf8");
+      const stderrText = Buffer.concat(stderr).toString("utf8");
+      if (code !== 0) {
+        reject(
+          new Error(
+            `${input.label} exited with code ${code}.\n${stderrText || stdoutText}`,
+          ),
+        );
+        return;
+      }
+      resolve({ stdout: stdoutText, stderr: stderrText });
+    });
+    child.stdin.end(input.stdin);
+  });
 }

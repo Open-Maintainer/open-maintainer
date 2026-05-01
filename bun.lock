@@ -6,6 +6,8 @@
       "name": "open-maintainer",
       "dependencies": {
         "@fastify/cors": "^10.0.2",
+        "@fastify/formbody": "^8.0.2",
+        "@fastify/rate-limit": "^10.3.0",
         "@octokit/auth-app": "^7.1.1",
         "@octokit/rest": "^21.1.1",
         "@octokit/webhooks-methods": "^5.1.0",
@@ -46,6 +48,17 @@
         "@open-maintainer/db": "workspace:*",
         "@open-maintainer/github": "workspace:*",
         "@open-maintainer/shared": "workspace:*",
+      },
+    },
+    "apps/cli": {
+      "name": "@open-maintainer/cli",
+      "bin": {
+        "open-maintainer": "./src/index.ts",
+      },
+      "dependencies": {
+        "@open-maintainer/ai": "workspace:*",
+        "@open-maintainer/analyzer": "workspace:*",
+        "@open-maintainer/context": "workspace:*",
       },
     },
     "apps/web": {
@@ -160,11 +173,15 @@
 
     "@fastify/fast-json-stringify-compiler": ["@fastify/fast-json-stringify-compiler@5.0.3", "", { "dependencies": { "fast-json-stringify": "^6.0.0" } }, "sha512-uik7yYHkLr6fxd8hJSZ8c+xF4WafPK+XzneQDPU+D10r5X19GW8lJcom2YijX2+qtFF1ENJlHXKFM9ouXNJYgQ=="],
 
+    "@fastify/formbody": ["@fastify/formbody@8.0.2", "", { "dependencies": { "fast-querystring": "^1.1.2", "fastify-plugin": "^5.0.0" } }, "sha512-84v5J2KrkXzjgBpYnaNRPqwgMsmY7ZDjuj0YVuMR3NXCJRCgKEZy/taSP1wUYGn0onfxJpLyRGDLa+NMaDJtnA=="],
+
     "@fastify/forwarded": ["@fastify/forwarded@3.0.1", "", {}, "sha512-JqDochHFqXs3C3Ml3gOY58zM7OqO9ENqPo0UqAjAjH8L01fRZqwX9iLeX34//kiJubF7r2ZQHtBRU36vONbLlw=="],
 
     "@fastify/merge-json-schemas": ["@fastify/merge-json-schemas@0.2.1", "", { "dependencies": { "dequal": "^2.0.3" } }, "sha512-OA3KGBCy6KtIvLf8DINC5880o5iBlDX4SxzLQS8HorJAbqluzLRn80UXU0bxZn7UOFhFgpRJDasfwn9nG4FG4A=="],
 
     "@fastify/proxy-addr": ["@fastify/proxy-addr@5.1.0", "", { "dependencies": { "@fastify/forwarded": "^3.0.0", "ipaddr.js": "^2.1.0" } }, "sha512-INS+6gh91cLUjB+PVHfu1UqcB76Sqtpyp7bnL+FYojhjygvOPA9ctiD/JDKsyD9Xgu4hUhCSJBPig/w7duNajw=="],
+
+    "@fastify/rate-limit": ["@fastify/rate-limit@10.3.0", "", { "dependencies": { "@lukeed/ms": "^2.0.2", "fastify-plugin": "^5.0.0", "toad-cache": "^3.7.0" } }, "sha512-eIGkG9XKQs0nyynatApA3EVrojHOuq4l6fhB4eeCk4PIOeadvOJz9/4w3vGI44Go17uaXOWEcPkaD8kuKm7g6Q=="],
 
     "@img/colour": ["@img/colour@1.1.0", "", {}, "sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ=="],
 
@@ -219,6 +236,8 @@
     "@ioredis/commands": ["@ioredis/commands@1.5.1", "", {}, "sha512-JH8ZL/ywcJyR9MmJ5BNqZllXNZQqQbnVZOqpPQqE1vHiFgAw4NHbvE0FOduNU8IX9babitBT46571OnPTT0Zcw=="],
 
     "@jridgewell/sourcemap-codec": ["@jridgewell/sourcemap-codec@1.5.5", "", {}, "sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og=="],
+
+    "@lukeed/ms": ["@lukeed/ms@2.0.2", "", {}, "sha512-9I2Zn6+NJLfaGoz9jN3lpwDgAYvfGeNYdbAIjJOqzs4Tpc+VU3Jqq4IofSUBKajiDS8k9fZIg18/z13mpk1bsA=="],
 
     "@msgpackr-extract/msgpackr-extract-darwin-arm64": ["@msgpackr-extract/msgpackr-extract-darwin-arm64@3.0.3", "", { "os": "darwin", "cpu": "arm64" }, "sha512-QZHtlVgbAdy2zAqNA9Gu1UpIuI8Xvsd1v8ic6B2pZmeFnFcMWiPLfWXh7TVw4eGEZ/C9TH281KwhVoeQUKbyjw=="],
 
@@ -293,6 +312,8 @@
     "@open-maintainer/analyzer": ["@open-maintainer/analyzer@workspace:packages/analyzer"],
 
     "@open-maintainer/api": ["@open-maintainer/api@workspace:apps/api"],
+
+    "@open-maintainer/cli": ["@open-maintainer/cli@workspace:apps/cli"],
 
     "@open-maintainer/config": ["@open-maintainer/config@workspace:packages/config"],
 

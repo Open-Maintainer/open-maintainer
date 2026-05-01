@@ -1,0 +1,205 @@
+name: Open Maintainer
+description: Run Open Maintainer audit and drift checks without mutating repository context files.
+inputs:
+  mode:
+    description: Audit mode to run.
+    required: false
+    default: audit
+  fail-on-score-below:
+    description: Fail when agent readiness is below this score.
+    required: false
+    default: "0"
+  report-path:
+    description: Path for the human-readable audit report.
+    required: false
+    default: $RUNNER_TEMP/open-maintainer-report.md
+  fail-on-drift:
+    description: Fail when generated context artifacts are stale.
+    required: false
+    default: "false"
+  comment-on-pr:
+    description: Comment on pull requests with readiness score, delta, and drift diagnostics.
+    required: false
+    default: "false"
+  github-token:
+    description: GitHub token used when comment-on-pr is true.
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Validate mode
+      shell: bash
+      run: |
+        if [ "${{ inputs.mode }}" != "audit" ]; then
+          echo "::error title=Open Maintainer::Unsupported mode '${{ inputs.mode }}'. Only 'audit' is supported by the MVP action."
+          exit 2
+        fi
+    - name: Set up Bun
+      uses: oven-sh/setup-bun@v2
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: bun install --frozen-lockfile
+    - name: Run audit
+      id: audit
+      shell: bash
+      run: |
+        set +e
+        audit_output="$RUNNER_TEMP/open-maintainer-audit-output.txt"
+        bun run --cwd "$GITHUB_ACTION_PATH" cli audit "$GITHUB_WORKSPACE" \
+          --fail-on-score-below "${{ inputs.fail-on-score-below }}" \
+          --report-path "${{ inputs.report-path }}" \
+          --no-profile-write >"$audit_output" 2>&1
+        audit_status=$?
+        cat "$audit_output"
+        score=$(sed -nE 's/^Agent Readiness: ([0-9]+)\/100$/\1/p' "$audit_output" | tail -n 1)
+        echo "exit-code=$audit_status" >> "$GITHUB_OUTPUT"
+        echo "score=$score" >> "$GITHUB_OUTPUT"
+        echo "output-path=$audit_output" >> "$GITHUB_OUTPUT"
+        exit 0
+    - name: Run drift check
+      id: doctor
+      shell: bash
+      run: |
+        set +e
+        doctor_output="$RUNNER_TEMP/open-maintainer-doctor-output.txt"
+        bun run --cwd "$GITHUB_ACTION_PATH" cli doctor "$GITHUB_WORKSPACE" >"$doctor_output" 2>&1
+        doctor_status=$?
+        cat "$doctor_output"
+        if grep -q '^drift:' "$doctor_output"; then
+          drift_detected=true
+        else
+          drift_detected=false
+        fi
+        while IFS= read -r line; do
+          case "$line" in
+            missing:*|drift:*)
+              echo "::warning title=Open Maintainer::$line"
+              ;;
+          esac
+        done < "$doctor_output"
+        echo "exit-code=$doctor_status" >> "$GITHUB_OUTPUT"
+        echo "drift-detected=$drift_detected" >> "$GITHUB_OUTPUT"
+        echo "output-path=$doctor_output" >> "$GITHUB_OUTPUT"
+        exit 0
+    - name: Compute base readiness
+      id: base
+      if: ${{ github.event_name == 'pull_request' }}
+      shell: bash
+      run: |
+        set +e
+        base_output="$RUNNER_TEMP/open-maintainer-base-audit-output.txt"
+        base_dir="$RUNNER_TEMP/open-maintainer-base"
+        if git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}" &&
+          git worktree add --detach "$base_dir" FETCH_HEAD; then
+          bun run --cwd "$GITHUB_ACTION_PATH" cli audit "$base_dir" \
+            --report-path "$RUNNER_TEMP/open-maintainer-base-report.md" \
+            --no-profile-write >"$base_output" 2>&1
+          base_status=$?
+        else
+          base_status=1
+          echo "Unable to fetch pull request base for readiness delta." >"$base_output"
+        fi
+        cat "$base_output"
+        base_score=$(sed -nE 's/^Agent Readiness: ([0-9]+)\/100$/\1/p' "$base_output" | tail -n 1)
+        git worktree remove --force "$base_dir" >/dev/null 2>&1
+        echo "exit-code=$base_status" >> "$GITHUB_OUTPUT"
+        echo "score=$base_score" >> "$GITHUB_OUTPUT"
+        echo "output-path=$base_output" >> "$GITHUB_OUTPUT"
+        exit 0
+    - name: Comment on pull request
+      if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/github-script@v7
+      env:
+        AUDIT_OUTPUT_PATH: ${{ steps.audit.outputs.output-path }}
+        DOCTOR_OUTPUT_PATH: ${{ steps.doctor.outputs.output-path }}
+        READINESS_SCORE: ${{ steps.audit.outputs.score }}
+        BASE_READINESS_SCORE: ${{ steps.base.outputs.score }}
+        AUDIT_EXIT_CODE: ${{ steps.audit.outputs.exit-code }}
+        DOCTOR_EXIT_CODE: ${{ steps.doctor.outputs.exit-code }}
+        DRIFT_DETECTED: ${{ steps.doctor.outputs.drift-detected }}
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const fs = require("node:fs");
+          const marker = "<!-- open-maintainer-action-comment -->";
+          const read = (path) => (path && fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : "");
+          const auditOutput = read(process.env.AUDIT_OUTPUT_PATH);
+          const doctorOutput = read(process.env.DOCTOR_OUTPUT_PATH);
+          const score = process.env.READINESS_SCORE || "unknown";
+          const baseScore = process.env.BASE_READINESS_SCORE || "";
+          const delta =
+            score !== "unknown" && baseScore
+              ? Number(score) - Number(baseScore)
+              : null;
+          const deltaLine =
+            delta === null || Number.isNaN(delta)
+              ? "Readiness delta: unavailable"
+              : `Readiness delta: ${delta >= 0 ? "+" : ""}${delta} points`;
+          const driftLine =
+            process.env.DRIFT_DETECTED === "true"
+              ? "Generated context drift: detected"
+              : "Generated context drift: not detected";
+          const body = [
+            marker,
+            "## Open Maintainer",
+            "",
+            `Agent Readiness: ${score}/100`,
+            deltaLine,
+            driftLine,
+            "",
+            "<details>",
+            "<summary>Audit output</summary>",
+            "",
+            "```text",
+            auditOutput,
+            "```",
+            "</details>",
+            "",
+            "<details>",
+            "<summary>Context artifact check</summary>",
+            "",
+            "```text",
+            doctorOutput,
+            "```",
+            "</details>",
+          ].join("\n");
+          const { owner, repo } = context.repo;
+          const issue_number = context.payload.pull_request.number;
+          const comments = await github.rest.issues.listComments({
+            owner,
+            repo,
+            issue_number,
+            per_page: 100,
+          });
+          const existing = comments.data.find((comment) =>
+            comment.body?.includes(marker)
+          );
+          if (existing) {
+            await github.rest.issues.updateComment({
+              owner,
+              repo,
+              comment_id: existing.id,
+              body,
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body,
+            });
+          }
+    - name: Apply audit result
+      shell: bash
+      run: |
+        audit_status="${{ steps.audit.outputs.exit-code }}"
+        drift_detected="${{ steps.doctor.outputs.drift-detected }}"
+        if [ "$audit_status" != "0" ]; then
+          exit "$audit_status"
+        fi
+        if [ "${{ inputs.fail-on-drift }}" = "true" ] && [ "$drift_detected" = "true" ]; then
+          echo "::error title=Open Maintainer::Generated context drift was detected."
+          exit 1
+        fi

@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "./src",
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*.ts"],
+  "references": [
+    { "path": "../../packages/shared" },
+    { "path": "../../packages/ai" },
+    { "path": "../../packages/config" },
+    { "path": "../../packages/analyzer" },
+    { "path": "../../packages/context" }
+  ]
+}

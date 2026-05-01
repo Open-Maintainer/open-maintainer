@@ -41,14 +41,55 @@ export const RepoProfileSchema = z.object({
   detectedRiskAreas: z.array(z.string()),
   reviewRuleCandidates: z.array(z.string()),
   evidence: z.array(EvidenceReferenceSchema),
+  workspaceManifests: z.array(z.string()),
+  lockfiles: z.array(z.string()),
+  configFiles: z.array(z.string()),
+  agentReadiness: z.object({
+    score: z.number().int().min(0).max(100),
+    categories: z.array(
+      z.object({
+        name: z.enum([
+          "setup clarity",
+          "architecture clarity",
+          "testing and CI",
+          "agent instructions",
+          "safety and review rules",
+        ]),
+        score: z.number().int().min(0).max(20),
+        maxScore: z.literal(20),
+        missing: z.array(z.string()),
+        evidence: z.array(EvidenceReferenceSchema),
+      }),
+    ),
+    missingItems: z.array(z.string()),
+    generatedAt: z.string(),
+  }),
   createdAt: z.string(),
 });
 export type RepoProfile = z.infer<typeof RepoProfileSchema>;
 
-export const ArtifactTypeSchema = z.enum([
+const StaticArtifactTypeSchema = z.enum([
   "repo_profile",
   "AGENTS.md",
+  "CLAUDE.md",
   ".open-maintainer.yml",
+  ".github/copilot-instructions.md",
+  ".cursor/rules/open-maintainer.md",
+  ".agents/skills/repo-overview/SKILL.md",
+  ".agents/skills/testing-workflow/SKILL.md",
+  ".agents/skills/pr-review/SKILL.md",
+  ".claude/skills/repo-overview/SKILL.md",
+  ".claude/skills/testing-workflow/SKILL.md",
+  ".claude/skills/pr-review/SKILL.md",
+  ".open-maintainer/profile.json",
+  ".open-maintainer/report.md",
+]);
+const SkillArtifactTypeSchema = z
+  .string()
+  .regex(/^\.(agents|claude)\/skills\/[a-z0-9][a-z0-9-]*\/SKILL\.md$/);
+export const ArtifactTypeSchema = z.union([
+  StaticArtifactTypeSchema,
+  SkillArtifactTypeSchema,
 ]);
 export type ArtifactType = z.infer<typeof ArtifactTypeSchema>;
 
@@ -115,6 +156,8 @@ export const ModelProviderKindSchema = z.enum([
   "openai-compatible",
   "anthropic",
   "local-openai-compatible",
+  "codex-cli",
+  "claude-cli",
 ]);
 export type ModelProviderKind = z.infer<typeof ModelProviderKindSchema>;
 

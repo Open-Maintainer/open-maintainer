@@ -1,19 +1,156 @@
 # Open Maintainer
 
-Open Maintainer is a self-hostable, open-source AI maintainer for GitHub-native teams.
+Open Maintainer audits a repository for agent readiness, generates repo-specific context files, and can open a context PR through a GitHub App.
 
-The MVP workflow is:
+The primary MVP demo is CLI-first and uses a local LLM CLI for generated context files:
+
+```text
+audit repo -> show readiness score -> generate context -> doctor -> dry-run PR summary
+```
+
+The dashboard and self-hosted GitHub App flow remain available as a secondary path.
+
+## CLI Demo
+
+Prerequisites:
+
+- Bun 1.1 or newer
+- Git
+- A fresh checkout of this repository
+- Codex CLI installed and logged in for `--model codex`, or Claude Code CLI
+  installed and logged in for `--model claude`
+
+Install dependencies:
+
+```sh
+bun install --frozen-lockfile
+```
+
+Run the demo smoke gate:
+
+```sh
+bun run smoke:mvp
+```
+
+The smoke gate uses explicit deterministic mode to validate offline plumbing. For real generated files, use the LLM-backed flow in `docs/DEMO_RUNBOOK.md`.
+
+For the full narrated terminal flow, see `docs/DEMO_RUNBOOK.md`.
+
+Manual terminal flow:
+
+```sh
+TARGET_REPO="/path/to/selected/repository"
+
+bun run cli audit "$TARGET_REPO"
+bun run cli generate "$TARGET_REPO" --model codex --context codex --skills codex --allow-write
+bun run cli doctor "$TARGET_REPO"
+bun run cli pr "$TARGET_REPO" --create
+```
+
+Generation uses three separate choices:
+
+| Flag | Options | Meaning |
+| --- | --- | --- |
+| `--model` | `codex`, `claude` | Selects which LLM CLI generates artifact content. |
+| `--context` | `codex`, `claude`, `both` | Writes `AGENTS.md`, `CLAUDE.md`, or both. |
+| `--skills` | `codex`, `claude`, `both` | Writes skills under `.agents/skills`, `.claude/skills`, or both. |
+
+Examples:
+
+```sh
+# Generate Codex context and skills with Codex CLI
+bun run cli generate "$TARGET_REPO" --model codex --context codex --skills codex --allow-write
+
+# Generate Claude Code context and skills with Claude CLI
+bun run cli generate "$TARGET_REPO" --model claude --context claude --skills claude --allow-write
+
+# Use Codex CLI to generate both context files and both skill families
+bun run cli generate "$TARGET_REPO" --model codex --context both --skills both --allow-write
+```
+
+`audit` writes:
+
+- `.open-maintainer/profile.json`
+- `.open-maintainer/report.md`
+
+When the score is below 100, `audit` also prints a `Next steps` block with
+concrete missing files or commands that would improve the readiness score.
+
+`generate` writes the full MVP context set when files are absent:
+
+- `AGENTS.md`
+- `.agents/skills/<repo>-start-task/SKILL.md`
+- `.agents/skills/<repo>-testing-workflow/SKILL.md`
+- `.agents/skills/<repo>-pr-review/SKILL.md`
+- `.open-maintainer/profile.json`
+- `.open-maintainer/report.md`
+- `.open-maintainer.yml`
+
+`--model` chooses the LLM CLI backend. `--context` chooses instruction files, and `--skills` chooses repo-local skill directories.
+Model-backed skill generation may add additional repo-specific workflow skills when repository evidence supports them.
+
+Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Repo content is sent to the selected LLM CLI only when `--allow-write` is present; offline deterministic mode is reserved for smoke tests.
+
+## GitHub Action Audit Mode
+
+Use the action in OSS repositories before installing a hosted app:
+
+```yaml
+name: Open Maintainer
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: open-maintainer/action@v1
+        with:
+          mode: audit
+          fail-on-score-below: "60"
+```
+
+Default audit mode runs from the packaged action checkout, installs its own Bun dependencies, writes the report under `$RUNNER_TEMP`, and uses `--no-profile-write`, so pull request audits do not modify checked-out context files unless you choose a repository `report-path`.
+
+The action warns when required generated context is missing, including `AGENTS.md` and repo-local skills, and runs `doctor` to detect stale generated profile artifacts. Set `fail-on-drift: "true"` to fail when profile drift is detected.
+
+To add a pull request summary with current readiness, readiness delta against the PR base, and drift diagnostics, grant comment permission and enable comments:
+
+```yaml
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+steps:
+  - uses: actions/checkout@v4
+  - uses: open-maintainer/action@v1
+    with:
+      mode: audit
+      fail-on-score-below: "60"
+      comment-on-pr: "true"
+```
+
+## Dashboard and GitHub App
+
+The secondary self-hosted workflow is:
 
 ```text
 connect GitHub -> analyze repo -> generate context -> preview -> open context PR
 ```
 
-## Quickstart
-
 Prerequisites:
 
 - Docker Compose
+- Git
 - Bun 1.1 or newer for local quality gates
+- Codex CLI or Claude Code CLI credentials mounted into the API container for
+  real context generation
+- GitHub CLI (`gh`) authentication, or `GH_TOKEN` in `.env`, for context PR
+  creation from local Git checkouts
 - A GitHub App for real installation testing
 - Optional local OpenAI-compatible endpoint such as Ollama or vLLM
 
@@ -21,7 +158,7 @@ Start a local self-hosted stack:
 
 ```sh
 cp .env.example .env
-bun install
+bun install --frozen-lockfile
 docker compose up --build
 ```
 
@@ -53,7 +190,7 @@ Configure a webhook secret and point the webhook URL at:
 http://localhost:4000/github/webhook
 ```
 
-For local webhook delivery from GitHub, expose the API with a tunnel and use the tunnel URL instead. Set the matching values in `.env`:
+Set the matching values in `.env`:
 
 - `GITHUB_APP_ID`
 - `GITHUB_CLIENT_ID`
@@ -62,33 +199,6 @@ For local webhook delivery from GitHub, expose the API with a tunnel and use the
 - `GITHUB_WEBHOOK_SECRET`
 
 Install the GitHub App on selected repositories. Installation and repository metadata appear in the dashboard after a verified installation webhook is received.
-
-## First Context PR
-
-1. Confirm the dashboard shows healthy API, Postgres, Redis, and worker status.
-2. Configure GitHub App credentials and install the app on one selected repo.
-3. Select the repo in the dashboard.
-4. Run deterministic analysis to create `repo_profile:v1`.
-5. Configure a model provider and explicitly enable repo-content consent.
-6. Generate context artifacts.
-7. Preview `AGENTS.md` and `.open-maintainer.yml`.
-8. Open a context PR.
-
-The MVP never commits directly to the default branch. Context PRs use a branch named like `open-maintainer/context-{repoProfileVersion}` and include only `AGENTS.md` and `.open-maintainer.yml`.
-
-## Setup Diagnostics
-
-Common setup states are surfaced through `/health`, the dashboard, and repo run history:
-
-- Missing GitHub credentials: settings can be saved only after required values are present.
-- Failed webhook verification: `/github/webhook` returns `401`.
-- Database or Redis unavailable: `/health` returns `degraded`.
-- Worker not heartbeating: dashboard worker status shows `missing`.
-- Provider not configured or consent disabled: generation fails closed and records a failed run.
-
-## Migrations
-
-The first MVP migration is stored at `packages/db/migrations/0001_mvp_foundation.sql`. The current scaffold uses an in-memory store for local tests and demo behavior; apply the SQL migration when wiring a persistent Postgres deployment.
 
 ## Quality Gates
 
@@ -99,6 +209,7 @@ bun lint
 bun typecheck
 bun test
 bun run build
+bun run smoke:mvp
 docker compose up --build
 bun run smoke:compose
 ```

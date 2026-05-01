@@ -20,6 +20,7 @@ export class MemoryStore {
   installations = new Map<string, Installation>();
   repos = new Map<string, Repo>();
   repoFiles = new Map<string, RepositoryFile[]>();
+  repoWorktrees = new Map<string, string>();
   profiles = new Map<string, RepoProfile[]>();
   providers = new Map<string, ModelProviderConfig>();
   artifacts = new Map<string, GeneratedArtifact[]>();
