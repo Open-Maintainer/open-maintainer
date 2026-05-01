@@ -868,23 +868,12 @@ async function createLocalContextPrWithGh(input: {
       runReference: input.runReference,
       generatedAt: input.generatedAt,
     });
-    const prUrl = findFirstUrl(
-      await runGh(input.worktreeRoot, [
-        "pr",
-        "create",
-        "--base",
-        input.defaultBranch,
-        "--head",
-        branchName,
-        "--title",
-        "Update Open Maintainer context",
-        "--body",
-        body,
-      ]),
-    );
-    if (!prUrl) {
-      throw new Error("gh did not return a pull request URL.");
-    }
+    const prUrl = await openOrUpdateGhPullRequest(input.worktreeRoot, {
+      baseBranch: input.defaultBranch,
+      headBranch: branchName,
+      title: "Update Open Maintainer context",
+      body,
+    });
 
     return {
       id: newId("context_pr"),
@@ -903,6 +892,73 @@ async function createLocalContextPrWithGh(input: {
         () => undefined,
       );
     }
+  }
+}
+
+async function openOrUpdateGhPullRequest(
+  cwd: string,
+  input: {
+    baseBranch: string;
+    headBranch: string;
+    title: string;
+    body: string;
+  },
+): Promise<string> {
+  const existingPrUrl = await findExistingGhPullRequestUrl(
+    cwd,
+    input.headBranch,
+  );
+  if (existingPrUrl) {
+    await runGh(cwd, [
+      "pr",
+      "edit",
+      input.headBranch,
+      "--title",
+      input.title,
+      "--body",
+      input.body,
+    ]);
+    return existingPrUrl;
+  }
+
+  const prUrl = findFirstUrl(
+    await runGh(cwd, [
+      "pr",
+      "create",
+      "--base",
+      input.baseBranch,
+      "--head",
+      input.headBranch,
+      "--title",
+      input.title,
+      "--body",
+      input.body,
+    ]),
+  );
+  if (!prUrl) {
+    throw new Error("gh did not return a pull request URL.");
+  }
+  return prUrl;
+}
+
+async function findExistingGhPullRequestUrl(
+  cwd: string,
+  headBranch: string,
+): Promise<string | null> {
+  try {
+    return findFirstUrl(
+      await runGh(cwd, [
+        "pr",
+        "view",
+        headBranch,
+        "--json",
+        "url",
+        "--jq",
+        ".url",
+      ]),
+    );
+  } catch {
+    return null;
   }
 }
 

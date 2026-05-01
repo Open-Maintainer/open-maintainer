@@ -540,14 +540,26 @@ if (args[0] === "auth" && args[1] === "status") {
   process.stdout.write("Logged in to github.com\\n");
   process.exit(0);
 }
-if (args[0] === "pr" && args[1] === "create") {
-  const baseIndex = args.indexOf("--base");
-  if (args[baseIndex + 1] !== "feature/context-base") {
-    process.stderr.write("wrong base branch: " + args[baseIndex + 1]);
-    process.exit(4);
-  }
+if (args[0] === "pr" && args[1] === "view") {
   process.stdout.write("https://github.com/local/existing-context-tool/pull/43\\n");
   process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "edit") {
+  const bodyIndex = args.indexOf("--body");
+  const body = args[bodyIndex + 1] || "";
+  if (body.includes("| Artifact | Version | Source |")) {
+    process.stderr.write("old version column is still present");
+    process.exit(4);
+  }
+  if (!body.includes("| Artifact | Source |")) {
+    process.stderr.write("new artifact source table is missing");
+    process.exit(5);
+  }
+  process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "create") {
+  process.stderr.write("expected existing PR to be edited");
+  process.exit(6);
 }
 process.stderr.write("unexpected gh command: " + args.join(" "));
 process.exit(2);

@@ -100,6 +100,9 @@ describe("github helpers", () => {
 
     expect(body).toContain("Repo profile version: v3");
     expect(body).toContain("AGENTS.md");
+    expect(body).toContain("| Artifact | Source |");
+    expect(body).not.toContain("| Artifact | Version | Source |");
+    expect(body).not.toContain("| AGENTS.md | v4 |");
   });
 
   it("filters generated and heavy paths before bounded content fetches", async () => {

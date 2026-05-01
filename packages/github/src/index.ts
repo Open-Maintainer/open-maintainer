@@ -489,7 +489,7 @@ export function renderContextPrBody(input: {
   const artifactRows = input.artifacts
     .map(
       (artifact) =>
-        `| ${artifact.type} | v${artifact.version} | profile v${artifact.sourceProfileVersion} |`,
+        `| ${artifact.type} | profile v${artifact.sourceProfileVersion} |`,
     )
     .join("\n");
   const modelLine =
@@ -505,8 +505,8 @@ export function renderContextPrBody(input: {
     `Dashboard run: ${input.runReference}`,
     `Model: ${modelLine}`,
     "",
-    "| Artifact | Version | Source |",
-    "| --- | --- | --- |",
+    "| Artifact | Source |",
+    "| --- | --- |",
     artifactRows,
     "",
     "This PR writes generated Open Maintainer context artifacts for review.",
