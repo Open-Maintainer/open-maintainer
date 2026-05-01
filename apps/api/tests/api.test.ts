@@ -180,6 +180,7 @@ describe("MVP API", () => {
       process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS;
     const previousGitAuthorName = process.env.OPEN_MAINTAINER_GIT_AUTHOR_NAME;
     const previousGitAuthorEmail = process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL;
+    const previousGhToken = process.env.GH_TOKEN;
     try {
       await execFileAsync("git", ["init", "-b", "main", repoRoot]);
       await writeFile(
@@ -314,6 +315,7 @@ process.exit(2);
       process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS = repoRoot;
       process.env.OPEN_MAINTAINER_GIT_AUTHOR_NAME = "Dashboard Bot";
       process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL = "dashboard@example.com";
+      process.env.GH_TOKEN = "test-token";
 
       const repoResponse = await app.inject({
         method: "POST",
@@ -456,6 +458,11 @@ process.exit(2);
       } else {
         process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL = previousGitAuthorEmail;
       }
+      if (previousGhToken === undefined) {
+        Reflect.deleteProperty(process.env, "GH_TOKEN");
+      } else {
+        process.env.GH_TOKEN = previousGhToken;
+      }
       await rm(directory, { recursive: true, force: true });
     }
   });
@@ -472,6 +479,7 @@ process.exit(2);
       process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS;
     const previousGitAuthorName = process.env.OPEN_MAINTAINER_GIT_AUTHOR_NAME;
     const previousGitAuthorEmail = process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL;
+    const previousGhToken = process.env.GH_TOKEN;
     try {
       await execFileAsync("git", ["init", "-b", "main", repoRoot]);
       await writeFile(
@@ -550,6 +558,7 @@ process.exit(2);
       process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS = repoRoot;
       process.env.OPEN_MAINTAINER_GIT_AUTHOR_NAME = "Dashboard Bot";
       process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL = "dashboard@example.com";
+      process.env.GH_TOKEN = "test-token";
 
       const repoResponse = await app.inject({
         method: "POST",
@@ -626,6 +635,11 @@ process.exit(2);
         Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_GIT_AUTHOR_EMAIL");
       } else {
         process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL = previousGitAuthorEmail;
+      }
+      if (previousGhToken === undefined) {
+        Reflect.deleteProperty(process.env, "GH_TOKEN");
+      } else {
+        process.env.GH_TOKEN = previousGhToken;
       }
       await rm(directory, { recursive: true, force: true });
     }

@@ -854,12 +854,11 @@ async function createLocalContextPrWithGh(input: {
     const commitSha = (
       await runGit(input.worktreeRoot, ["rev-parse", "HEAD"])
     ).trim();
-    await runGit(input.worktreeRoot, [
-      "push",
-      "--set-upstream",
-      "origin",
-      branchName,
-    ]);
+    await runGit(
+      input.worktreeRoot,
+      ["push", "--set-upstream", "origin", branchName],
+      gitPushAuthEnv(),
+    );
 
     const body = renderContextPrBody({
       repoProfileVersion: input.profileVersion,
@@ -999,6 +998,21 @@ function gitCommitIdentityEnv(): Record<string, string> {
     GIT_AUTHOR_EMAIL: email,
     GIT_COMMITTER_NAME: name,
     GIT_COMMITTER_EMAIL: email,
+  };
+}
+
+function gitPushAuthEnv(): Record<string, string> | undefined {
+  const token = process.env.GH_TOKEN ?? process.env.GITHUB_TOKEN;
+  if (!token) {
+    return undefined;
+  }
+  const credentials = Buffer.from(`x-access-token:${token}`, "utf8").toString(
+    "base64",
+  );
+  return {
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "http.https://github.com/.extraheader",
+    GIT_CONFIG_VALUE_0: `AUTHORIZATION: basic ${credentials}`,
   };
 }
 
