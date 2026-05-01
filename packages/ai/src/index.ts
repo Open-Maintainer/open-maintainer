@@ -30,6 +30,10 @@ export type CompletionOptions = {
   outputSchema?: unknown;
 };
 
+export type BuildProviderOptions = {
+  cwd?: string;
+};
+
 export interface ModelProvider {
   complete(
     input: CompletionInput,
@@ -104,13 +108,17 @@ export function assertProviderConsent(
   }
 }
 
-export function buildProvider(config: ModelProviderConfig): ModelProvider {
+export function buildProvider(
+  config: ModelProviderConfig,
+  options: BuildProviderOptions = {},
+): ModelProvider {
+  const cwd = options.cwd ?? process.cwd();
   if (config.kind === "codex-cli") {
     return {
       complete(input, options) {
         return buildCodexCliProvider({
           command: codexCommand(),
-          cwd: process.cwd(),
+          cwd,
           ...(config.model === "codex-cli" ? {} : { model: config.model }),
           ...(options?.outputSchema
             ? { outputSchema: options.outputSchema }
@@ -124,7 +132,7 @@ export function buildProvider(config: ModelProviderConfig): ModelProvider {
       complete(input, options) {
         return buildClaudeCliProvider({
           command: claudeCommand(),
-          cwd: process.cwd(),
+          cwd,
           ...(config.model === "claude-cli" ? {} : { model: config.model }),
           ...(options?.outputSchema
             ? { outputSchema: options.outputSchema }

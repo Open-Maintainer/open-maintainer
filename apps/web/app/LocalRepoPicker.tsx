@@ -7,6 +7,13 @@ type UploadFile = {
   content: string;
 };
 
+type GitignoreRule = {
+  pattern: string;
+  negated: boolean;
+  directoryOnly: boolean;
+  anchored: boolean;
+};
+
 const maxFiles = 800;
 const maxFileBytes = 128_000;
 const ignoredPathParts = new Set([
@@ -73,22 +80,24 @@ export function LocalRepoPicker({ error }: { error?: string | undefined }) {
     try {
       const selected = Array.from(files);
       const rootName = rootDirectoryName(selected);
+      const gitignoreRules = await readRootGitignoreRules(selected, rootName);
       const uploaded: UploadFile[] = [];
       for (const file of selected) {
         if (uploaded.length >= maxFiles) {
           break;
         }
         const relativePath = repoRelativePath(file);
+        const repoPath = stripRootDirectory(relativePath, rootName);
         if (
-          !relativePath ||
+          !repoPath ||
           file.size > maxFileBytes ||
-          shouldSkipPath(relativePath) ||
-          !shouldReadPath(relativePath)
+          shouldSkipPath(repoPath, gitignoreRules) ||
+          !shouldReadPath(repoPath)
         ) {
           continue;
         }
         uploaded.push({
-          path: stripRootDirectory(relativePath, rootName),
+          path: repoPath,
           content: await file.text(),
         });
       }
@@ -168,12 +177,28 @@ function stripRootDirectory(relativePath: string, rootName: string): string {
     : relativePath;
 }
 
-function shouldSkipPath(relativePath: string): boolean {
-  return relativePath
-    .split("/")
-    .some(
-      (part) => ignoredPathParts.has(part) || part.endsWith(".tsbuildinfo"),
-    );
+async function readRootGitignoreRules(
+  files: File[],
+  rootName: string,
+): Promise<GitignoreRule[]> {
+  const gitignore = files.find(
+    (file) =>
+      stripRootDirectory(repoRelativePath(file), rootName) === ".gitignore",
+  );
+  return gitignore ? parseGitignore(await gitignore.text()) : [];
+}
+
+function shouldSkipPath(
+  relativePath: string,
+  gitignoreRules: GitignoreRule[],
+): boolean {
+  return (
+    relativePath
+      .split("/")
+      .some(
+        (part) => ignoredPathParts.has(part) || part.endsWith(".tsbuildinfo"),
+      ) || isIgnoredByGitignore(relativePath, gitignoreRules)
+  );
 }
 
 function shouldReadPath(relativePath: string): boolean {
@@ -188,4 +213,86 @@ function shouldReadPath(relativePath: string): boolean {
   const extension =
     extensionStart >= 0 ? fileName.slice(extensionStart).toLowerCase() : "";
   return readableExtensions.has(extension);
+}
+
+function parseGitignore(content: string): GitignoreRule[] {
+  return content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"))
+    .map((line) => {
+      const negated = line.startsWith("!");
+      const rawPattern = negated ? line.slice(1) : line;
+      const anchored = rawPattern.startsWith("/");
+      const directoryOnly =
+        rawPattern.endsWith("/") || rawPattern.endsWith("/**");
+      const pattern = rawPattern
+        .replace(/^\/+/, "")
+        .replace(/\/\*\*$/, "")
+        .replace(/\/$/, "");
+      return { pattern, negated, directoryOnly, anchored };
+    })
+    .filter((rule) => rule.pattern.length > 0);
+}
+
+function isIgnoredByGitignore(
+  relativePath: string,
+  rules: GitignoreRule[],
+): boolean {
+  let ignored = false;
+  for (const rule of rules) {
+    if (matchesGitignoreRule(relativePath, rule)) {
+      ignored = !rule.negated;
+    }
+  }
+  return ignored;
+}
+
+function matchesGitignoreRule(
+  relativePath: string,
+  rule: GitignoreRule,
+): boolean {
+  const pathParts = relativePath.split("/");
+  if (rule.directoryOnly) {
+    return rule.pattern.includes("/")
+      ? matchesPathOrDescendant(relativePath, rule.pattern, rule.anchored)
+      : pathParts.some((part) => wildcardMatch(rule.pattern, part));
+  }
+  if (rule.pattern.includes("/")) {
+    return matchesPath(relativePath, rule.pattern, rule.anchored);
+  }
+  return pathParts.some((part) => wildcardMatch(rule.pattern, part));
+}
+
+function matchesPath(
+  relativePath: string,
+  pattern: string,
+  anchored: boolean,
+): boolean {
+  return anchored
+    ? wildcardMatch(pattern, relativePath)
+    : relativePath
+        .split("/")
+        .some((_, index, parts) =>
+          wildcardMatch(pattern, parts.slice(index).join("/")),
+        );
+}
+
+function matchesPathOrDescendant(
+  relativePath: string,
+  pattern: string,
+  anchored: boolean,
+): boolean {
+  return (
+    matchesPath(relativePath, pattern, anchored) ||
+    matchesPath(relativePath, `${pattern}/*`, anchored)
+  );
+}
+
+function wildcardMatch(pattern: string, value: string): boolean {
+  const escaped = pattern.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(
+    `^${escaped.replaceAll("*", "[^/]*").replaceAll("?", "[^/]")}$`,
+  );
+  return regex.test(value);
 }

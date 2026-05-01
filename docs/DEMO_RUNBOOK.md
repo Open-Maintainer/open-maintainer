@@ -245,6 +245,8 @@ bun run cli generate "$TARGET_REPO" \
 
 The dashboard runs the API and worker in a Docker backend image that includes Bun, Git, Codex CLI, and Claude CLI. It mounts local Codex and Claude configuration into the API container so the selected provider executable is available in the API environment.
 
+When you choose a local repository in the browser, the dashboard uploads readable files, honors the selected repository's root `.gitignore`, and materializes those files into an API-side worktree. Model-backed dashboard generation runs Codex or Claude with that worktree as the CLI working directory, matching the CLI demo's `--cd "$TARGET_REPO"` behavior.
+
 Start or rebuild the self-hosted stack:
 
 ```sh

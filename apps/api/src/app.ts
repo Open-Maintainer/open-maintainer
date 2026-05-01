@@ -1,3 +1,5 @@
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import cors from "@fastify/cors";
 import formBody from "@fastify/formbody";
@@ -120,7 +122,12 @@ export function buildApp() {
 
         const owner = path.basename(path.dirname(repoRoot)) || "local";
         const name = path.basename(repoRoot) || "repository";
-        const repo = registerLocalRepository({ owner, name, files });
+        const repo = registerLocalRepository({
+          owner,
+          name,
+          files,
+          worktreeRoot: repoRoot,
+        });
 
         return { repo, files: files.length };
       },
@@ -147,10 +154,20 @@ export function buildApp() {
           });
         }
 
+        const pendingRepo = localRepositoryRecord({
+          owner: "local",
+          name: body.name ?? "uploaded-repo",
+        });
+        const worktreeRoot = await materializeRepositoryFiles(
+          pendingRepo.id,
+          files,
+        );
         const repo = registerLocalRepository({
           owner: "local",
           name: body.name ?? "uploaded-repo",
           files,
+          id: pendingRepo.id,
+          worktreeRoot,
         });
         return { repo, files: files.length };
       },
@@ -582,7 +599,9 @@ async function generateContextArtifactsForRun(input: {
   let modelArtifacts: ModelArtifactContent | undefined;
   let modelSkills: ModelSkillContent | undefined;
   try {
-    const modelProvider = buildProvider(input.provider);
+    const modelProvider = buildProvider(input.provider, {
+      cwd: store.repoWorktrees.get(input.repoId) ?? process.cwd(),
+    });
     const repoFiles = store.repoFiles.get(input.repoId) ?? [];
     const factsPrompt = buildRepoFactsSynthesisPrompt({
       profile: input.profile,
@@ -699,9 +718,45 @@ function registerLocalRepository(input: {
   owner: string;
   name: string;
   files: Array<{ path: string; content: string }>;
+  id?: string;
+  worktreeRoot?: string;
 }): Repo {
+  const repo = localRepositoryRecord(input);
+
+  store.installations.set(repo.installationId, localInstallation());
+  store.repos.set(repo.id, repo);
+  store.repoFiles.set(repo.id, input.files);
+  if (input.worktreeRoot) {
+    store.repoWorktrees.set(repo.id, input.worktreeRoot);
+  } else {
+    store.repoWorktrees.delete(repo.id);
+  }
+  store.profiles.delete(repo.id);
+  store.artifacts.delete(repo.id);
+
+  return repo;
+}
+
+function localRepositoryRecord(input: {
+  owner: string;
+  name: string;
+  id?: string;
+}): Repo {
+  return {
+    id: input.id ?? `local_${slugId(input.owner)}_${slugId(input.name)}`,
+    installationId: "installation_local",
+    owner: input.owner,
+    name: input.name,
+    fullName: `${input.owner}/${input.name}`,
+    defaultBranch: "local",
+    private: true,
+    permissions: { contents: true, metadata: true, pull_requests: false },
+  };
+}
+
+function localInstallation(): Installation {
   const createdAt = nowIso();
-  const installation: Installation = {
+  return {
     id: "installation_local",
     accountLogin: "local",
     accountType: "Local",
@@ -713,24 +768,27 @@ function registerLocalRepository(input: {
     },
     createdAt,
   };
-  const repo: Repo = {
-    id: `local_${slugId(input.owner)}_${slugId(input.name)}`,
-    installationId: installation.id,
-    owner: input.owner,
-    name: input.name,
-    fullName: `${input.owner}/${input.name}`,
-    defaultBranch: "local",
-    private: true,
-    permissions: { contents: true, metadata: true, pull_requests: false },
-  };
+}
 
-  store.installations.set(installation.id, installation);
-  store.repos.set(repo.id, repo);
-  store.repoFiles.set(repo.id, input.files);
-  store.profiles.delete(repo.id);
-  store.artifacts.delete(repo.id);
-
-  return repo;
+async function materializeRepositoryFiles(
+  repoId: string,
+  files: Array<{ path: string; content: string }>,
+): Promise<string> {
+  const base =
+    process.env.OPEN_MAINTAINER_LOCAL_REPO_CACHE ??
+    path.join(tmpdir(), "open-maintainer", "local-repos");
+  const root = path.join(base, repoId);
+  await rm(root, { recursive: true, force: true });
+  for (const file of files) {
+    const normalizedPath = normalizeUploadedPath(file.path);
+    if (!normalizedPath) {
+      continue;
+    }
+    const destination = path.join(root, normalizedPath);
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, file.content, "utf8");
+  }
+  return root;
 }
 
 function normalizeUploadedPath(value: string): string | null {

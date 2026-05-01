@@ -163,6 +163,13 @@ if (process.argv.includes("--version")) {
   process.stdout.write("fake-codex 1.0.0\\n");
   process.exit(0);
 }
+const cdIndex = process.argv.indexOf("--cd");
+const repoRoot = process.argv[cdIndex + 1];
+const packageJson = JSON.parse(fs.readFileSync(repoRoot + "/package.json", "utf8"));
+if (packageJson.name !== "cli-dashboard-tool") {
+  process.stderr.write("Codex did not run inside the uploaded repository worktree.\\n");
+  process.exit(3);
+}
 const schemaIndex = process.argv.indexOf("--output-schema");
 const schema = JSON.parse(fs.readFileSync(process.argv[schemaIndex + 1], "utf8"));
 const outputIndex = process.argv.indexOf("--output-last-message");
@@ -218,7 +225,10 @@ fs.writeFileSync(outputPath, JSON.stringify(output));
           files: [
             {
               path: "package.json",
-              content: JSON.stringify({ scripts: { test: "bun test" } }),
+              content: JSON.stringify({
+                name: "cli-dashboard-tool",
+                scripts: { test: "bun test" },
+              }),
             },
             { path: "src/index.ts", content: "export const ok = true;\n" },
           ],
