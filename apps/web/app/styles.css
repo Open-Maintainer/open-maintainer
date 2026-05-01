@@ -151,12 +151,50 @@ h3 {
   gap: 10px;
 }
 
+.local-form {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.mounted-path-form {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+}
+
+.local-form label,
+.provider-form label {
+  color: #617066;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.provider-form {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-row input {
+  width: auto;
+  min-height: auto;
+}
+
 .search-form {
   display: flex;
   gap: 8px;
 }
 
-input {
+input,
+select {
   width: 100%;
   min-height: 36px;
   border: 1px solid #cfd8d1;
@@ -170,6 +208,7 @@ input {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  margin-bottom: 12px;
 }
 
 .repo-link {
@@ -196,6 +235,36 @@ input {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;
+}
+
+.actions form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.generate-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.generate-options label {
+  display: grid;
+  gap: 4px;
+  min-width: 120px;
+  color: #617066;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 button,
@@ -331,6 +400,10 @@ pre {
 
   .metric-row,
   .run-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .mounted-path-form {
     grid-template-columns: 1fr;
   }
 }

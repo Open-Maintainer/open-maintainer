@@ -1,10 +1,11 @@
-import { chmod, mkdtemp, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertGenerationAllowed,
+  assertProviderExecutableAvailable,
   buildClaudeCliProvider,
   buildCodexCliProvider,
   buildProvider,
@@ -32,6 +33,32 @@ describe("AI providers", () => {
 
     expect(() => assertGenerationAllowed(null)).toThrow(/blocked/);
     expect(() => assertGenerationAllowed(provider)).toThrow(/consent/);
+  });
+
+  it("checks selected CLI providers before generation", async () => {
+    const previousCodexCommand = process.env.OPEN_MAINTAINER_CODEX_COMMAND;
+    process.env.OPEN_MAINTAINER_CODEX_COMMAND =
+      "open-maintainer-missing-codex-test-command";
+    try {
+      const provider = createProviderConfig({
+        kind: "codex-cli",
+        displayName: "Codex CLI",
+        baseUrl: "http://localhost",
+        model: "codex-cli",
+        apiKey: "local-cli",
+        repoContentConsent: true,
+      });
+
+      await expect(assertProviderExecutableAvailable(provider)).rejects.toThrow(
+        /Executable not found/,
+      );
+    } finally {
+      if (previousCodexCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_CODEX_COMMAND = previousCodexCommand;
+      }
+    }
   });
 
   it("tests a local OpenAI-compatible mock without repo content", async () => {
@@ -64,6 +91,83 @@ describe("AI providers", () => {
     expect(result.text).toBe("ok");
     expect(bodies.join("\n")).not.toContain("repo profile");
     expect(bodies.join("\n")).not.toContain("source code");
+  });
+
+  it("passes cwd and per-call output schemas to dashboard-built CLI providers", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "build-provider-codex-test-"),
+    );
+    const repoRoot = path.join(directory, "repo");
+    const command = path.join(directory, "fake-codex.js");
+    const argsPath = path.join(directory, "args.json");
+    const previousCodexCommand = process.env.OPEN_MAINTAINER_CODEX_COMMAND;
+    try {
+      await writeFile(
+        command,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+const argsPath = ${JSON.stringify(argsPath)};
+fs.writeFileSync(argsPath, JSON.stringify(process.argv.slice(2)));
+const outputIndex = process.argv.indexOf("--output-last-message");
+const outputPath = process.argv[outputIndex + 1];
+fs.writeFileSync(outputPath, JSON.stringify({ ok: true }));
+`,
+      );
+      await chmod(command, 0o755);
+      process.env.OPEN_MAINTAINER_CODEX_COMMAND = command;
+      const provider = createProviderConfig({
+        kind: "codex-cli",
+        displayName: "Codex CLI",
+        baseUrl: "http://localhost",
+        model: "codex-cli",
+        apiKey: "local-cli",
+        repoContentConsent: true,
+      });
+
+      const result = await buildProvider(provider).complete(
+        { system: "Return JSON.", user: "Use schema." },
+        {
+          outputSchema: {
+            type: "object",
+            required: ["ok"],
+            properties: { ok: { type: "boolean" } },
+          },
+        },
+      );
+      const args = JSON.parse(await readFile(argsPath, "utf8")) as string[];
+
+      expect(JSON.parse(result.text)).toEqual({ ok: true });
+      expect(args).toContain("--output-schema");
+      expect(
+        args.slice(args.indexOf("--cd"), args.indexOf("--cd") + 2),
+      ).toEqual(["--cd", process.cwd()]);
+
+      await buildProvider(provider, { cwd: repoRoot }).complete(
+        { system: "Return JSON.", user: "Use schema." },
+        {
+          outputSchema: {
+            type: "object",
+            required: ["ok"],
+            properties: { ok: { type: "boolean" } },
+          },
+        },
+      );
+      const argsWithCwd = JSON.parse(
+        await readFile(argsPath, "utf8"),
+      ) as string[];
+      expect(
+        argsWithCwd.slice(
+          argsWithCwd.indexOf("--cd"),
+          argsWithCwd.indexOf("--cd") + 2,
+        ),
+      ).toEqual(["--cd", repoRoot]);
+    } finally {
+      if (previousCodexCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_CODEX_COMMAND = previousCodexCommand;
+      }
+    }
   });
 
   it("runs Codex CLI provider through a schema-constrained output file", async () => {

@@ -243,18 +243,65 @@ bun run cli generate "$TARGET_REPO" \
 
 ## Optional Dashboard Smoke
 
-The dashboard path is secondary to the CLI demo. To verify the self-hosted stack:
+The dashboard runs the API and worker in a Docker backend image that includes Bun, Git, GitHub CLI, Codex CLI, and Claude CLI. It mounts local Codex, Claude, and GitHub CLI configuration into the API container so the selected provider executable and authenticated `gh` session are available in the API environment.
+
+When you add a mounted repository path, the dashboard scans that Git checkout in the API container, runs Codex or Claude with that checkout as the CLI working directory, writes generated context files to a branch, pushes it, and opens the PR with authenticated `gh`.
+
+When you upload a local repository from the browser, the dashboard uploads readable files, honors the selected repository's root `.gitignore`, and materializes those files into an API-side worktree for analysis and generation. If the upload matches a Git checkout mounted into the API container, the dashboard uses that mounted checkout for generation and `gh` PR creation so the PR targets the checkout's current branch.
+
+Start or rebuild the self-hosted stack:
 
 ```sh
 docker compose up --build -d
-bun run smoke:compose
-docker compose down
 ```
 
-When the stack is running, open:
+Open the dashboard:
 
 ```text
 http://localhost:3000
+```
+
+Use the dashboard controls as the equivalent of the CLI flags:
+
+| Dashboard control | CLI flag |
+| --- | --- |
+| Provider | `--model codex` or `--model claude` |
+| Model | `--llm-model` |
+| Context | `--context codex`, `--context claude`, or `--context both` |
+| Skills | `--skills codex`, `--skills claude`, or `--skills both` |
+
+The provider setup step fails if the selected CLI executable is not available in the API container. Confirm the container can see both commands when needed:
+
+```sh
+docker exec open-maintainer-api-1 codex --version
+docker exec open-maintainer-api-1 claude --version
+```
+
+Context PR creation requires authenticated GitHub CLI inside the API container:
+
+```sh
+GH_TOKEN=github_pat_xxx
+OPEN_MAINTAINER_GIT_AUTHOR_NAME="Open Maintainer"
+OPEN_MAINTAINER_GIT_AUTHOR_EMAIL="open-maintainer@users.noreply.github.com"
+```
+
+Compose passes `GH_TOKEN` and the commit author identity from `.env` into the API container. Recreate the API container after adding or rotating the token:
+
+```sh
+docker compose up -d --force-recreate api
+```
+
+```sh
+docker exec open-maintainer-api-1 gh auth status
+```
+
+If that fails, confirm the token has repository Contents read/write and Pull requests read/write permissions, or run `gh auth login` inside the API container.
+
+To run the compose smoke gate:
+
+```sh
+bun run smoke:compose
+docker compose down
 ```
 
 The API listens on:

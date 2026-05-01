@@ -6,6 +6,7 @@ import type {
   RepoProfile,
   RunRecord,
 } from "@open-maintainer/shared";
+import { LocalRepoPicker } from "./LocalRepoPicker";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -39,7 +40,7 @@ type RunWithContext = RunRecord & {
   prUrl?: unknown;
 };
 
-const apiBaseUrl =
+const serverApiBaseUrl =
   process.env.API_BASE_URL ??
   process.env.NEXT_PUBLIC_API_BASE_URL ??
   "http://localhost:4000";
@@ -49,7 +50,7 @@ async function fetchJson<T>(
   init?: RequestInit,
 ): Promise<T | null> {
   try {
-    const response = await fetch(`${apiBaseUrl}${path}`, {
+    const response = await fetch(`${serverApiBaseUrl}${path}`, {
       ...init,
       cache: "no-store",
       headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
@@ -67,6 +68,10 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
   const params: SearchParams = searchParams ? await searchParams : {};
   const requestedRepo = singleParam(params.repo ?? params.repoId);
   const repoQuery = singleParam(params.q)?.trim().toLowerCase() ?? "";
+  const localRepoError = singleParam(params.localRepoError);
+  const actionError = singleParam(params.actionError);
+  const providerError = singleParam(params.providerError);
+  const requestedProviderId = singleParam(params.providerId);
 
   const [health, reposResponse, providersResponse] = await Promise.all([
     fetchJson<Health>("/health"),
@@ -74,8 +79,7 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
     fetchJson<{ providers: ProviderSummary[] }>("/model-providers"),
   ]);
   const repos = reposResponse?.repos ?? [];
-  const repo =
-    selectRepo({ repos, requestedRepo, repoQuery }) ?? repos[0] ?? null;
+  const repo = selectRepo({ repos, requestedRepo, repoQuery });
   const profileResponse = repo
     ? await fetchJson<{ profile: ReadinessProfile }>(
         `/repos/${repo.id}/profile`,
@@ -93,8 +97,16 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
   const artifacts = artifactsResponse?.artifacts ?? [];
   const runs = runsResponse?.runs ?? [];
   const providers = providersResponse?.providers ?? [];
+  const selectedProvider =
+    providers.find((provider) => provider.id === requestedProviderId) ??
+    providers.find((provider) => provider.repoContentConsent) ??
+    null;
+  const defaultArtifactSelection =
+    artifactSelectionForProvider(selectedProvider);
   const readiness = profile ? getReadiness(profile) : null;
   const prStatus = getPrStatus(runs);
+  const contextActionLabel =
+    repo?.owner === "local" ? "Open PR with gh" : "Open context PR";
 
   return (
     <main>
@@ -122,36 +134,26 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
               <h2>Repository</h2>
               <span className="count">{repos.length} installed</span>
             </div>
+            <LocalRepoPicker error={localRepoError} />
+            {repos.length ? (
+              <div className="repo-links" aria-label="Installed repos">
+                {repos.map((installedRepo) => (
+                  <a
+                    className={
+                      installedRepo.id === repo?.id
+                        ? "repo-link active"
+                        : "repo-link"
+                    }
+                    href={`/?repo=${encodeURIComponent(installedRepo.id)}`}
+                    key={installedRepo.id}
+                  >
+                    {installedRepo.fullName}
+                  </a>
+                ))}
+              </div>
+            ) : null}
             {repo ? (
               <div className="list">
-                {repos.length > 1 ? (
-                  <div className="repo-picker">
-                    <form action="/" method="get" className="search-form">
-                      <input
-                        name="q"
-                        type="search"
-                        placeholder="Find installed repo"
-                        defaultValue={repoQuery}
-                      />
-                      <button type="submit">Search</button>
-                    </form>
-                    <div className="repo-links" aria-label="Installed repos">
-                      {repos.map((installedRepo) => (
-                        <a
-                          className={
-                            installedRepo.id === repo.id
-                              ? "repo-link active"
-                              : "repo-link"
-                          }
-                          href={`/?repo=${encodeURIComponent(installedRepo.id)}`}
-                          key={installedRepo.id}
-                        >
-                          {installedRepo.fullName}
-                        </a>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
                 <div className="row">
                   <div>
                     <strong>{repo.fullName}</strong>
@@ -164,25 +166,64 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                   </span>
                 </div>
                 <div className="actions">
-                  <form
-                    action={`${apiBaseUrl}/repos/${repo.id}/analyze`}
-                    method="post"
-                  >
+                  <form action="/repo-actions" method="post">
+                    <input type="hidden" name="repoId" value={repo.id} />
+                    <input type="hidden" name="actionType" value="analyze" />
                     <button type="submit">Run analysis</button>
                   </form>
-                  <form
-                    action={`${apiBaseUrl}/repos/${repo.id}/generate-context`}
-                    method="post"
-                  >
+                  <form action="/repo-actions" method="post">
+                    <input type="hidden" name="repoId" value={repo.id} />
+                    <input
+                      type="hidden"
+                      name="actionType"
+                      value="generateContext"
+                    />
+                    {selectedProvider ? (
+                      <input
+                        type="hidden"
+                        name="providerId"
+                        value={selectedProvider.id}
+                      />
+                    ) : null}
+                    <div className="generate-options">
+                      <label>
+                        <span>Context</span>
+                        <select
+                          name="context"
+                          defaultValue={defaultArtifactSelection}
+                        >
+                          <option value="codex">Codex</option>
+                          <option value="claude">Claude</option>
+                          <option value="both">Both</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Skills</span>
+                        <select
+                          name="skills"
+                          defaultValue={defaultArtifactSelection}
+                        >
+                          <option value="codex">Codex</option>
+                          <option value="claude">Claude</option>
+                          <option value="both">Both</option>
+                        </select>
+                      </label>
+                    </div>
                     <button type="submit">Generate context</button>
                   </form>
-                  <form
-                    action={`${apiBaseUrl}/repos/${repo.id}/open-context-pr`}
-                    method="post"
-                  >
-                    <button type="submit">Open context PR</button>
+                  <form action="/repo-actions" method="post">
+                    <input type="hidden" name="repoId" value={repo.id} />
+                    <input
+                      type="hidden"
+                      name="actionType"
+                      value="openContextPr"
+                    />
+                    <button type="submit">{contextActionLabel}</button>
                   </form>
                 </div>
+                {actionError ? (
+                  <p className="error">{actionErrorMessage(actionError)}</p>
+                ) : null}
               </div>
             ) : (
               <SetupMessage />
@@ -204,6 +245,39 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                   : "blocked"}
               </span>
             </div>
+            <form
+              action="/provider-actions"
+              className="provider-form"
+              method="post"
+            >
+              {repo ? (
+                <input type="hidden" name="repoId" value={repo.id} />
+              ) : null}
+              <label htmlFor="providerType">Provider</label>
+              <select
+                id="providerType"
+                name="providerType"
+                defaultValue="codex"
+              >
+                <option value="codex">Codex CLI</option>
+                <option value="claude">Claude CLI</option>
+              </select>
+              <label htmlFor="providerModel">Model</label>
+              <input
+                id="providerModel"
+                name="model"
+                placeholder="Provider default"
+                type="text"
+              />
+              <label className="checkbox-row">
+                <input name="repoContentConsent" type="checkbox" />
+                <span>Allow repository content for generation</span>
+              </label>
+              <button type="submit">Use provider</button>
+              {providerError ? (
+                <p className="error">{providerErrorMessage(providerError)}</p>
+              ) : null}
+            </form>
             {providers.length ? (
               <div className="list">
                 {providers.map((provider) => (
@@ -214,13 +288,36 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                         {provider.kind} / {provider.model}
                       </p>
                     </div>
-                    <span
-                      className={
-                        provider.repoContentConsent ? "badge" : "badge warn"
-                      }
-                    >
-                      {provider.repoContentConsent ? "consented" : "no consent"}
-                    </span>
+                    <div className="row-actions">
+                      <span
+                        className={
+                          provider.repoContentConsent ? "badge" : "badge warn"
+                        }
+                      >
+                        {provider.repoContentConsent
+                          ? provider.id === selectedProvider?.id
+                            ? "selected"
+                            : "consented"
+                          : "no consent"}
+                      </span>
+                      {provider.id !== selectedProvider?.id ? (
+                        <form action="/provider-actions" method="post">
+                          {repo ? (
+                            <input
+                              type="hidden"
+                              name="repoId"
+                              value={repo.id}
+                            />
+                          ) : null}
+                          <input
+                            type="hidden"
+                            name="providerId"
+                            value={provider.id}
+                          />
+                          <button type="submit">Use</button>
+                        </form>
+                      ) : null}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -431,13 +528,17 @@ function getReadiness(profile: ReadinessProfile): {
   missingItems: string[];
 } {
   const readiness = profile.readiness;
+  const agentReadiness = profile.agentReadiness;
   return {
-    score: numberValue(profile.readinessScore ?? readiness?.score),
+    score: numberValue(
+      profile.readinessScore ?? readiness?.score ?? agentReadiness.score,
+    ),
     missingItems: stringArray(
       profile.missingItems ??
         profile.readinessMissingItems ??
         readiness?.missingItems ??
-        readiness?.missing,
+        readiness?.missing ??
+        agentReadiness.missingItems,
     ),
   };
 }
@@ -461,6 +562,55 @@ function formatReadinessScore(score: number | undefined): string {
   return score <= 1 ? `${Math.round(score * 100)}%` : `${Math.round(score)}`;
 }
 
+function actionErrorMessage(error: string): string {
+  const parsed = parseStatusError(error);
+  if (error === "invalid-action") {
+    return "That repository action was not recognized.";
+  }
+  if (error === "unreachable") {
+    return "The API did not respond to that repository action.";
+  }
+  if (error === "409") {
+    return "That action needs analysis artifacts or provider consent first.";
+  }
+  return parsed.detail
+    ? `Repository action failed with API status ${parsed.status}. ${parsed.detail}`
+    : `Repository action failed with API status ${parsed.status}.`;
+}
+
+function providerErrorMessage(error: string): string {
+  const parsed = parseStatusError(error);
+  if (error === "invalid-provider") {
+    return "Choose Codex CLI or Claude CLI.";
+  }
+  if (error === "missing-consent") {
+    return "Repo-content consent is required before generation can use a provider.";
+  }
+  if (error === "unreachable") {
+    return "The API did not respond while saving the provider.";
+  }
+  return parsed.detail
+    ? `Provider setup failed with API status ${parsed.status}. ${parsed.detail}`
+    : `Provider setup failed with API status ${parsed.status}.`;
+}
+
+function parseStatusError(error: string): { status: string; detail: string } {
+  const separator = error.indexOf(":");
+  if (separator < 0) {
+    return { status: error, detail: "" };
+  }
+  return {
+    status: error.slice(0, separator),
+    detail: error.slice(separator + 1),
+  };
+}
+
+function artifactSelectionForProvider(
+  provider: ProviderSummary | null,
+): "codex" | "claude" {
+  return provider?.kind === "claude-cli" ? "claude" : "codex";
+}
+
 function getPrStatus(runs: RunWithContext[]): {
   label: string;
   message: string;
@@ -479,7 +629,8 @@ function getPrStatus(runs: RunWithContext[]): {
   if (!latest) {
     return {
       label: "not opened",
-      message: "Open a context PR after artifacts have been generated.",
+      message:
+        "Open a context PR after artifacts have been generated. Local repositories use the authenticated gh CLI in the API environment.",
       url: null,
     };
   }
@@ -550,9 +701,7 @@ function SetupMessage() {
   return (
     <div>
       <p className="muted">
-        Configure the GitHub App and install it on selected repositories.
-        Missing credentials, webhook failures, and provider consent blocks are
-        surfaced in this dashboard and API run history.
+        Choose a local repository or select an installed repository.
       </p>
     </div>
   );
