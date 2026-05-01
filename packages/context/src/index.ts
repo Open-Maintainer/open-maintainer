@@ -5,7 +5,12 @@ import type {
   GeneratedArtifact,
   RepoProfile,
 } from "@open-maintainer/shared";
-import { ArtifactTypeSchema, newId, nowIso } from "@open-maintainer/shared";
+import {
+  ArtifactTypeSchema,
+  RepoProfileSchema,
+  newId,
+  nowIso,
+} from "@open-maintainer/shared";
 import { z } from "zod";
 
 export const StructuredContextOutputSchema = z.object({
@@ -1324,6 +1329,101 @@ export function profileFingerprint(profile: RepoProfile): string {
     .update(JSON.stringify(fingerprintableProfile(profile)))
     .digest("hex")
     .slice(0, 16);
+}
+
+export type DriftFinding = {
+  group: "commands";
+  changeType: "added" | "removed" | "changed";
+  path: string;
+  subject: string;
+  previousValue: string | null;
+  currentValue: string | null;
+};
+
+export function parseRepoProfileJson(content: string): RepoProfile | null {
+  try {
+    const parsed = RepoProfileSchema.safeParse(JSON.parse(content));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+export function compareProfileDrift(input: {
+  stored: RepoProfile;
+  current: RepoProfile;
+}): DriftFinding[] {
+  return compareCommandDrift(input.stored, input.current);
+}
+
+function compareCommandDrift(
+  stored: RepoProfile,
+  current: RepoProfile,
+): DriftFinding[] {
+  const previousCommands = new Map(
+    stored.commands.map((command) => [commandKey(command), command]),
+  );
+  const currentCommands = new Map(
+    current.commands.map((command) => [commandKey(command), command]),
+  );
+  const findings: DriftFinding[] = [];
+
+  for (const [key, command] of currentCommands) {
+    const previous = previousCommands.get(key);
+    if (!previous) {
+      findings.push({
+        group: "commands",
+        changeType: "added",
+        path: command.source,
+        subject: commandSubject(command),
+        previousValue: null,
+        currentValue: command.command,
+      });
+      continue;
+    }
+    if (previous.command !== command.command) {
+      findings.push({
+        group: "commands",
+        changeType: "changed",
+        path: command.source,
+        subject: commandSubject(command),
+        previousValue: previous.command,
+        currentValue: command.command,
+      });
+    }
+  }
+
+  for (const [key, command] of previousCommands) {
+    if (currentCommands.has(key)) {
+      continue;
+    }
+    findings.push({
+      group: "commands",
+      changeType: "removed",
+      path: command.source,
+      subject: commandSubject(command),
+      previousValue: command.command,
+      currentValue: null,
+    });
+  }
+
+  return findings.sort(
+    (left, right) =>
+      left.path.localeCompare(right.path) ||
+      left.subject.localeCompare(right.subject) ||
+      left.changeType.localeCompare(right.changeType),
+  );
+}
+
+function commandKey(command: RepoProfile["commands"][number]): string {
+  return `${command.source}:${command.name}`;
+}
+
+function commandSubject(command: RepoProfile["commands"][number]): string {
+  const sourceKind = command.source.endsWith("package.json")
+    ? "script"
+    : "command";
+  return `${command.source} ${sourceKind} ${command.name}`;
 }
 
 function fingerprintableProfile(profile: RepoProfile) {

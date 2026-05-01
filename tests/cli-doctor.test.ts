@@ -55,6 +55,9 @@ describe("CLI doctor", () => {
     expect(doctor.exitCode).toBe(1);
     expect(doctor.stderr).toBe("");
     expect(doctor.stdout).toContain(
+      'drift: command package.json script typecheck was added: "tsc --noEmit"',
+    );
+    expect(doctor.stdout).toContain(
       "drift: .open-maintainer/profile.json was generated from a different repository profile",
     );
     expect(doctor.stdout).toContain(

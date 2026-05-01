@@ -12,6 +12,7 @@ import {
   buildArtifactSynthesisPrompt,
   buildRepoFactsSynthesisPrompt,
   buildSkillSynthesisPrompt,
+  compareProfileDrift,
   createContextArtifacts,
   defaultArtifactTargets,
   deterministicContextOutput,
@@ -19,6 +20,7 @@ import {
   modelSkillContentJsonSchema,
   parseModelArtifactContent,
   parseModelSkillContent,
+  parseRepoProfileJson,
   parseStructuredRepoFacts,
   planArtifactWrites,
   profileFingerprint,
@@ -320,6 +322,13 @@ async function doctor(
   }).map((artifact) => artifact.type);
   const missing = required.filter((artifactPath) => !paths.has(artifactPath));
   const currentProfileHash = profileFingerprint(profile);
+  const storedProfile = filesByPath.get(".open-maintainer/profile.json");
+  const driftFindings = storedProfile
+    ? compareProfileDrift({
+        stored: parseRepoProfileJson(storedProfile.content) ?? profile,
+        current: profile,
+      })
+    : [];
   const stale = required.filter((artifactPath) => {
     const file = filesByPath.get(artifactPath);
     if (!file) {
@@ -334,18 +343,38 @@ async function doctor(
     );
   });
   return {
-    ok: missing.length === 0 && stale.length === 0,
+    ok:
+      missing.length === 0 && stale.length === 0 && driftFindings.length === 0,
     messages: [
       `Agent Readiness: ${profile.agentReadiness.score}/100`,
       ...(missing.length > 0
         ? missing.map((item) => `missing: ${item}`)
         : ["all required artifacts are present"]),
+      ...driftFindings.map(formatDriftFinding),
       ...stale.map(
         (item) =>
           `drift: ${item} was generated from a different repository profile`,
       ),
     ],
   };
+}
+
+function formatDriftFinding(
+  finding: ReturnType<typeof compareProfileDrift>[number],
+): string {
+  if (finding.changeType === "added") {
+    return `drift: command ${finding.subject} was added: ${JSON.stringify(
+      finding.currentValue,
+    )}`;
+  }
+  if (finding.changeType === "removed") {
+    return `drift: command ${finding.subject} was removed: ${JSON.stringify(
+      finding.previousValue,
+    )}`;
+  }
+  return `drift: command ${finding.subject} changed from ${JSON.stringify(
+    finding.previousValue,
+  )} to ${JSON.stringify(finding.currentValue)}`;
 }
 
 async function pr(repoRoot: string, options: CliOptions): Promise<void> {
