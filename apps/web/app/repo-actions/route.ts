@@ -36,6 +36,7 @@ export async function POST(request: NextRequest) {
             actionType === "generateContext" && providerId
               ? {
                   providerId,
+                  async: true,
                   ...(context ? { context } : {}),
                   ...(skills ? { skills } : {}),
                 }

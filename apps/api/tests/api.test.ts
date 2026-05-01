@@ -252,15 +252,32 @@ fs.writeFileSync(outputPath, JSON.stringify(output));
           providerId: provider.json().provider.id,
           context: "both",
           skills: "both",
+          async: true,
         },
       });
 
-      expect(generated.statusCode).toBe(200);
-      expect(
-        generated
-          .json()
-          .artifacts.map((artifact: { type: string }) => artifact.type),
-      ).toEqual([
+      expect(generated.statusCode).toBe(202);
+      expect(generated.json().run.status).toBe("running");
+
+      let artifacts: Array<{ type: string }> = [];
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const artifactsResponse = await app.inject({
+          method: "GET",
+          url: `/repos/${repoId}/artifacts`,
+        });
+        artifacts = artifactsResponse.json().artifacts;
+        if (artifacts.length > 0) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const run = await app.inject({
+        method: "GET",
+        url: `/runs/${generated.json().run.id}`,
+      });
+
+      expect(run.json().run.status).toBe("succeeded");
+      expect(artifacts.map((artifact) => artifact.type)).toEqual([
         "AGENTS.md",
         "CLAUDE.md",
         ".open-maintainer.yml",

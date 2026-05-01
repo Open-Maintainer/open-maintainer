@@ -35,8 +35,11 @@ import {
 } from "@open-maintainer/github";
 import type { GitHubAppInstallationAuth } from "@open-maintainer/github";
 import {
+  type GeneratedArtifact,
   type Installation,
+  type ModelProviderConfig,
   type Repo,
+  type RepoProfile,
   newId,
   nowIso,
 } from "@open-maintainer/shared";
@@ -340,6 +343,7 @@ export function buildApp() {
         providerId: z.string().optional(),
         context: z.enum(["codex", "claude", "both"]).optional(),
         skills: z.enum(["codex", "claude", "both"]).optional(),
+        async: z.boolean().optional(),
       })
       .parse(request.body ?? {});
     const profile = store.latestProfile(repoId);
@@ -421,86 +425,38 @@ export function buildApp() {
       model: provider?.model ?? null,
       externalId: null,
     });
-    let output = deterministicContextOutput(profile);
-    let modelArtifacts: ModelArtifactContent | undefined;
-    let modelSkills: ModelSkillContent | undefined;
-    if (provider) {
-      try {
-        const modelProvider = buildProvider(provider);
-        const repoFiles = store.repoFiles.get(repoId) ?? [];
-        const factsPrompt = buildRepoFactsSynthesisPrompt({
-          profile,
-          files: repoFiles,
-        });
-        const factsCompletion = await modelProvider.complete(factsPrompt, {
-          outputSchema: structuredRepoFactsJsonSchema,
-        });
-        const repoFacts = parseStructuredRepoFacts(factsCompletion.text);
-        output = structuredContextOutputFromRepoFacts(profile, repoFacts);
-        const artifactPrompt = buildArtifactSynthesisPrompt({
-          profile,
-          repoFacts,
-        });
-        const artifactCompletion = await modelProvider.complete(
-          artifactPrompt,
-          {
-            outputSchema: modelArtifactContentJsonSchema,
-          },
-        );
-        modelArtifacts = parseModelArtifactContent(artifactCompletion.text);
-        try {
-          const skillPrompt = buildSkillSynthesisPrompt({
-            profile,
-            repoFacts,
-            agentsMd: modelArtifacts.agentsMd,
-            files: repoFiles,
-          });
-          const skillCompletion = await modelProvider.complete(skillPrompt, {
-            outputSchema: modelSkillContentJsonSchema,
-          });
-          modelSkills = parseModelSkillContent(skillCompletion.text);
-        } catch {
-          modelSkills = undefined;
-        }
-      } catch (error) {
-        store.updateRun(run.id, {
-          status: "failed",
-          safeMessage:
-            error instanceof Error
-              ? `Model synthesis failed: ${error.message}`
-              : "Model synthesis failed.",
-        });
-        return reply.code(502).send({
-          error: store.runs.get(run.id)?.safeMessage,
-          run: store.runs.get(run.id),
-        });
-      }
-    }
-    const currentArtifactCount = store.artifacts.get(repoId)?.length ?? 0;
-    const artifacts = createContextArtifacts({
-      repoId,
-      profile,
-      output,
-      ...(modelArtifacts ? { modelArtifacts } : {}),
-      ...(modelSkills ? { modelSkills } : {}),
-      modelProvider: provider?.displayName ?? null,
-      model: provider?.model ?? null,
-      nextVersion: currentArtifactCount + 1,
-      targets: artifactTargetsForDashboard({
-        providerKind: provider.kind,
+
+    if (body.async) {
+      void generateContextArtifactsForRun({
+        repoId,
+        profile,
+        provider,
+        runId: run.id,
         context: body.context,
         skills: body.skills,
-      }),
-    });
-    for (const artifact of artifacts) {
-      store.addArtifact(artifact);
+      }).catch(() => undefined);
+      return reply.code(202).send({
+        accepted: true,
+        run: store.runs.get(run.id),
+      });
     }
-    store.updateRun(run.id, {
-      status: "succeeded",
-      artifactVersions: artifacts.map((artifact) => artifact.version),
-      safeMessage: "Context artifacts generated for preview.",
-    });
-    return { run: store.runs.get(run.id), artifacts };
+
+    try {
+      const artifacts = await generateContextArtifactsForRun({
+        repoId,
+        profile,
+        provider,
+        runId: run.id,
+        context: body.context,
+        skills: body.skills,
+      });
+      return { run: store.runs.get(run.id), artifacts };
+    } catch {
+      return reply.code(502).send({
+        error: store.runs.get(run.id)?.safeMessage,
+        run: store.runs.get(run.id),
+      });
+    }
   });
 
   app.get("/repos/:repoId/artifacts", async (request) => {
@@ -612,6 +568,89 @@ export function buildApp() {
   });
 
   return app;
+}
+
+async function generateContextArtifactsForRun(input: {
+  repoId: string;
+  profile: RepoProfile;
+  provider: ModelProviderConfig;
+  runId: string;
+  context: "codex" | "claude" | "both" | undefined;
+  skills: "codex" | "claude" | "both" | undefined;
+}): Promise<GeneratedArtifact[]> {
+  let output = deterministicContextOutput(input.profile);
+  let modelArtifacts: ModelArtifactContent | undefined;
+  let modelSkills: ModelSkillContent | undefined;
+  try {
+    const modelProvider = buildProvider(input.provider);
+    const repoFiles = store.repoFiles.get(input.repoId) ?? [];
+    const factsPrompt = buildRepoFactsSynthesisPrompt({
+      profile: input.profile,
+      files: repoFiles,
+    });
+    const factsCompletion = await modelProvider.complete(factsPrompt, {
+      outputSchema: structuredRepoFactsJsonSchema,
+    });
+    const repoFacts = parseStructuredRepoFacts(factsCompletion.text);
+    output = structuredContextOutputFromRepoFacts(input.profile, repoFacts);
+    const artifactPrompt = buildArtifactSynthesisPrompt({
+      profile: input.profile,
+      repoFacts,
+    });
+    const artifactCompletion = await modelProvider.complete(artifactPrompt, {
+      outputSchema: modelArtifactContentJsonSchema,
+    });
+    modelArtifacts = parseModelArtifactContent(artifactCompletion.text);
+    try {
+      const skillPrompt = buildSkillSynthesisPrompt({
+        profile: input.profile,
+        repoFacts,
+        agentsMd: modelArtifacts.agentsMd,
+        files: repoFiles,
+      });
+      const skillCompletion = await modelProvider.complete(skillPrompt, {
+        outputSchema: modelSkillContentJsonSchema,
+      });
+      modelSkills = parseModelSkillContent(skillCompletion.text);
+    } catch {
+      modelSkills = undefined;
+    }
+  } catch (error) {
+    store.updateRun(input.runId, {
+      status: "failed",
+      safeMessage:
+        error instanceof Error
+          ? `Model synthesis failed: ${error.message}`
+          : "Model synthesis failed.",
+    });
+    throw error;
+  }
+
+  const currentArtifactCount = store.artifacts.get(input.repoId)?.length ?? 0;
+  const artifacts = createContextArtifacts({
+    repoId: input.repoId,
+    profile: input.profile,
+    output,
+    ...(modelArtifacts ? { modelArtifacts } : {}),
+    ...(modelSkills ? { modelSkills } : {}),
+    modelProvider: input.provider.displayName,
+    model: input.provider.model,
+    nextVersion: currentArtifactCount + 1,
+    targets: artifactTargetsForDashboard({
+      providerKind: input.provider.kind,
+      context: input.context,
+      skills: input.skills,
+    }),
+  });
+  for (const artifact of artifacts) {
+    store.addArtifact(artifact);
+  }
+  store.updateRun(input.runId, {
+    status: "succeeded",
+    artifactVersions: artifacts.map((artifact) => artifact.version),
+    safeMessage: "Context artifacts generated for preview.",
+  });
+  return artifacts;
 }
 
 function githubAuthForInstallation(
