@@ -61,6 +61,44 @@ docker compose up --build
 bun run smoke:compose
 ```
 
+## Latest dry-run evidence
+
+Date: 2026-05-02
+Base commit: `9bb971f`
+
+Result: passed after Docker Compose startup fix.
+
+Commands run:
+
+- `bun lint`: passed.
+- `bun typecheck`: passed.
+- `bun test`: passed, 55 tests across 13 files.
+- `bun run build`: passed, including the Next production build.
+- `bun run smoke:mvp`: passed, `MVP smoke passed: 53/100 -> 79/100`.
+- `docker compose down --volumes --remove-orphans`: completed cleanup before the
+  fresh compose run.
+- `docker compose up --build -d`: passed from empty compose volumes.
+- `bun run smoke:compose`: passed, `Docker Compose smoke passed.`
+- `docker compose down --volumes --remove-orphans`: completed cleanup.
+
+Observed caveat:
+
+- Docker Desktop was initially not running. After starting Docker Desktop, the
+  first compose start created the stack but the API container exited during
+  `bun install` with `Failed to install 1 package`, and `bun run smoke:compose`
+  failed because `http://localhost:4000/health` never became reachable.
+- A direct `docker compose run --rm api bun install --verbose` succeeded.
+- A second `docker compose up --build -d` followed by `bun run smoke:compose`
+  passed.
+
+Resolution:
+
+- Docker Compose now uses a one-shot `deps` service to run
+  `bun install --frozen-lockfile` once before API startup.
+- API, worker, and web share a named `node_modules` volume and no longer run
+  competing startup installs against the bind-mounted workspace.
+- `tests/action-mvp.test.ts` covers the compose dependency-install shape.
+
 ## Maintainer decision
 
 - Decision:
