@@ -5,9 +5,7 @@
   "owner": "local",
   "name": "open-maintainer",
   "defaultBranch": "open-maintainer/mvp-issues-11-23",
-  "primaryLanguages": [
-    "TypeScript"
-  ],
+  "primaryLanguages": ["TypeScript"],
   "frameworks": [
     "next",
     "react",
@@ -192,9 +190,7 @@
     ".open-maintainer.yml"
   ],
   "existingContextFiles": [],
-  "detectedRiskAreas": [
-    "No repo-local agent context files detected."
-  ],
+  "detectedRiskAreas": ["No repo-local agent context files detected."],
   "reviewRuleCandidates": [
     "Use bun for dependency and script commands.",
     "Run `bun run --cwd apps/api build` before finishing changes that affect build.",
@@ -399,13 +395,8 @@
       "reason": "detected repository context"
     }
   ],
-  "workspaceManifests": [
-    "package.json"
-  ],
-  "lockfiles": [
-    "bun.lock",
-    "tests/fixtures/low-context-ts/bun.lock"
-  ],
+  "workspaceManifests": ["package.json"],
+  "lockfiles": ["bun.lock", "tests/fixtures/low-context-ts/bun.lock"],
   "configFiles": [
     "apps/api/tsconfig.json",
     "apps/cli/tsconfig.json",
@@ -790,9 +781,7 @@
         "name": "safety and review rules",
         "score": 13,
         "maxScore": 20,
-        "missing": [
-          ".open-maintainer.yml policy file is missing."
-        ],
+        "missing": [".open-maintainer.yml policy file is missing."],
         "evidence": [
           {
             "path": "CONTRIBUTING.md",
