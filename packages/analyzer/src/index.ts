@@ -75,6 +75,14 @@ const configFilePatterns = [
   /^Makefile$/,
 ];
 
+const environmentFilePatterns = [
+  /^\.env\.example$/,
+  /^\.env\.sample$/,
+  /^\.env\.template$/,
+  /^\.env\.dist$/,
+  /^\.envrc$/,
+];
+
 const contextArtifactPaths = [
   "AGENTS.md",
   ".agents/skills/<repo>-start-task/SKILL.md",
@@ -293,6 +301,20 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
       pattern.test(path.posix.basename(repoPath)),
     ),
   );
+  const ownershipHints = detectOwnershipHints(paths);
+  const environmentFiles = paths.filter((repoPath) =>
+    environmentFilePatterns.some((pattern) =>
+      pattern.test(path.posix.basename(repoPath)),
+    ),
+  );
+  const environmentVariables = detectEnvironmentVariables(normalizedFiles);
+  const generatedFilePaths = detectGeneratedFilePaths(normalizedFiles);
+  const ignoreFiles = paths.filter(
+    (repoPath) =>
+      path.posix.basename(repoPath) === ".gitignore" ||
+      path.posix.basename(repoPath) === ".dockerignore",
+  );
+  const testFilePaths = detectTestFilePaths(paths);
   const riskHintPaths = detectRiskHintPaths(paths);
   const trackedDriftPaths = new Set([
     ...commands.map((command) => command.source),
@@ -303,6 +325,11 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     ...workspaceManifests,
     ...lockfiles,
     ...configFiles,
+    ...ownershipHints,
+    ...environmentFiles,
+    ...generatedFilePaths,
+    ...ignoreFiles,
+    ...testFilePaths,
     ...riskHintPaths,
   ]);
   const trackedFileHashes = normalizedFiles
@@ -320,6 +347,11 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     ...repoTemplates,
     ...existingContextFiles,
     ...configFiles,
+    ...ownershipHints,
+    ...environmentFiles,
+    ...generatedFilePaths,
+    ...ignoreFiles,
+    ...testFilePaths,
   ]) {
     evidence.push({ path: repoPath, reason: "detected repository context" });
   }
@@ -345,9 +377,15 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     repoTemplates,
     architecturePathGroups: detectPathGroups(paths),
     generatedFileHints: contextArtifactPaths,
+    generatedFilePaths,
     existingContextFiles,
     detectedRiskAreas: riskAreas,
     riskHintPaths,
+    ownershipHints,
+    environmentFiles,
+    environmentVariables,
+    ignoreFiles,
+    testFilePaths,
     reviewRuleCandidates: buildRuleCandidates(commands, packageManager),
     evidence: dedupeEvidence(evidence),
     workspaceManifests: [...new Set(workspaceManifests)],
@@ -381,10 +419,19 @@ export function scoreAgentReadiness(
     | "ciWorkflows"
     | "importantDocs"
     | "architecturePathGroups"
+    | "repoTemplates"
+    | "generatedFilePaths"
     | "existingContextFiles"
     | "reviewRuleCandidates"
     | "detectedRiskAreas"
+    | "riskHintPaths"
+    | "ownershipHints"
+    | "environmentFiles"
+    | "environmentVariables"
+    | "ignoreFiles"
+    | "testFilePaths"
     | "evidence"
+    | "workspaceManifests"
     | "lockfiles"
     | "configFiles"
   >,
@@ -392,6 +439,7 @@ export function scoreAgentReadiness(
   const categories: RepoProfile["agentReadiness"]["categories"] = [
     scoreCategory({
       name: "setup clarity",
+      maxScore: 13,
       checks: [
         check(
           profile.importantDocs.some((repoPath) => /^README/i.test(repoPath)),
@@ -405,44 +453,66 @@ export function scoreAgentReadiness(
           profile.lockfiles.length > 0,
           "No lockfile or dependency lock evidence detected.",
         ),
+        check(
+          profile.environmentVariables.length === 0 ||
+            profile.environmentFiles.length > 0 ||
+            profile.importantDocs.length > 0,
+          "Environment variables are referenced without example or setup documentation.",
+        ),
       ],
       evidence: evidenceFor(profile, [
         ...profile.importantDocs,
         ...profile.commands.map((command) => command.source),
         ...profile.lockfiles,
+        ...profile.environmentFiles,
       ]),
     }),
     scoreCategory({
       name: "architecture clarity",
+      maxScore: 13,
       checks: [
         check(
           profile.architecturePathGroups.length > 0,
           "No major source directories detected.",
         ),
         check(
-          profile.importantDocs.some((repoPath) =>
-            repoPath.startsWith("docs/"),
-          ),
-          "No docs directory detected.",
-        ),
-        check(
           profile.configFiles.length > 0,
           "No toolchain config files detected.",
+        ),
+        check(
+          profile.workspaceManifests.length > 0 ||
+            !profile.architecturePathGroups.some(
+              (group) =>
+                group.startsWith("apps/") || group.startsWith("packages/"),
+            ),
+          "No workspace or package boundary evidence detected.",
         ),
       ],
       evidence: evidenceFor(profile, [
         ...profile.architecturePathGroups,
-        ...profile.importantDocs,
         ...profile.configFiles,
+        ...profile.workspaceManifests,
       ]),
     }),
     scoreCategory({
-      name: "testing and CI",
+      name: "testing",
+      maxScore: 13,
       checks: [
         check(
           hasCommand(profile.commands, "test"),
           "No test command detected.",
         ),
+        check(profile.testFilePaths.length > 0, "No test files detected."),
+      ],
+      evidence: evidenceFor(profile, [
+        ...profile.commands.map((command) => command.source),
+        ...profile.testFilePaths,
+      ]),
+    }),
+    scoreCategory({
+      name: "CI",
+      maxScore: 13,
+      checks: [
         check(
           hasCommand(profile.commands, "lint") ||
             hasCommand(profile.commands, "check"),
@@ -459,7 +529,86 @@ export function scoreAgentReadiness(
       ]),
     }),
     scoreCategory({
+      name: "docs",
+      maxScore: 12,
+      checks: [
+        check(
+          profile.importantDocs.some((repoPath) => /^README/i.test(repoPath)),
+          "README is missing.",
+        ),
+        check(
+          profile.importantDocs.some((repoPath) =>
+            repoPath.startsWith("docs/"),
+          ),
+          "No docs directory detected.",
+        ),
+        check(
+          profile.importantDocs.some((repoPath) =>
+            /CONTRIBUTING/i.test(repoPath),
+          ),
+          "CONTRIBUTING.md is missing.",
+        ),
+      ],
+      evidence: evidenceFor(profile, [
+        ...profile.importantDocs,
+        ...profile.repoTemplates,
+      ]),
+    }),
+    scoreCategory({
+      name: "risk handling",
+      maxScore: 12,
+      checks: [
+        check(
+          profile.reviewRuleCandidates.length > 0,
+          "No review or quality gate rules inferred.",
+        ),
+        check(
+          profile.riskHintPaths.length === 0 ||
+            profile.importantDocs.some((repoPath) =>
+              /CONTRIBUTING|SECURITY|docs\//i.test(repoPath),
+            ) ||
+            profile.existingContextFiles.length > 0,
+          "Risk-sensitive paths are present without repo-local guidance.",
+        ),
+        check(
+          profile.ownershipHints.length > 0 ||
+            profile.importantDocs.some((repoPath) =>
+              /CONTRIBUTING|README|docs\//i.test(repoPath),
+            ),
+          "No ownership or maintainer guidance detected.",
+        ),
+      ],
+      evidence: evidenceFor(profile, [
+        ...profile.riskHintPaths,
+        ...profile.ownershipHints,
+        ...profile.importantDocs,
+      ]),
+    }),
+    scoreCategory({
+      name: "generated-file handling",
+      maxScore: 12,
+      checks: [
+        check(profile.ignoreFiles.length > 0, "No ignore file detected."),
+        check(
+          profile.generatedFilePaths.length === 0 ||
+            profile.importantDocs.length > 0 ||
+            profile.existingContextFiles.length > 0,
+          "Generated files are present without documented handling.",
+        ),
+        check(
+          profile.existingContextFiles.includes(".open-maintainer.yml"),
+          ".open-maintainer.yml policy file is missing.",
+        ),
+      ],
+      evidence: evidenceFor(profile, [
+        ...profile.ignoreFiles,
+        ...profile.generatedFilePaths,
+        ...profile.existingContextFiles,
+      ]),
+    }),
+    scoreCategory({
       name: "agent instructions",
+      maxScore: 12,
       checks: [
         check(
           profile.existingContextFiles.includes("AGENTS.md") ||
@@ -476,29 +625,6 @@ export function scoreAgentReadiness(
         ),
       ],
       evidence: evidenceFor(profile, profile.existingContextFiles),
-    }),
-    scoreCategory({
-      name: "safety and review rules",
-      checks: [
-        check(
-          profile.reviewRuleCandidates.length > 0,
-          "No review or quality gate rules inferred.",
-        ),
-        check(
-          profile.existingContextFiles.includes(".open-maintainer.yml"),
-          ".open-maintainer.yml policy file is missing.",
-        ),
-        check(
-          profile.importantDocs.some((repoPath) =>
-            /CONTRIBUTING/i.test(repoPath),
-          ),
-          "CONTRIBUTING.md is missing.",
-        ),
-      ],
-      evidence: evidenceFor(profile, [
-        ...profile.existingContextFiles,
-        ...profile.importantDocs,
-      ]),
     }),
   ];
   const missingItems = categories.flatMap((category) =>
@@ -531,6 +657,16 @@ function shouldReadFile(repoPath: string): boolean {
   if (
     /^(README|CONTRIBUTING|CHANGELOG|AGENTS|CLAUDE)(\..*)?$/i.test(
       path.posix.basename(repoPath),
+    )
+  ) {
+    return true;
+  }
+  if (
+    path.posix.basename(repoPath) === ".gitignore" ||
+    path.posix.basename(repoPath) === ".dockerignore" ||
+    detectOwnershipHints([repoPath]).length > 0 ||
+    environmentFilePatterns.some((pattern) =>
+      pattern.test(path.posix.basename(repoPath)),
     )
   ) {
     return true;
@@ -697,6 +833,64 @@ function detectPathGroups(paths: string[]): string[] {
   return [...groups].sort();
 }
 
+function detectOwnershipHints(paths: string[]): string[] {
+  return paths.filter((repoPath) =>
+    [
+      "CODEOWNERS",
+      ".github/CODEOWNERS",
+      "OWNERS",
+      "OWNERS.md",
+      "docs/OWNERS.md",
+      "docs/MAINTAINERS.md",
+      "MAINTAINERS.md",
+    ].includes(repoPath),
+  );
+}
+
+function detectEnvironmentVariables(files: AnalyzerFile[]): string[] {
+  const variables = new Set<string>();
+  const patterns = [
+    /\bprocess\.env\.([A-Z][A-Z0-9_]*)\b/g,
+    /\bDeno\.env\.get\(["']([A-Z][A-Z0-9_]*)["']\)/g,
+    /\bimport\.meta\.env\.([A-Z][A-Z0-9_]*)\b/g,
+    /\$\{([A-Z][A-Z0-9_]*)(?::[-=?][^}]*)?\}/g,
+  ];
+  for (const file of files) {
+    for (const pattern of patterns) {
+      for (const match of file.content.matchAll(pattern)) {
+        if (match[1]) {
+          variables.add(match[1]);
+        }
+      }
+    }
+  }
+  return [...variables].sort();
+}
+
+function detectGeneratedFilePaths(files: AnalyzerFile[]): string[] {
+  return files
+    .filter(
+      (file) =>
+        path.posix.basename(file.path) === "next-env.d.ts" ||
+        file.path.includes("/generated/") ||
+        /generated by open-maintainer|auto-generated|autogenerated|do not edit/i.test(
+          file.content.slice(0, 4000),
+        ),
+    )
+    .map((file) => file.path)
+    .sort();
+}
+
+function detectTestFilePaths(paths: string[]): string[] {
+  return paths
+    .filter(
+      (repoPath) =>
+        /(^|\/)(tests?|__tests__)\//.test(repoPath) ||
+        /\.(test|spec)\.[cm]?[jt]sx?$/.test(repoPath),
+    )
+    .sort();
+}
+
 function detectRiskAreas(
   riskHintPaths: string[],
   ciWorkflows: string[],
@@ -718,8 +912,10 @@ function detectRiskAreas(
 }
 
 function detectRiskHintPaths(paths: string[]): string[] {
-  return paths.filter((repoPath) =>
-    /auth|security|secret|payment|billing/i.test(repoPath),
+  return paths.filter(
+    (repoPath) =>
+      /auth|security|secret|payment|billing/i.test(repoPath) &&
+      detectTestFilePaths([repoPath]).length === 0,
   );
 }
 
@@ -776,14 +972,15 @@ function check(
 
 function scoreCategory(input: {
   name: RepoProfile["agentReadiness"]["categories"][number]["name"];
+  maxScore: number;
   checks: Array<{ passed: boolean; missing: string }>;
   evidence: EvidenceReference[];
 }): RepoProfile["agentReadiness"]["categories"][number] {
   const passed = input.checks.filter((item) => item.passed).length;
   return {
     name: input.name,
-    score: Math.round((passed / input.checks.length) * 20),
-    maxScore: 20,
+    score: Math.round((passed / input.checks.length) * input.maxScore),
+    maxScore: input.maxScore,
     missing: input.checks
       .filter((item) => !item.passed)
       .map((item) => item.missing),

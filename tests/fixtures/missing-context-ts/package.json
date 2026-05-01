@@ -1,0 +1,14 @@
+{
+  "name": "missing-context-ts",
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "lint": "biome check .",
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.4"
+  },
+  "devDependencies": {}
+}

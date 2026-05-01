@@ -1,0 +1,12 @@
+generated:
+  artifactVersion: 1
+  sourceProfileVersion: 1
+  generatedAt: "2026-05-01T00:00:00.000Z"
+repo:
+  owner: demo
+  name: high-readiness-ts
+  defaultBranch: main
+policy:
+  preserveExisting: true
+  requireExplicitModelConsent: true
+

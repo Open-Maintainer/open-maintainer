@@ -32,6 +32,9 @@ describe("analyzeRepo", () => {
           content: JSON.stringify({ scripts: { test: "npm test" } }),
         },
         { path: "bun.lock", content: "" },
+        { path: ".gitignore", content: "dist\n.next\n" },
+        { path: ".env.example", content: "DATABASE_URL=\n" },
+        { path: ".github/CODEOWNERS", content: "* @acme/maintainers\n" },
         {
           path: "Makefile",
           content: "build:\n\tcd contracts && scarb build\n",
@@ -47,7 +50,16 @@ describe("analyzeRepo", () => {
         },
         {
           path: "src/auth.ts",
-          content: "export const auth = true;",
+          content: "export const auth = process.env.DATABASE_URL;",
+        },
+        {
+          path: "tests/auth.test.ts",
+          content: "import { describe } from 'vitest';",
+        },
+        {
+          path: "apps/web/next-env.d.ts",
+          content:
+            '/// <reference types="next" />\n// This file is auto-generated.\n',
         },
         { path: ".github/workflows/ci.yml", content: "name: CI" },
         {
@@ -74,6 +86,12 @@ describe("analyzeRepo", () => {
     );
     expect(profile.repoTemplates).toEqual([".github/pull_request_template.md"]);
     expect(profile.riskHintPaths).toEqual(["src/auth.ts"]);
+    expect(profile.ownershipHints).toEqual([".github/CODEOWNERS"]);
+    expect(profile.environmentFiles).toEqual([".env.example"]);
+    expect(profile.environmentVariables).toEqual(["DATABASE_URL"]);
+    expect(profile.ignoreFiles).toEqual([".gitignore"]);
+    expect(profile.testFilePaths).toEqual(["tests/auth.test.ts"]);
+    expect(profile.generatedFilePaths).toEqual(["apps/web/next-env.d.ts"]);
     expect(profile.frameworks).toContain("Scarb");
     expect(profile.commands.map((command) => command.command)).toContain(
       "make build",
@@ -85,6 +103,18 @@ describe("analyzeRepo", () => {
       "cd packages/npm-tool && npm test",
     );
     expect(profile.agentReadiness.score).toBeGreaterThan(40);
+    expect(
+      profile.agentReadiness.categories.map((category) => category.name),
+    ).toEqual([
+      "setup clarity",
+      "architecture clarity",
+      "testing",
+      "CI",
+      "docs",
+      "risk handling",
+      "generated-file handling",
+      "agent instructions",
+    ]);
     expect(profile.generatedFileHints).not.toContain(
       ".claude/skills/repo-overview/SKILL.md",
     );

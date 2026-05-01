@@ -332,7 +332,9 @@ async function doctor(
     nextVersion: 1,
     targets: defaultArtifactTargets,
   }).map((artifact) => artifact.type);
-  const missing = required.filter((artifactPath) => !paths.has(artifactPath));
+  const missing = required.filter(
+    (artifactPath) => !requiredArtifactPresent(artifactPath, paths),
+  );
   const currentProfileHash = profileFingerprint(profile);
   const storedProfile = filesByPath.get(".open-maintainer/profile.json");
   const driftFindings = storedProfile
@@ -408,6 +410,48 @@ function formatDriftFinding(
   return `drift: command ${finding.subject} changed from ${JSON.stringify(
     finding.previousValue,
   )} to ${JSON.stringify(finding.currentValue)}`;
+}
+
+function requiredArtifactPresent(
+  artifactPath: string,
+  paths: Set<string>,
+): boolean {
+  if (paths.has(artifactPath)) {
+    return true;
+  }
+  if (!artifactPath.endsWith("/SKILL.md")) {
+    return false;
+  }
+  const requiredRole = skillRoleFromPath(artifactPath);
+  if (!requiredRole) {
+    return false;
+  }
+  return [...paths].some(
+    (repoPath) =>
+      repoPath.endsWith("/SKILL.md") &&
+      (repoPath.startsWith(".agents/skills/") ||
+        repoPath.startsWith(".claude/skills/")) &&
+      skillRoleFromPath(repoPath) === requiredRole,
+  );
+}
+
+function skillRoleFromPath(
+  repoPath: string,
+): "start" | "testing" | "review" | null {
+  if (repoPath.includes("start-task") || repoPath.includes("repo-overview")) {
+    return "start";
+  }
+  if (
+    repoPath.includes("testing-workflow") ||
+    repoPath.includes("validation-testing") ||
+    repoPath.includes("test-workflow")
+  ) {
+    return "testing";
+  }
+  if (repoPath.includes("pr-review")) {
+    return "review";
+  }
+  return null;
 }
 
 async function pr(repoRoot: string, options: CliOptions): Promise<void> {
@@ -758,18 +802,34 @@ function suggestionForMissingItem(
       return "Add runnable scripts in `package.json` or Make targets for common workflows such as test, build, lint, and typecheck.";
     case "No lockfile or dependency lock evidence detected.":
       return "Commit a dependency lockfile such as `bun.lock`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `uv.lock`, `Cargo.lock`, `Scarb.lock`, or `go.sum`.";
+    case "Environment variables are referenced without example or setup documentation.":
+      return "Add `.env.example` or setup documentation covering the detected environment variables.";
     case "No major source directories detected.":
       return "Organize code under detectable source directories such as `src/`, `apps/`, `packages/`, `contracts/`, or `cmd/`.";
+    case "No workspace or package boundary evidence detected.":
+      return "Document package boundaries or add workspace metadata when the repository has multiple app or package areas.";
     case "No docs directory detected.":
       return "Add a `docs/` directory with architecture, operations, or runbook notes.";
     case "No toolchain config files detected.":
       return "Add toolchain config such as `tsconfig.json`, `biome.json`, `pyproject.toml`, `go.mod`, `Scarb.toml`, or `docker-compose.yml`.";
     case "No test command detected.":
       return "Add a `test` script in `package.json`, a `test` Make target, or an equivalent workspace test command.";
+    case "No test files detected.":
+      return "Add deterministic tests under `tests/`, `test/`, `__tests__/`, or `*.test.*` files.";
     case "No lint/check command detected.":
       return "Add a `lint` or `check` script in `package.json`, a Make target, or an equivalent quality command.";
     case "No GitHub Actions workflow detected.":
       return "Add `.github/workflows/ci.yml` running the repository's install and validation commands.";
+    case "No review or quality gate rules inferred.":
+      return "Add documented review or quality-gate rules through scripts, Make targets, CONTRIBUTING.md, or repo-local context.";
+    case "Risk-sensitive paths are present without repo-local guidance.":
+      return "Document review expectations for auth, security, secret, payment, or billing paths.";
+    case "No ownership or maintainer guidance detected.":
+      return "Add CODEOWNERS, OWNERS, MAINTAINERS, or maintainer guidance in README, CONTRIBUTING, or docs.";
+    case "No ignore file detected.":
+      return "Add `.gitignore` or `.dockerignore` entries for generated outputs, dependency directories, and build artifacts.";
+    case "Generated files are present without documented handling.":
+      return "Document generated-file handling in README, CONTRIBUTING, AGENTS.md, or `.open-maintainer.yml`.";
     case "AGENTS.md or CLAUDE.md is missing.":
       return "Add `AGENTS.md` or `CLAUDE.md` with repo-specific agent instructions.";
     case "Repo-local skills are missing.":

@@ -33,9 +33,15 @@ const profile: RepoProfile = {
   repoTemplates: [],
   architecturePathGroups: ["apps"],
   generatedFileHints: ["AGENTS.md"],
+  generatedFilePaths: [],
   existingContextFiles: [],
   detectedRiskAreas: [],
   riskHintPaths: [],
+  ownershipHints: [],
+  environmentFiles: [],
+  environmentVariables: [],
+  ignoreFiles: [".gitignore"],
+  testFilePaths: ["tests/tool.test.ts"],
   reviewRuleCandidates: [
     "Run `bun test` before finishing changes that affect test.",
   ],
@@ -61,7 +67,7 @@ const profile: RepoProfile = {
       {
         name: "agent instructions",
         score: 0,
-        maxScore: 20,
+        maxScore: 12,
         missing: ["AGENTS.md is missing."],
         evidence: [],
       },
@@ -260,9 +266,9 @@ describe("context renderers", () => {
         categories: [
           ...profile.agentReadiness.categories,
           {
-            name: "safety and review rules" as const,
-            score: 20,
-            maxScore: 20 as const,
+            name: "generated-file handling" as const,
+            score: 12,
+            maxScore: 12,
             missing: [],
             evidence: [
               {
