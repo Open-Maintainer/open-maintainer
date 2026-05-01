@@ -132,6 +132,13 @@ export function LocalRepoPicker({ error }: { error?: string | undefined }) {
 
   return (
     <div className="local-form">
+      <form action="/local-repos" className="mounted-path-form" method="post">
+        <label>
+          <span>Mounted repo path</span>
+          <input name="repoRoot" placeholder="/app" />
+        </label>
+        <button type="submit">Add mounted repo</button>
+      </form>
       <input
         {...directoryInputAttributes}
         aria-label="Choose local repository"
@@ -142,7 +149,7 @@ export function LocalRepoPicker({ error }: { error?: string | undefined }) {
         type="file"
       />
       <button type="button" onClick={() => inputRef.current?.click()}>
-        Choose local repo
+        Upload repo files
       </button>
       {status ? <p className="note">{status}</p> : null}
       {error ? (

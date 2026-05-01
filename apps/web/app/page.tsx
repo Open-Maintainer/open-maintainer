@@ -105,6 +105,8 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
     artifactSelectionForProvider(selectedProvider);
   const readiness = profile ? getReadiness(profile) : null;
   const prStatus = getPrStatus(runs);
+  const contextActionLabel =
+    repo?.owner === "local" ? "Open PR with gh" : "Open context PR";
 
   return (
     <main>
@@ -216,7 +218,7 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                       name="actionType"
                       value="openContextPr"
                     />
-                    <button type="submit">Open context PR</button>
+                    <button type="submit">{contextActionLabel}</button>
                   </form>
                 </div>
                 {actionError ? (
@@ -627,7 +629,8 @@ function getPrStatus(runs: RunWithContext[]): {
   if (!latest) {
     return {
       label: "not opened",
-      message: "Open a context PR after artifacts have been generated.",
+      message:
+        "Open a context PR after artifacts have been generated. Local repositories use the authenticated gh CLI in the API environment.",
       url: null,
     };
   }

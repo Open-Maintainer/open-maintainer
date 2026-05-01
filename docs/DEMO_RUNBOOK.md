@@ -243,9 +243,11 @@ bun run cli generate "$TARGET_REPO" \
 
 ## Optional Dashboard Smoke
 
-The dashboard runs the API and worker in a Docker backend image that includes Bun, Git, Codex CLI, and Claude CLI. It mounts local Codex and Claude configuration into the API container so the selected provider executable is available in the API environment.
+The dashboard runs the API and worker in a Docker backend image that includes Bun, Git, GitHub CLI, Codex CLI, and Claude CLI. It mounts local Codex, Claude, and GitHub CLI configuration into the API container so the selected provider executable and authenticated `gh` session are available in the API environment.
 
-When you choose a local repository in the browser, the dashboard uploads readable files, honors the selected repository's root `.gitignore`, and materializes those files into an API-side worktree. Model-backed dashboard generation runs Codex or Claude with that worktree as the CLI working directory, matching the CLI demo's `--cd "$TARGET_REPO"` behavior.
+When you add a mounted repository path, the dashboard scans that Git checkout in the API container, runs Codex or Claude with that checkout as the CLI working directory, writes generated context files to a branch, pushes it, and opens the PR with authenticated `gh`.
+
+When you upload a local repository from the browser, the dashboard uploads readable files, honors the selected repository's root `.gitignore`, and materializes those files into an API-side worktree for analysis and generation. Browser-uploaded files are not a Git checkout, so PR creation requires adding a mounted repository path instead.
 
 Start or rebuild the self-hosted stack:
 
@@ -274,6 +276,14 @@ The provider setup step fails if the selected CLI executable is not available in
 docker exec open-maintainer-api-1 codex --version
 docker exec open-maintainer-api-1 claude --version
 ```
+
+Context PR creation requires authenticated GitHub CLI inside the API container:
+
+```sh
+docker exec open-maintainer-api-1 gh auth status
+```
+
+If that fails, authenticate on the host and restart Compose so `${HOME}/.config/gh` is mounted into `/root/.config/gh`, or run `gh auth login` inside the API container.
 
 To run the compose smoke gate:
 

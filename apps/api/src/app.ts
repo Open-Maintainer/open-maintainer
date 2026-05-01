@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import cors from "@fastify/cors";
 import formBody from "@fastify/formbody";
 import rateLimit from "@fastify/rate-limit";
@@ -30,9 +32,11 @@ import {
 } from "@open-maintainer/context";
 import { checkDatabase, checkRedis, store } from "@open-maintainer/db";
 import {
+  createContextBranchName,
   createContextPr,
   fetchRepositoryFilesForAnalysis,
   mapInstallationEvent,
+  renderContextPrBody,
   verifyWebhookSignature,
 } from "@open-maintainer/github";
 import type { GitHubAppInstallationAuth } from "@open-maintainer/github";
@@ -48,6 +52,7 @@ import {
 import Fastify from "fastify";
 import { z } from "zod";
 
+const execFileAsync = promisify(execFile);
 const sensitiveRouteRateLimit = {
   max: 10,
   timeWindow: "1 minute",
@@ -81,18 +86,6 @@ export function buildApp() {
 
   app.post("/worker/heartbeat", async () => {
     store.workerHeartbeatAt = nowIso();
-    store.recordRun({
-      repoId: null,
-      type: "worker",
-      status: "succeeded",
-      inputSummary: "Worker heartbeat",
-      safeMessage: "Worker heartbeat recorded.",
-      artifactVersions: [],
-      repoProfileVersion: null,
-      provider: null,
-      model: null,
-      externalId: null,
-    });
     return { ok: true, workerHeartbeatAt: store.workerHeartbeatAt };
   });
 
@@ -127,6 +120,7 @@ export function buildApp() {
           name,
           files,
           worktreeRoot: repoRoot,
+          defaultBranch: await detectLocalDefaultBranch(repoRoot),
         });
 
         return { repo, files: files.length };
@@ -495,11 +489,7 @@ export function buildApp() {
         if (!profile) {
           return reply.code(409).send({ error: "No repo profile available." });
         }
-        const artifacts = (store.artifacts.get(repoId) ?? []).filter(
-          (artifact) =>
-            artifact.type === "AGENTS.md" ||
-            artifact.type === ".open-maintainer.yml",
-        );
+        const artifacts = store.artifacts.get(repoId) ?? [];
         if (artifacts.length < 2) {
           return reply
             .code(409)
@@ -521,7 +511,64 @@ export function buildApp() {
         if (!repo) {
           return reply.code(404).send({ error: "Unknown repo." });
         }
+        const localWorktreeRoot = store.repoWorktrees.get(repoId);
+        if (localWorktreeRoot) {
+          let savedPaths: string[] = [];
+          try {
+            await requireLocalGhPrReady(localWorktreeRoot);
+            savedPaths = await saveArtifactsToLocalWorktree(
+              localWorktreeRoot,
+              artifacts,
+            );
+            const contextPr = await createLocalContextPrWithGh({
+              repoId,
+              worktreeRoot: localWorktreeRoot,
+              defaultBranch: repo.defaultBranch,
+              profileVersion: profile.version,
+              artifacts,
+              savedPaths,
+              runReference: run.id,
+              generatedAt: nowIso(),
+            });
+            store.contextPrs.set(contextPr.id, contextPr);
+            store.updateRun(run.id, {
+              status: "succeeded",
+              safeMessage: `Opened context PR at ${contextPr.prUrl}.`,
+              externalId: contextPr.prUrl,
+            });
+            return { run: store.runs.get(run.id), contextPr };
+          } catch (error) {
+            const message =
+              error instanceof Error
+                ? error.message
+                : "local gh PR creation failed.";
+            const savedPrefix = savedPaths.length
+              ? `Saved ${savedPaths.length} context files to ${localWorktreeRoot}, but `
+              : "";
+            store.updateRun(run.id, {
+              status: "failed",
+              safeMessage: `${savedPrefix}gh PR creation failed: ${message}`,
+              externalId: null,
+            });
+            return reply.code(502).send({
+              error: store.runs.get(run.id)?.safeMessage,
+              run: store.runs.get(run.id),
+            });
+          }
+        }
         const auth = githubAuthForInstallation(repo.installationId);
+        if (!auth) {
+          store.updateRun(run.id, {
+            status: "failed",
+            safeMessage:
+              "GitHub App credentials are required to open a real context PR for this repository.",
+            externalId: null,
+          });
+          return reply.code(422).send({
+            error: store.runs.get(run.id)?.safeMessage,
+            run: store.runs.get(run.id),
+          });
+        }
         const contextPr = await createContextPr({
           repoId,
           owner: repo.owner,
@@ -531,15 +578,13 @@ export function buildApp() {
           artifacts,
           runReference: run.id,
           generatedAt: nowIso(),
-          mock: !auth,
-          ...(auth ? { auth } : {}),
+          mock: false,
+          auth,
         });
         store.contextPrs.set(contextPr.id, contextPr);
         store.updateRun(run.id, {
           status: "succeeded",
-          safeMessage: auth
-            ? `Opened context PR at ${contextPr.prUrl}.`
-            : `Created development mock context PR at ${contextPr.prUrl}; configure GitHub App credentials for a real PR.`,
+          safeMessage: `Opened context PR at ${contextPr.prUrl}.`,
           externalId: contextPr.prUrl,
         });
         return { run: store.runs.get(run.id), contextPr };
@@ -672,6 +717,192 @@ async function generateContextArtifactsForRun(input: {
   return artifacts;
 }
 
+async function saveArtifactsToLocalWorktree(
+  worktreeRoot: string,
+  artifacts: GeneratedArtifact[],
+): Promise<string[]> {
+  const savedPaths: string[] = [];
+  for (const artifact of artifacts) {
+    const artifactPath =
+      artifact.type === "repo_profile" ? null : artifact.type;
+    if (!artifactPath) {
+      continue;
+    }
+    const destination = path.join(worktreeRoot, artifactPath);
+    const relativePath = path.relative(worktreeRoot, destination);
+    if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+      throw new Error(
+        `Refusing to write artifact outside repository: ${artifact.type}`,
+      );
+    }
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, artifact.content, "utf8");
+    savedPaths.push(relativePath);
+  }
+  if (savedPaths.length === 0) {
+    throw new Error("No writable context artifacts were generated.");
+  }
+  return savedPaths;
+}
+
+async function createLocalContextPrWithGh(input: {
+  repoId: string;
+  worktreeRoot: string;
+  defaultBranch: string;
+  profileVersion: number;
+  artifacts: GeneratedArtifact[];
+  savedPaths: string[];
+  runReference: string;
+  generatedAt: string;
+}) {
+  await requireLocalGhPrReady(input.worktreeRoot);
+
+  const branchName = createContextBranchName(input.profileVersion);
+  await runGit(input.worktreeRoot, ["checkout", "-B", branchName]);
+  await runGit(input.worktreeRoot, ["add", "--", ...input.savedPaths]);
+  const hasStagedChanges = await gitHasStagedChanges(input.worktreeRoot);
+  if (hasStagedChanges) {
+    await runGit(input.worktreeRoot, [
+      "commit",
+      "-m",
+      "Update Open Maintainer context",
+    ]);
+  }
+  const commitSha = (
+    await runGit(input.worktreeRoot, ["rev-parse", "HEAD"])
+  ).trim();
+  await runGit(input.worktreeRoot, [
+    "push",
+    "--set-upstream",
+    "origin",
+    branchName,
+  ]);
+
+  const body = renderContextPrBody({
+    repoProfileVersion: input.profileVersion,
+    artifacts: input.artifacts,
+    modelProvider: input.artifacts[0]?.modelProvider ?? null,
+    model: input.artifacts[0]?.model ?? null,
+    runReference: input.runReference,
+    generatedAt: input.generatedAt,
+  });
+  const prUrl = findFirstUrl(
+    await runGh(input.worktreeRoot, [
+      "pr",
+      "create",
+      "--base",
+      input.defaultBranch,
+      "--head",
+      branchName,
+      "--title",
+      "Update Open Maintainer context",
+      "--body",
+      body,
+    ]),
+  );
+  if (!prUrl) {
+    throw new Error("gh did not return a pull request URL.");
+  }
+
+  return {
+    id: newId("context_pr"),
+    repoId: input.repoId,
+    branchName,
+    commitSha,
+    prNumber: pullRequestNumber(prUrl),
+    prUrl,
+    artifactVersions: input.artifacts.map((artifact) => artifact.version),
+    status: "succeeded" as const,
+    createdAt: nowIso(),
+  };
+}
+
+async function requireLocalGhPrReady(cwd: string): Promise<void> {
+  await requireGitRepository(cwd);
+  await runGit(cwd, ["remote", "get-url", "origin"]);
+  await requireGhAuthentication(cwd);
+}
+
+async function requireGhAuthentication(cwd: string): Promise<void> {
+  try {
+    await runGh(cwd, ["auth", "status"]);
+  } catch {
+    throw new Error(
+      "gh is not authenticated in the API environment. Run gh auth login inside the API container or mount an authenticated GitHub CLI config.",
+    );
+  }
+}
+
+async function requireGitRepository(cwd: string): Promise<void> {
+  try {
+    await runGit(cwd, ["rev-parse", "--show-toplevel"]);
+  } catch {
+    throw new Error(
+      "the selected repository is not a Git checkout in the API environment. Add it by mounted path instead of browser upload.",
+    );
+  }
+}
+
+async function gitHasStagedChanges(cwd: string): Promise<boolean> {
+  try {
+    await runGit(cwd, ["diff", "--cached", "--quiet"]);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+async function runGit(cwd: string, args: string[]): Promise<string> {
+  return runCommand(
+    process.env.OPEN_MAINTAINER_GIT_COMMAND ?? "git",
+    args,
+    cwd,
+  );
+}
+
+async function runGh(cwd: string, args: string[]): Promise<string> {
+  return runCommand(process.env.OPEN_MAINTAINER_GH_COMMAND ?? "gh", args, cwd);
+}
+
+async function runCommand(
+  command: string,
+  args: string[],
+  cwd: string,
+): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(command, args, {
+      cwd,
+      maxBuffer: 1024 * 1024,
+      timeout: 120_000,
+    });
+    return stdout;
+  } catch (error) {
+    if (isExecError(error)) {
+      const details = [error.stderr, error.stdout, error.message]
+        .filter((part) => typeof part === "string" && part.trim().length > 0)
+        .join("\n")
+        .trim();
+      throw new Error(`${command} ${args.join(" ")} failed: ${details}`);
+    }
+    throw error;
+  }
+}
+
+function isExecError(
+  error: unknown,
+): error is Error & { stdout?: string; stderr?: string } {
+  return error instanceof Error;
+}
+
+function findFirstUrl(output: string): string | null {
+  return output.match(/https?:\/\/\S+/)?.[0] ?? null;
+}
+
+function pullRequestNumber(prUrl: string): number {
+  const match = prUrl.match(/\/pull\/(\d+)/);
+  return match ? Number.parseInt(match[1] ?? "0", 10) : 0;
+}
+
 function githubAuthForInstallation(
   installationId: string,
 ): GitHubAppInstallationAuth | null {
@@ -720,6 +951,7 @@ function registerLocalRepository(input: {
   files: Array<{ path: string; content: string }>;
   id?: string;
   worktreeRoot?: string;
+  defaultBranch?: string;
 }): Repo {
   const repo = localRepositoryRecord(input);
 
@@ -741,6 +973,7 @@ function localRepositoryRecord(input: {
   owner: string;
   name: string;
   id?: string;
+  defaultBranch?: string;
 }): Repo {
   return {
     id: input.id ?? `local_${slugId(input.owner)}_${slugId(input.name)}`,
@@ -748,10 +981,18 @@ function localRepositoryRecord(input: {
     owner: input.owner,
     name: input.name,
     fullName: `${input.owner}/${input.name}`,
-    defaultBranch: "local",
+    defaultBranch: input.defaultBranch ?? "local",
     private: true,
     permissions: { contents: true, metadata: true, pull_requests: false },
   };
+}
+
+async function detectLocalDefaultBranch(repoRoot: string): Promise<string> {
+  try {
+    return (await runGit(repoRoot, ["symbolic-ref", "--short", "HEAD"])).trim();
+  } catch {
+    return "local";
+  }
 }
 
 function localInstallation(): Installation {

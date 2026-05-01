@@ -1,11 +1,21 @@
+import { execFile } from "node:child_process";
 import { createHmac } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app";
 
+const execFileAsync = promisify(execFile);
 const app = buildApp();
 
 beforeAll(async () => {
@@ -18,11 +28,26 @@ afterAll(async () => {
 
 describe("MVP API", () => {
   it("reports service health and worker heartbeat", async () => {
+    const beforeRuns = await app.inject({
+      method: "GET",
+      url: "/repos/repo_demo/runs",
+    });
     await app.inject({ method: "POST", url: "/worker/heartbeat" });
     const response = await app.inject({ method: "GET", url: "/health" });
+    const afterRuns = await app.inject({
+      method: "GET",
+      url: "/repos/repo_demo/runs",
+    });
+    const workerRunsBefore = beforeRuns
+      .json()
+      .runs.filter((run: { type: string }) => run.type === "worker").length;
+    const workerRunsAfter = afterRuns
+      .json()
+      .runs.filter((run: { type: string }) => run.type === "worker").length;
 
     expect(response.statusCode).toBe(200);
     expect(response.json().worker).toBe("ok");
+    expect(workerRunsAfter).toBe(workerRunsBefore);
   });
 
   it("rate-limits repo actions that can use GitHub installation authorization", async () => {
@@ -150,11 +175,45 @@ describe("MVP API", () => {
     expect(analysis.json().profile.frameworks).toContain("fastify");
   });
 
-  it("generates dashboard context through a schema-constrained CLI provider", async () => {
+  it("generates dashboard context and opens local PRs through authenticated gh", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "api-codex-gen-test-"));
     const command = path.join(directory, "fake-codex.js");
+    const ghCommand = path.join(directory, "fake-gh.js");
+    const repoRoot = path.join(directory, "repo");
+    const remoteRoot = path.join(directory, "remote.git");
     const previousCodexCommand = process.env.OPEN_MAINTAINER_CODEX_COMMAND;
+    const previousGhCommand = process.env.OPEN_MAINTAINER_GH_COMMAND;
     try {
+      await execFileAsync("git", ["init", "-b", "main", repoRoot]);
+      await writeFile(
+        path.join(repoRoot, "package.json"),
+        JSON.stringify({
+          name: "cli-dashboard-tool",
+          scripts: { test: "bun test" },
+        }),
+      );
+      await mkdir(path.join(repoRoot, "src"), { recursive: true });
+      await writeFile(
+        path.join(repoRoot, "src/index.ts"),
+        "export const ok = true;\n",
+      );
+      await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+        cwd: repoRoot,
+      });
+      await execFileAsync("git", ["config", "user.name", "Open Maintainer"], {
+        cwd: repoRoot,
+      });
+      await execFileAsync("git", ["add", "."], { cwd: repoRoot });
+      await execFileAsync("git", ["commit", "-m", "Initial commit"], {
+        cwd: repoRoot,
+      });
+      await execFileAsync("git", ["init", "--bare", remoteRoot]);
+      await execFileAsync("git", ["remote", "add", "origin", remoteRoot], {
+        cwd: repoRoot,
+      });
+      await execFileAsync("git", ["push", "-u", "origin", "main"], {
+        cwd: repoRoot,
+      });
       await writeFile(
         command,
         `#!/usr/bin/env node
@@ -215,24 +274,30 @@ fs.writeFileSync(outputPath, JSON.stringify(output));
 `,
       );
       await chmod(command, 0o755);
+      await writeFile(
+        ghCommand,
+        `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "auth" && args[1] === "status") {
+  process.stdout.write("Logged in to github.com\\n");
+  process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "create") {
+  process.stdout.write("https://github.com/local/cli-dashboard-tool/pull/42\\n");
+  process.exit(0);
+}
+process.stderr.write("unexpected gh command: " + args.join(" "));
+process.exit(2);
+`,
+      );
+      await chmod(ghCommand, 0o755);
       process.env.OPEN_MAINTAINER_CODEX_COMMAND = command;
+      process.env.OPEN_MAINTAINER_GH_COMMAND = ghCommand;
 
       const repoResponse = await app.inject({
         method: "POST",
-        url: "/repos/local-files",
-        payload: {
-          name: "cli-dashboard-tool",
-          files: [
-            {
-              path: "package.json",
-              content: JSON.stringify({
-                name: "cli-dashboard-tool",
-                scripts: { test: "bun test" },
-              }),
-            },
-            { path: "src/index.ts", content: "export const ok = true;\n" },
-          ],
-        },
+        url: "/repos/local",
+        payload: { repoRoot },
       });
       expect(repoResponse.statusCode).toBe(200);
       const repoId = repoResponse.json().repo.id;
@@ -296,11 +361,29 @@ fs.writeFileSync(outputPath, JSON.stringify(output));
         ".open-maintainer/profile.json",
         ".open-maintainer/report.md",
       ]);
+
+      const pr = await app.inject({
+        method: "POST",
+        url: `/repos/${repoId}/open-context-pr`,
+        payload: {},
+      });
+      expect(pr.statusCode).toBe(200);
+      expect(pr.json().contextPr.prUrl).toBe(
+        "https://github.com/local/cli-dashboard-tool/pull/42",
+      );
+      expect(
+        await readFile(path.join(repoRoot, "AGENTS.md"), "utf8"),
+      ).toContain("cli-dashboard-tool");
     } finally {
       if (previousCodexCommand === undefined) {
         Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
       } else {
         process.env.OPEN_MAINTAINER_CODEX_COMMAND = previousCodexCommand;
+      }
+      if (previousGhCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_GH_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_GH_COMMAND = previousGhCommand;
       }
       await rm(directory, { recursive: true, force: true });
     }
@@ -341,7 +424,7 @@ fs.writeFileSync(outputPath, JSON.stringify(output));
     ).toBe(true);
   });
 
-  it("runs analysis, requires consented LLM generation, then creates artifacts and a PR", async () => {
+  it("runs analysis, requires consented LLM generation, then creates artifacts", async () => {
     const analysis = await app.inject({
       method: "POST",
       url: "/repos/repo_demo/analyze",
@@ -555,8 +638,8 @@ fs.writeFileSync(outputPath, JSON.stringify(output));
       url: "/repos/repo_demo/open-context-pr",
       payload: {},
     });
-    expect(pr.statusCode).toBe(200);
-    expect(pr.json().contextPr.branchName).toBe("open-maintainer/context-1");
+    expect(pr.statusCode).toBe(422);
+    expect(pr.json().error).toContain("GitHub App credentials");
   });
 });
 

@@ -509,11 +509,9 @@ export function renderContextPrBody(input: {
     "| --- | --- | --- |",
     artifactRows,
     "",
-    "This PR only writes the MVP default context files: `AGENTS.md` and `.open-maintainer.yml`.",
-    "` .open-maintainer.yml` is maintainer-editable before merge and becomes the repo-local source of truth after approval.",
-  ]
-    .join("\n")
-    .replace("` .open-maintainer.yml`", "`.open-maintainer.yml`");
+    "This PR writes generated Open Maintainer context artifacts for review.",
+    "`.open-maintainer.yml` is maintainer-editable before merge and becomes the repo-local source of truth after approval.",
+  ].join("\n");
 }
 
 export function createMockContextPr(input: {

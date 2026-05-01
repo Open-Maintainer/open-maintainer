@@ -8,7 +8,7 @@ ENV BUN_INSTALL=/root/.bun
 ENV PATH=/root/.bun/bin:/usr/local/bin:$PATH
 
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends bash ca-certificates curl git unzip \
+  && apt-get install -y --no-install-recommends bash ca-certificates curl gh git unzip \
   && rm -rf /var/lib/apt/lists/*
 
 RUN curl -fsSL https://bun.sh/install | bash -s -- "bun-v${BUN_VERSION}"
