@@ -5,6 +5,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
   assertGenerationAllowed,
+  assertProviderExecutableAvailable,
   buildClaudeCliProvider,
   buildCodexCliProvider,
   buildProvider,
@@ -32,6 +33,32 @@ describe("AI providers", () => {
 
     expect(() => assertGenerationAllowed(null)).toThrow(/blocked/);
     expect(() => assertGenerationAllowed(provider)).toThrow(/consent/);
+  });
+
+  it("checks selected CLI providers before generation", async () => {
+    const previousCodexCommand = process.env.OPEN_MAINTAINER_CODEX_COMMAND;
+    process.env.OPEN_MAINTAINER_CODEX_COMMAND =
+      "open-maintainer-missing-codex-test-command";
+    try {
+      const provider = createProviderConfig({
+        kind: "codex-cli",
+        displayName: "Codex CLI",
+        baseUrl: "http://localhost",
+        model: "codex-cli",
+        apiKey: "local-cli",
+        repoContentConsent: true,
+      });
+
+      await expect(assertProviderExecutableAvailable(provider)).rejects.toThrow(
+        /Executable not found/,
+      );
+    } finally {
+      if (previousCodexCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_CODEX_COMMAND = previousCodexCommand;
+      }
+    }
   });
 
   it("tests a local OpenAI-compatible mock without repo content", async () => {

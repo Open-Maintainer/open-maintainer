@@ -101,15 +101,19 @@ export function buildProvider(config: ModelProviderConfig): ModelProvider {
   if (config.kind === "codex-cli") {
     return buildCodexCliProvider(
       config.model === "codex-cli"
-        ? { cwd: process.cwd() }
-        : { cwd: process.cwd(), model: config.model },
+        ? { command: codexCommand(), cwd: process.cwd() }
+        : { command: codexCommand(), cwd: process.cwd(), model: config.model },
     );
   }
   if (config.kind === "claude-cli") {
     return buildClaudeCliProvider(
       config.model === "claude-cli"
-        ? { cwd: process.cwd() }
-        : { cwd: process.cwd(), model: config.model },
+        ? { command: claudeCommand(), cwd: process.cwd() }
+        : {
+            command: claudeCommand(),
+            cwd: process.cwd(),
+            model: config.model,
+          },
     );
   }
 
@@ -150,6 +154,29 @@ export function buildProvider(config: ModelProviderConfig): ModelProvider {
       };
     },
   };
+}
+
+export async function assertProviderExecutableAvailable(
+  config: ModelProviderConfig,
+): Promise<void> {
+  if (config.kind === "codex-cli") {
+    await runProcess({
+      label: "Codex CLI",
+      command: codexCommand(),
+      args: ["--version"],
+      stdin: "",
+      timeoutMs: 10_000,
+    });
+  }
+  if (config.kind === "claude-cli") {
+    await runProcess({
+      label: "Claude CLI",
+      command: claudeCommand(),
+      args: ["--version"],
+      stdin: "",
+      timeoutMs: 10_000,
+    });
+  }
 }
 
 export function buildCodexCliProvider(
@@ -280,6 +307,14 @@ function decryptForLocalDev(value: string): string {
   return Buffer.from(value, "base64").toString("utf8");
 }
 
+function codexCommand(): string {
+  return process.env.OPEN_MAINTAINER_CODEX_COMMAND ?? "codex";
+}
+
+function claudeCommand(): string {
+  return process.env.OPEN_MAINTAINER_CLAUDE_COMMAND ?? "claude";
+}
+
 function extractClaudeOutput(stdout: string): string {
   const trimmed = stdout.trim();
   if (!trimmed.startsWith("{")) {
@@ -321,7 +356,12 @@ async function runProcess(input: {
     child.stderr.on("data", (chunk) => stderr.push(Buffer.from(chunk)));
     child.on("error", (error) => {
       clearTimeout(timeout);
-      reject(error);
+      const errorWithCode = error as NodeJS.ErrnoException;
+      reject(
+        errorWithCode.code === "ENOENT"
+          ? new Error(`Executable not found in $PATH: "${input.command}"`)
+          : error,
+      );
     });
     child.on("close", (code) => {
       clearTimeout(timeout);

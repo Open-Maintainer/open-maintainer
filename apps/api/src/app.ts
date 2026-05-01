@@ -4,11 +4,13 @@ import formBody from "@fastify/formbody";
 import rateLimit from "@fastify/rate-limit";
 import {
   assertProviderConsent,
+  assertProviderExecutableAvailable,
   buildProvider,
   createProviderConfig,
 } from "@open-maintainer/ai";
 import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
 import {
+  type ContextArtifactTarget,
   type ModelArtifactContent,
   type ModelSkillContent,
   buildArtifactSynthesisPrompt,
@@ -284,7 +286,7 @@ export function buildApp() {
     return { profile };
   });
 
-  app.post("/model-providers", async (request) => {
+  app.post("/model-providers", async (request, reply) => {
     const body = z
       .object({
         kind: z.enum([
@@ -302,6 +304,16 @@ export function buildApp() {
       })
       .parse(request.body);
     const provider = createProviderConfig(body);
+    try {
+      await assertProviderExecutableAvailable(provider);
+    } catch (error) {
+      return reply.code(422).send({
+        error:
+          error instanceof Error
+            ? error.message
+            : "Selected provider executable is unavailable.",
+      });
+    }
     store.providers.set(provider.id, provider);
     return { provider: { ...provider, encryptedApiKey: "[redacted]" } };
   });
@@ -321,7 +333,11 @@ export function buildApp() {
   app.post("/repos/:repoId/generate-context", async (request, reply) => {
     const { repoId } = z.object({ repoId: z.string() }).parse(request.params);
     const body = z
-      .object({ providerId: z.string().optional() })
+      .object({
+        providerId: z.string().optional(),
+        context: z.enum(["codex", "claude", "both"]).optional(),
+        skills: z.enum(["codex", "claude", "both"]).optional(),
+      })
       .parse(request.body ?? {});
     const profile = store.latestProfile(repoId);
     if (!profile) {
@@ -368,6 +384,26 @@ export function buildApp() {
         externalId: null,
       });
       return reply.code(403).send({ error: run.safeMessage, run });
+    }
+    try {
+      await assertProviderExecutableAvailable(provider);
+    } catch (error) {
+      const run = store.recordRun({
+        repoId,
+        type: "generation",
+        status: "failed",
+        inputSummary: "Context generation blocked before provider call.",
+        safeMessage:
+          error instanceof Error
+            ? `Selected provider executable is unavailable: ${error.message}`
+            : "Selected provider executable is unavailable.",
+        artifactVersions: [],
+        repoProfileVersion: profile.version,
+        provider: provider.displayName,
+        model: provider.model,
+        externalId: null,
+      });
+      return reply.code(422).send({ error: run.safeMessage, run });
     }
 
     const run = store.recordRun({
@@ -438,6 +474,11 @@ export function buildApp() {
       modelProvider: provider?.displayName ?? null,
       model: provider?.model ?? null,
       nextVersion: currentArtifactCount + 1,
+      targets: artifactTargetsForDashboard({
+        providerKind: provider.kind,
+        context: body.context,
+        skills: body.skills,
+      }),
     });
     for (const artifact of artifacts) {
       store.addArtifact(artifact);
@@ -574,6 +615,33 @@ function githubAuthForInstallation(
     installationId,
     privateKey: Buffer.from(privateKeyBase64, "base64").toString("utf8"),
   };
+}
+
+function artifactTargetsForDashboard(input: {
+  providerKind: string;
+  context: "codex" | "claude" | "both" | undefined;
+  skills: "codex" | "claude" | "both" | undefined;
+}): ContextArtifactTarget[] {
+  const defaultTarget =
+    input.providerKind === "claude-cli" ? "claude" : "codex";
+  const context = input.context ?? defaultTarget;
+  const skills = input.skills ?? defaultTarget;
+  const targets: ContextArtifactTarget[] = [];
+
+  if (context === "codex" || context === "both") {
+    targets.push("agents");
+  }
+  if (context === "claude" || context === "both") {
+    targets.push("claude");
+  }
+  if (skills === "codex" || skills === "both") {
+    targets.push("skills");
+  }
+  if (skills === "claude" || skills === "both") {
+    targets.push("claude-skills");
+  }
+  targets.push("profile", "report", "config");
+  return targets;
 }
 
 function registerLocalRepository(input: {

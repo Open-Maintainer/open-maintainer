@@ -1,5 +1,8 @@
 import { createHmac } from "node:crypto";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { buildApp } from "../src/app";
 
@@ -40,36 +43,62 @@ describe("MVP API", () => {
   });
 
   it("accepts CLI model providers for dashboard setup", async () => {
-    const codex = await app.inject({
-      method: "POST",
-      url: "/model-providers",
-      payload: {
-        kind: "codex-cli",
-        displayName: "Codex CLI",
-        baseUrl: "http://localhost",
-        model: "codex-cli",
-        apiKey: "local-cli",
-        repoContentConsent: true,
-      },
-    });
-    expect(codex.statusCode).toBe(200);
-    expect(codex.json().provider.kind).toBe("codex-cli");
-    expect(codex.json().provider.repoContentConsent).toBe(true);
+    const directory = await mkdtemp(path.join(tmpdir(), "api-cli-test-"));
+    const command = path.join(directory, "fake-cli.js");
+    const previousCodexCommand = process.env.OPEN_MAINTAINER_CODEX_COMMAND;
+    const previousClaudeCommand = process.env.OPEN_MAINTAINER_CLAUDE_COMMAND;
+    try {
+      await writeFile(
+        command,
+        "#!/usr/bin/env node\nprocess.stdout.write('fake-cli 1.0.0\\n');\n",
+      );
+      await chmod(command, 0o755);
+      process.env.OPEN_MAINTAINER_CODEX_COMMAND = command;
+      process.env.OPEN_MAINTAINER_CLAUDE_COMMAND = command;
 
-    const claude = await app.inject({
-      method: "POST",
-      url: "/model-providers",
-      payload: {
-        kind: "claude-cli",
-        displayName: "Claude CLI",
-        baseUrl: "http://localhost",
-        model: "claude-cli",
-        apiKey: "local-cli",
-        repoContentConsent: true,
-      },
-    });
-    expect(claude.statusCode).toBe(200);
-    expect(claude.json().provider.kind).toBe("claude-cli");
+      const codex = await app.inject({
+        method: "POST",
+        url: "/model-providers",
+        payload: {
+          kind: "codex-cli",
+          displayName: "Codex CLI",
+          baseUrl: "http://localhost",
+          model: "codex-cli",
+          apiKey: "local-cli",
+          repoContentConsent: true,
+        },
+      });
+      expect(codex.statusCode).toBe(200);
+      expect(codex.json().provider.kind).toBe("codex-cli");
+      expect(codex.json().provider.repoContentConsent).toBe(true);
+
+      const claude = await app.inject({
+        method: "POST",
+        url: "/model-providers",
+        payload: {
+          kind: "claude-cli",
+          displayName: "Claude CLI",
+          baseUrl: "http://localhost",
+          model: "claude-cli",
+          apiKey: "local-cli",
+          repoContentConsent: true,
+        },
+      });
+      expect(claude.statusCode).toBe(200);
+      expect(claude.json().provider.kind).toBe("claude-cli");
+    } finally {
+      if (previousCodexCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_CODEX_COMMAND = previousCodexCommand;
+      }
+      if (previousClaudeCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CLAUDE_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_CLAUDE_COMMAND = previousClaudeCommand;
+      }
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it("registers a local filesystem repository for dashboard selection", async () => {

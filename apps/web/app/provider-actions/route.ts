@@ -20,7 +20,7 @@ const providerPresets = {
 } as const;
 
 type ProviderListResponse = {
-  providers?: Array<{ id?: unknown; kind?: unknown }>;
+  providers?: Array<{ id?: unknown; kind?: unknown; model?: unknown }>;
 };
 
 export async function POST(request: NextRequest) {
@@ -29,6 +29,7 @@ export async function POST(request: NextRequest) {
   const providerId = String(form.get("providerId") ?? "").trim();
   const providerType = String(form.get("providerType") ?? "");
   const preset = providerPresets[providerType as keyof typeof providerPresets];
+  const requestedModel = String(form.get("model") ?? "").trim();
   const repoContentConsent = form.get("repoContentConsent") === "on";
 
   const params: Record<string, string> = {};
@@ -58,7 +59,9 @@ export async function POST(request: NextRequest) {
       const existing = (await existingResponse.json()) as ProviderListResponse;
       const matchingProvider = existing.providers?.find(
         (provider) =>
-          provider.kind === preset.kind && typeof provider.id === "string",
+          provider.kind === preset.kind &&
+          typeof provider.id === "string" &&
+          (requestedModel.length === 0 || provider.model === requestedModel),
       );
       if (typeof matchingProvider?.id === "string") {
         return redirectToDashboard(request, {
@@ -74,14 +77,21 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         ...preset,
         baseUrl: "http://localhost",
+        model: requestedModel || preset.model,
         apiKey: "local-cli",
         repoContentConsent,
       }),
     });
     if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as {
+        error?: unknown;
+      };
+      const detail = typeof payload.error === "string" ? payload.error : "";
       return redirectToDashboard(request, {
         ...params,
-        providerError: String(response.status),
+        providerError: detail
+          ? `${response.status}:${detail}`
+          : String(response.status),
       });
     }
     const payload = (await response.json()) as { provider?: { id?: unknown } };

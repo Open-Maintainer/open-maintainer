@@ -16,6 +16,8 @@ export async function POST(request: NextRequest) {
   const form = await request.formData();
   const repoId = String(form.get("repoId") ?? "").trim();
   const providerId = String(form.get("providerId") ?? "").trim();
+  const context = String(form.get("context") ?? "").trim();
+  const skills = String(form.get("skills") ?? "").trim();
   const actionType = String(form.get("actionType") ?? "");
   const actionPath =
     actionPathByType[actionType as keyof typeof actionPathByType];
@@ -32,13 +34,23 @@ export async function POST(request: NextRequest) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(
             actionType === "generateContext" && providerId
-              ? { providerId }
+              ? {
+                  providerId,
+                  ...(context ? { context } : {}),
+                  ...(skills ? { skills } : {}),
+                }
               : {},
           ),
         },
       );
       if (!response.ok) {
         actionError = String(response.status);
+        const payload = (await response.json().catch(() => ({}))) as {
+          error?: unknown;
+        };
+        if (typeof payload.error === "string") {
+          actionError = `${actionError}:${payload.error}`;
+        }
       }
     } catch {
       actionError = "unreachable";

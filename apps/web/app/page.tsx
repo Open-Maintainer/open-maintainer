@@ -101,6 +101,8 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
     providers.find((provider) => provider.id === requestedProviderId) ??
     providers.find((provider) => provider.repoContentConsent) ??
     null;
+  const defaultArtifactSelection =
+    artifactSelectionForProvider(selectedProvider);
   const readiness = profile ? getReadiness(profile) : null;
   const prStatus = getPrStatus(runs);
 
@@ -181,6 +183,30 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                         value={selectedProvider.id}
                       />
                     ) : null}
+                    <div className="generate-options">
+                      <label>
+                        <span>Context</span>
+                        <select
+                          name="context"
+                          defaultValue={defaultArtifactSelection}
+                        >
+                          <option value="codex">Codex</option>
+                          <option value="claude">Claude</option>
+                          <option value="both">Both</option>
+                        </select>
+                      </label>
+                      <label>
+                        <span>Skills</span>
+                        <select
+                          name="skills"
+                          defaultValue={defaultArtifactSelection}
+                        >
+                          <option value="codex">Codex</option>
+                          <option value="claude">Claude</option>
+                          <option value="both">Both</option>
+                        </select>
+                      </label>
+                    </div>
                     <button type="submit">Generate context</button>
                   </form>
                   <form action="/repo-actions" method="post">
@@ -234,6 +260,13 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                 <option value="codex">Codex CLI</option>
                 <option value="claude">Claude CLI</option>
               </select>
+              <label htmlFor="providerModel">Model</label>
+              <input
+                id="providerModel"
+                name="model"
+                placeholder="Provider default"
+                type="text"
+              />
               <label className="checkbox-row">
                 <input name="repoContentConsent" type="checkbox" />
                 <span>Allow repository content for generation</span>
@@ -528,6 +561,7 @@ function formatReadinessScore(score: number | undefined): string {
 }
 
 function actionErrorMessage(error: string): string {
+  const parsed = parseStatusError(error);
   if (error === "invalid-action") {
     return "That repository action was not recognized.";
   }
@@ -537,10 +571,13 @@ function actionErrorMessage(error: string): string {
   if (error === "409") {
     return "That action needs analysis artifacts or provider consent first.";
   }
-  return `Repository action failed with API status ${error}.`;
+  return parsed.detail
+    ? `Repository action failed with API status ${parsed.status}. ${parsed.detail}`
+    : `Repository action failed with API status ${parsed.status}.`;
 }
 
 function providerErrorMessage(error: string): string {
+  const parsed = parseStatusError(error);
   if (error === "invalid-provider") {
     return "Choose Codex CLI or Claude CLI.";
   }
@@ -550,7 +587,26 @@ function providerErrorMessage(error: string): string {
   if (error === "unreachable") {
     return "The API did not respond while saving the provider.";
   }
-  return `Provider setup failed with API status ${error}.`;
+  return parsed.detail
+    ? `Provider setup failed with API status ${parsed.status}. ${parsed.detail}`
+    : `Provider setup failed with API status ${parsed.status}.`;
+}
+
+function parseStatusError(error: string): { status: string; detail: string } {
+  const separator = error.indexOf(":");
+  if (separator < 0) {
+    return { status: error, detail: "" };
+  }
+  return {
+    status: error.slice(0, separator),
+    detail: error.slice(separator + 1),
+  };
+}
+
+function artifactSelectionForProvider(
+  provider: ProviderSummary | null,
+): "codex" | "claude" {
+  return provider?.kind === "claude-cli" ? "claude" : "codex";
 }
 
 function getPrStatus(runs: RunWithContext[]): {

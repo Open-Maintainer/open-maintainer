@@ -230,6 +230,28 @@ select {
   margin-top: 14px;
 }
 
+.actions form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.generate-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.generate-options label {
+  display: grid;
+  gap: 4px;
+  min-width: 120px;
+  color: #617066;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .row-actions {
   display: flex;
   flex-wrap: wrap;
