@@ -26,8 +26,15 @@ export type CompletionOutput = {
   };
 };
 
+export type CompletionOptions = {
+  outputSchema?: unknown;
+};
+
 export interface ModelProvider {
-  complete(input: CompletionInput): Promise<CompletionOutput>;
+  complete(
+    input: CompletionInput,
+    options?: CompletionOptions,
+  ): Promise<CompletionOutput>;
 }
 
 export type CodexCliProviderOptions = {
@@ -99,22 +106,32 @@ export function assertProviderConsent(
 
 export function buildProvider(config: ModelProviderConfig): ModelProvider {
   if (config.kind === "codex-cli") {
-    return buildCodexCliProvider(
-      config.model === "codex-cli"
-        ? { command: codexCommand(), cwd: process.cwd() }
-        : { command: codexCommand(), cwd: process.cwd(), model: config.model },
-    );
+    return {
+      complete(input, options) {
+        return buildCodexCliProvider({
+          command: codexCommand(),
+          cwd: process.cwd(),
+          ...(config.model === "codex-cli" ? {} : { model: config.model }),
+          ...(options?.outputSchema
+            ? { outputSchema: options.outputSchema }
+            : {}),
+        }).complete(input);
+      },
+    };
   }
   if (config.kind === "claude-cli") {
-    return buildClaudeCliProvider(
-      config.model === "claude-cli"
-        ? { command: claudeCommand(), cwd: process.cwd() }
-        : {
-            command: claudeCommand(),
-            cwd: process.cwd(),
-            model: config.model,
-          },
-    );
+    return {
+      complete(input, options) {
+        return buildClaudeCliProvider({
+          command: claudeCommand(),
+          cwd: process.cwd(),
+          ...(config.model === "claude-cli" ? {} : { model: config.model }),
+          ...(options?.outputSchema
+            ? { outputSchema: options.outputSchema }
+            : {}),
+        }).complete(input);
+      },
+    };
   }
 
   return {

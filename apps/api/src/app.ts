@@ -18,10 +18,13 @@ import {
   buildSkillSynthesisPrompt,
   createContextArtifacts,
   deterministicContextOutput,
+  modelArtifactContentJsonSchema,
+  modelSkillContentJsonSchema,
   parseModelArtifactContent,
   parseModelSkillContent,
   parseStructuredRepoFacts,
   structuredContextOutputFromRepoFacts,
+  structuredRepoFactsJsonSchema,
 } from "@open-maintainer/context";
 import { checkDatabase, checkRedis, store } from "@open-maintainer/db";
 import {
@@ -429,14 +432,21 @@ export function buildApp() {
           profile,
           files: repoFiles,
         });
-        const factsCompletion = await modelProvider.complete(factsPrompt);
+        const factsCompletion = await modelProvider.complete(factsPrompt, {
+          outputSchema: structuredRepoFactsJsonSchema,
+        });
         const repoFacts = parseStructuredRepoFacts(factsCompletion.text);
         output = structuredContextOutputFromRepoFacts(profile, repoFacts);
         const artifactPrompt = buildArtifactSynthesisPrompt({
           profile,
           repoFacts,
         });
-        const artifactCompletion = await modelProvider.complete(artifactPrompt);
+        const artifactCompletion = await modelProvider.complete(
+          artifactPrompt,
+          {
+            outputSchema: modelArtifactContentJsonSchema,
+          },
+        );
         modelArtifacts = parseModelArtifactContent(artifactCompletion.text);
         try {
           const skillPrompt = buildSkillSynthesisPrompt({
@@ -445,7 +455,9 @@ export function buildApp() {
             agentsMd: modelArtifacts.agentsMd,
             files: repoFiles,
           });
-          const skillCompletion = await modelProvider.complete(skillPrompt);
+          const skillCompletion = await modelProvider.complete(skillPrompt, {
+            outputSchema: modelSkillContentJsonSchema,
+          });
           modelSkills = parseModelSkillContent(skillCompletion.text);
         } catch {
           modelSkills = undefined;

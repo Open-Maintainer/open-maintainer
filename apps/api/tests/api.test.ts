@@ -150,6 +150,135 @@ describe("MVP API", () => {
     expect(analysis.json().profile.frameworks).toContain("fastify");
   });
 
+  it("generates dashboard context through a schema-constrained CLI provider", async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), "api-codex-gen-test-"));
+    const command = path.join(directory, "fake-codex.js");
+    const previousCodexCommand = process.env.OPEN_MAINTAINER_CODEX_COMMAND;
+    try {
+      await writeFile(
+        command,
+        `#!/usr/bin/env node
+const fs = require("node:fs");
+if (process.argv.includes("--version")) {
+  process.stdout.write("fake-codex 1.0.0\\n");
+  process.exit(0);
+}
+const schemaIndex = process.argv.indexOf("--output-schema");
+const schema = JSON.parse(fs.readFileSync(process.argv[schemaIndex + 1], "utf8"));
+const outputIndex = process.argv.indexOf("--output-last-message");
+const outputPath = process.argv[outputIndex + 1];
+let output;
+if (schema.required.includes("summary")) {
+  output = {
+    summary: "local/cli-dashboard-tool is a Bun TypeScript repository generated through the CLI provider.",
+    evidenceMap: [{ claim: "Uses Bun.", evidence: ["package.json"], confidence: "observed" }],
+    repositoryMap: [{ path: "src", purpose: "Source files.", evidence: ["uploaded files"], confidence: "observed" }],
+    commands: [{ name: "test", command: "bun test", scope: "tests", source: "package.json", purpose: "Run tests.", confidence: "observed" }],
+    setup: { requirements: [{ claim: "Install with Bun.", evidence: ["package.json"], confidence: "observed" }], unknowns: [] },
+    architecture: { observed: [], inferred: [], unknowns: ["No detailed architecture was detected."] },
+    changeRules: { safeEditZones: [], carefulEditZones: [], doNotEditWithoutExplicitInstruction: [], unknowns: ["Ownership was not detected."] },
+    testingStrategy: { locations: [], commands: [{ name: "test", command: "bun test", scope: "tests", source: "package.json", purpose: "Run tests.", confidence: "observed" }], namingConventions: [], regressionExpectations: ["Add regression tests for changed behavior."], unknowns: [] },
+    validation: { canonicalCommand: { name: "test", command: "bun test", scope: "tests", source: "package.json", purpose: "Run tests.", confidence: "observed" }, scopedCommands: [], unknowns: [] },
+    prRules: ["Report validation evidence."],
+    knownPitfalls: [],
+    generatedFiles: [],
+    highRiskAreas: [],
+    documentationAlignment: [],
+    unknowns: []
+  };
+} else if (schema.required.includes("agentsMd")) {
+  const body = "Use Bun, inspect evidence, keep edits scoped, and report validation results. ".repeat(3);
+  output = {
+    agentsMd: "# AGENTS.md instructions for local/cli-dashboard-tool\\n\\n" + body,
+    claudeMd: "# CLAUDE.md instructions for local/cli-dashboard-tool\\n\\n" + body,
+    copilotInstructions: "# Copilot instructions for local/cli-dashboard-tool\\n\\n" + body,
+    cursorRule: "---\\ndescription: local cli dashboard tool\\nalwaysApply: true\\n---\\n\\n" + body
+  };
+} else {
+  output = {
+    skills: [{
+      path: ".agents/skills/cli-dashboard-tool-start-task/SKILL.md",
+      name: "cli-dashboard-tool-start-task",
+      description: "Use before changing the local CLI dashboard tool.",
+      markdown: "---\\nname: cli-dashboard-tool-start-task\\ndescription: Use before changing the local CLI dashboard tool.\\n---\\n\\n# Start Task\\n\\nRead the target file, inspect related tests, keep edits scoped, and report validation evidence."
+    }]
+  };
+}
+fs.writeFileSync(outputPath, JSON.stringify(output));
+`,
+      );
+      await chmod(command, 0o755);
+      process.env.OPEN_MAINTAINER_CODEX_COMMAND = command;
+
+      const repoResponse = await app.inject({
+        method: "POST",
+        url: "/repos/local-files",
+        payload: {
+          name: "cli-dashboard-tool",
+          files: [
+            {
+              path: "package.json",
+              content: JSON.stringify({ scripts: { test: "bun test" } }),
+            },
+            { path: "src/index.ts", content: "export const ok = true;\n" },
+          ],
+        },
+      });
+      expect(repoResponse.statusCode).toBe(200);
+      const repoId = repoResponse.json().repo.id;
+      const analysis = await app.inject({
+        method: "POST",
+        url: `/repos/${repoId}/analyze`,
+      });
+      expect(analysis.statusCode).toBe(200);
+      const provider = await app.inject({
+        method: "POST",
+        url: "/model-providers",
+        payload: {
+          kind: "codex-cli",
+          displayName: "Codex CLI",
+          baseUrl: "http://localhost",
+          model: "codex-cli",
+          apiKey: "local-cli",
+          repoContentConsent: true,
+        },
+      });
+      expect(provider.statusCode).toBe(200);
+
+      const generated = await app.inject({
+        method: "POST",
+        url: `/repos/${repoId}/generate-context`,
+        payload: {
+          providerId: provider.json().provider.id,
+          context: "both",
+          skills: "both",
+        },
+      });
+
+      expect(generated.statusCode).toBe(200);
+      expect(
+        generated
+          .json()
+          .artifacts.map((artifact: { type: string }) => artifact.type),
+      ).toEqual([
+        "AGENTS.md",
+        "CLAUDE.md",
+        ".open-maintainer.yml",
+        ".agents/skills/cli-dashboard-tool-start-task/SKILL.md",
+        ".claude/skills/cli-dashboard-tool-start-task/SKILL.md",
+        ".open-maintainer/profile.json",
+        ".open-maintainer/report.md",
+      ]);
+    } finally {
+      if (previousCodexCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_CODEX_COMMAND = previousCodexCommand;
+      }
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("persists verified GitHub installation webhooks and exposes repos", async () => {
     const payload = JSON.stringify({
       installation: {
