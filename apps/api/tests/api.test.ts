@@ -460,6 +460,177 @@ process.exit(2);
     }
   });
 
+  it("opens local PRs from existing uncommitted context files", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "api-existing-context-test-"),
+    );
+    const ghCommand = path.join(directory, "fake-gh.js");
+    const repoRoot = path.join(directory, "repo");
+    const remoteRoot = path.join(directory, "remote.git");
+    const previousGhCommand = process.env.OPEN_MAINTAINER_GH_COMMAND;
+    const previousMountedRoots =
+      process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS;
+    const previousGitAuthorName = process.env.OPEN_MAINTAINER_GIT_AUTHOR_NAME;
+    const previousGitAuthorEmail = process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL;
+    try {
+      await execFileAsync("git", ["init", "-b", "main", repoRoot]);
+      await writeFile(
+        path.join(repoRoot, "package.json"),
+        JSON.stringify({
+          name: "existing-context-tool",
+          scripts: { test: "bun test" },
+        }),
+      );
+      await execFileAsync("git", ["add", "."], { cwd: repoRoot });
+      await execFileAsync(
+        "git",
+        [
+          "-c",
+          "user.email=test@example.com",
+          "-c",
+          "user.name=Open Maintainer",
+          "commit",
+          "-m",
+          "Initial commit",
+        ],
+        { cwd: repoRoot },
+      );
+      await execFileAsync("git", ["init", "--bare", remoteRoot]);
+      await execFileAsync("git", ["remote", "add", "origin", remoteRoot], {
+        cwd: repoRoot,
+      });
+      await execFileAsync("git", ["push", "-u", "origin", "main"], {
+        cwd: repoRoot,
+      });
+      await execFileAsync("git", ["checkout", "-b", "feature/context-base"], {
+        cwd: repoRoot,
+      });
+      await execFileAsync(
+        "git",
+        ["push", "-u", "origin", "feature/context-base"],
+        { cwd: repoRoot },
+      );
+      await mkdir(path.join(repoRoot, ".open-maintainer"), {
+        recursive: true,
+      });
+      await writeFile(
+        path.join(repoRoot, "AGENTS.md"),
+        "# AGENTS.md instructions for existing-context-tool\n",
+      );
+      await writeFile(
+        path.join(repoRoot, ".open-maintainer.yml"),
+        "generated:\n  artifactVersion: 1\n",
+      );
+      await execFileAsync("git", ["add", "AGENTS.md", ".open-maintainer.yml"], {
+        cwd: repoRoot,
+      });
+      await writeFile(
+        ghCommand,
+        `#!/usr/bin/env node
+const args = process.argv.slice(2);
+if (args[0] === "auth" && args[1] === "status") {
+  process.stdout.write("Logged in to github.com\\n");
+  process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "create") {
+  const baseIndex = args.indexOf("--base");
+  if (args[baseIndex + 1] !== "feature/context-base") {
+    process.stderr.write("wrong base branch: " + args[baseIndex + 1]);
+    process.exit(4);
+  }
+  process.stdout.write("https://github.com/local/existing-context-tool/pull/43\\n");
+  process.exit(0);
+}
+process.stderr.write("unexpected gh command: " + args.join(" "));
+process.exit(2);
+`,
+      );
+      await chmod(ghCommand, 0o755);
+      process.env.OPEN_MAINTAINER_GH_COMMAND = ghCommand;
+      process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS = repoRoot;
+      process.env.OPEN_MAINTAINER_GIT_AUTHOR_NAME = "Dashboard Bot";
+      process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL = "dashboard@example.com";
+
+      const repoResponse = await app.inject({
+        method: "POST",
+        url: "/repos/local-files",
+        payload: {
+          name: "existing-context-tool",
+          files: [
+            {
+              path: "package.json",
+              content: JSON.stringify({
+                name: "existing-context-tool",
+                scripts: { test: "bun test" },
+              }),
+            },
+            {
+              path: "AGENTS.md",
+              content: "# AGENTS.md instructions for existing-context-tool\n",
+            },
+            {
+              path: ".open-maintainer.yml",
+              content: "generated:\n  artifactVersion: 1\n",
+            },
+          ],
+        },
+      });
+      expect(repoResponse.statusCode).toBe(200);
+      const repoId = repoResponse.json().repo.id;
+      const analysis = await app.inject({
+        method: "POST",
+        url: `/repos/${repoId}/analyze`,
+      });
+      expect(analysis.statusCode).toBe(200);
+      expect(analysis.json().profile.existingContextFiles).toEqual([
+        ".open-maintainer.yml",
+        "AGENTS.md",
+      ]);
+
+      const pr = await app.inject({
+        method: "POST",
+        url: `/repos/${repoId}/open-context-pr`,
+        payload: {},
+      });
+      expect(pr.statusCode).toBe(200);
+      expect(pr.json().contextPr.prUrl).toBe(
+        "https://github.com/local/existing-context-tool/pull/43",
+      );
+      expect(pr.json().run.artifactVersions).toEqual([1, 2]);
+      const { stdout: agentsMd } = await execFileAsync(
+        "git",
+        ["show", "open-maintainer/context-1:AGENTS.md"],
+        { cwd: repoRoot },
+      );
+      expect(agentsMd).toContain("existing-context-tool");
+    } finally {
+      if (previousGhCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_GH_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_GH_COMMAND = previousGhCommand;
+      }
+      if (previousMountedRoots === undefined) {
+        Reflect.deleteProperty(
+          process.env,
+          "OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS",
+        );
+      } else {
+        process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS = previousMountedRoots;
+      }
+      if (previousGitAuthorName === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_GIT_AUTHOR_NAME");
+      } else {
+        process.env.OPEN_MAINTAINER_GIT_AUTHOR_NAME = previousGitAuthorName;
+      }
+      if (previousGitAuthorEmail === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_GIT_AUTHOR_EMAIL");
+      } else {
+        process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL = previousGitAuthorEmail;
+      }
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("persists verified GitHub installation webhooks and exposes repos", async () => {
     const payload = JSON.stringify({
       installation: {

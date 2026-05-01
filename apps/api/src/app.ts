@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -41,6 +41,8 @@ import {
 } from "@open-maintainer/github";
 import type { GitHubAppInstallationAuth } from "@open-maintainer/github";
 import {
+  type ArtifactType,
+  ArtifactTypeSchema,
   type GeneratedArtifact,
   type Installation,
   type ModelProviderConfig,
@@ -496,11 +498,21 @@ export function buildApp() {
         if (!profile) {
           return reply.code(409).send({ error: "No repo profile available." });
         }
-        const artifacts = store.artifacts.get(repoId) ?? [];
+        const repo = store.repos.get(repoId);
+        if (!repo) {
+          return reply.code(404).send({ error: "Unknown repo." });
+        }
+        const localWorktreeRoot = store.repoWorktrees.get(repoId);
+        const artifacts = await artifactsForContextPr({
+          repoId,
+          profile,
+          worktreeRoot: localWorktreeRoot,
+        });
         if (artifacts.length < 2) {
-          return reply
-            .code(409)
-            .send({ error: "Generate artifacts before opening a context PR." });
+          return reply.code(409).send({
+            error:
+              "Generate artifacts or add repo-local context files before opening a context PR.",
+          });
         }
         const run = store.recordRun({
           repoId,
@@ -514,11 +526,6 @@ export function buildApp() {
           model: artifacts[0]?.model ?? null,
           externalId: null,
         });
-        const repo = store.repos.get(repoId);
-        if (!repo) {
-          return reply.code(404).send({ error: "Unknown repo." });
-        }
-        const localWorktreeRoot = store.repoWorktrees.get(repoId);
         if (localWorktreeRoot) {
           try {
             await requireLocalGhPrReady(localWorktreeRoot);
@@ -713,6 +720,73 @@ async function generateContextArtifactsForRun(input: {
     safeMessage: "Context artifacts generated for preview.",
   });
   return artifacts;
+}
+
+async function artifactsForContextPr(input: {
+  repoId: string;
+  profile: RepoProfile;
+  worktreeRoot: string | undefined;
+}): Promise<GeneratedArtifact[]> {
+  const storedArtifacts = store.artifacts.get(input.repoId) ?? [];
+  if (storedArtifacts.length >= 2) {
+    return storedArtifacts;
+  }
+  if (!input.worktreeRoot) {
+    return storedArtifacts;
+  }
+
+  const localArtifacts = await readContextArtifactsFromWorktree({
+    repoId: input.repoId,
+    profile: input.profile,
+    worktreeRoot: input.worktreeRoot,
+  });
+  if (localArtifacts.length >= 2) {
+    store.artifacts.set(input.repoId, localArtifacts);
+    return localArtifacts;
+  }
+  return storedArtifacts;
+}
+
+async function readContextArtifactsFromWorktree(input: {
+  repoId: string;
+  profile: RepoProfile;
+  worktreeRoot: string;
+}): Promise<GeneratedArtifact[]> {
+  const paths = await contextArtifactPathsInWorktree(input.worktreeRoot);
+  const timestamp = nowIso();
+  const artifacts: GeneratedArtifact[] = [];
+  for (const [index, artifactPath] of paths.entries()) {
+    artifacts.push({
+      id: newId("artifact"),
+      repoId: input.repoId,
+      type: artifactPath,
+      version: index + 1,
+      content: await readFile(
+        path.join(input.worktreeRoot, artifactPath),
+        "utf8",
+      ),
+      sourceProfileVersion: input.profile.version,
+      modelProvider: null,
+      model: null,
+      createdAt: timestamp,
+    });
+  }
+  return artifacts;
+}
+
+async function contextArtifactPathsInWorktree(
+  worktreeRoot: string,
+): Promise<ArtifactType[]> {
+  const files = await scanRepository(worktreeRoot, { maxFiles: 800 });
+  return files
+    .map((file) => ArtifactTypeSchema.safeParse(file.path))
+    .filter((result) => result.success)
+    .map((result) => result.data)
+    .filter(isWritableContextArtifact);
+}
+
+function isWritableContextArtifact(type: ArtifactType): boolean {
+  return type !== "repo_profile";
 }
 
 async function saveArtifactsToLocalWorktree(
