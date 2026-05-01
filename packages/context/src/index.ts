@@ -1382,10 +1382,23 @@ function uniqueStrings(items: string[]): string[] {
 }
 
 function slugify(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
+  let slug = "";
+  let needsSeparator = false;
+
+  for (const character of value.toLowerCase()) {
+    const isAsciiLetter = character >= "a" && character <= "z";
+    const isDigit = character >= "0" && character <= "9";
+    if (isAsciiLetter || isDigit) {
+      if (needsSeparator && slug.length > 0) {
+        slug += "-";
+      }
+      slug += character;
+      needsSeparator = false;
+    } else {
+      needsSeparator = slug.length > 0;
+    }
+  }
+
   return slug || "repo";
 }
 
@@ -1408,11 +1421,18 @@ function metadataComment(profile: RepoProfile): string {
 }
 
 function stripJsonFence(text: string): string {
-  return text
-    .trim()
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/, "")
-    .trim();
+  const fence = "```";
+  let stripped = text.trim();
+  const lower = stripped.toLowerCase();
+  if (lower.startsWith(`${fence}json`)) {
+    stripped = stripped.slice(`${fence}json`.length).trimStart();
+  } else if (stripped.startsWith(fence)) {
+    stripped = stripped.slice(fence.length).trimStart();
+  }
+  if (stripped.endsWith(fence)) {
+    stripped = stripped.slice(0, -fence.length).trimEnd();
+  }
+  return stripped.trim();
 }
 
 function selectPromptFileExcerpts(

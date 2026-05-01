@@ -275,6 +275,49 @@ describe("context renderers", () => {
     );
   });
 
+  it("parses fenced model JSON with large trailing whitespace", () => {
+    const modelArtifacts = parseModelArtifactContent(
+      `\`\`\`json
+${JSON.stringify({
+  agentsMd:
+    "# AGENTS.md instructions for acme/tool\n\nUse Bun workspace scripts and inspect repository evidence before changing generated context files.",
+  claudeMd:
+    "# CLAUDE.md instructions for acme/tool\n\nUse Bun workspace scripts and inspect repository evidence before changing generated context files.",
+  copilotInstructions:
+    "# Copilot instructions for acme/tool\n\nUse Bun workspace scripts and inspect repository evidence before changing generated context files.",
+  cursorRule:
+    "---\ndescription: acme tool repo rules\nalwaysApply: true\n---\n\nUse Bun workspace scripts and inspect repository evidence before changing generated context files.",
+})}${" ".repeat(1024)}
+\`\`\``,
+    );
+
+    expect(modelArtifacts.agentsMd).toContain("Use Bun workspace scripts");
+  });
+
+  it("slugifies repeated separators without regex backtracking", () => {
+    const artifacts = createContextArtifacts({
+      repoId: "repo_1",
+      profile: {
+        ...profile,
+        name: `---Open    Maintainer---${"-".repeat(1024)}Agent---`,
+      },
+      output: {
+        summary: "A repo.",
+        qualityRules: ["Use Bun."],
+        commands: ["test: bun test"],
+        notes: [],
+      },
+      modelProvider: "local",
+      model: "llama",
+      nextVersion: 1,
+      targets: ["skills"],
+    });
+
+    expect(artifacts[0]?.type).toBe(
+      ".agents/skills/open-maintainer-agent-start-task/SKILL.md",
+    );
+  });
+
   it("uses model-generated Claude instructions when requested", () => {
     const modelArtifacts = parseModelArtifactContent(
       JSON.stringify({
