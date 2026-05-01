@@ -157,10 +157,28 @@ h3 {
   margin-bottom: 12px;
 }
 
-.local-form label {
+.local-form label,
+.provider-form label {
   color: #617066;
   font-size: 13px;
   font-weight: 700;
+}
+
+.provider-form {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.checkbox-row input {
+  width: auto;
+  min-height: auto;
 }
 
 .search-form {
@@ -168,7 +186,8 @@ h3 {
   gap: 8px;
 }
 
-input {
+input,
+select {
   width: 100%;
   min-height: 36px;
   border: 1px solid #cfd8d1;
@@ -209,6 +228,14 @@ input {
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 14px;
+}
+
+.row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 button,

@@ -39,6 +39,39 @@ describe("MVP API", () => {
     expect(response.json().error).toBe("No repo profile available.");
   });
 
+  it("accepts CLI model providers for dashboard setup", async () => {
+    const codex = await app.inject({
+      method: "POST",
+      url: "/model-providers",
+      payload: {
+        kind: "codex-cli",
+        displayName: "Codex CLI",
+        baseUrl: "http://localhost",
+        model: "codex-cli",
+        apiKey: "local-cli",
+        repoContentConsent: true,
+      },
+    });
+    expect(codex.statusCode).toBe(200);
+    expect(codex.json().provider.kind).toBe("codex-cli");
+    expect(codex.json().provider.repoContentConsent).toBe(true);
+
+    const claude = await app.inject({
+      method: "POST",
+      url: "/model-providers",
+      payload: {
+        kind: "claude-cli",
+        displayName: "Claude CLI",
+        baseUrl: "http://localhost",
+        model: "claude-cli",
+        apiKey: "local-cli",
+        repoContentConsent: true,
+      },
+    });
+    expect(claude.statusCode).toBe(200);
+    expect(claude.json().provider.kind).toBe("claude-cli");
+  });
+
   it("registers a local filesystem repository for dashboard selection", async () => {
     const response = await app.inject({
       method: "POST",

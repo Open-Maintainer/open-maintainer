@@ -15,6 +15,7 @@ const actionPathByType = {
 export async function POST(request: NextRequest) {
   const form = await request.formData();
   const repoId = String(form.get("repoId") ?? "").trim();
+  const providerId = String(form.get("providerId") ?? "").trim();
   const actionType = String(form.get("actionType") ?? "");
   const actionPath =
     actionPathByType[actionType as keyof typeof actionPathByType];
@@ -29,7 +30,11 @@ export async function POST(request: NextRequest) {
         {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: "{}",
+          body: JSON.stringify(
+            actionType === "generateContext" && providerId
+              ? { providerId }
+              : {},
+          ),
         },
       );
       if (!response.ok) {
@@ -43,6 +48,9 @@ export async function POST(request: NextRequest) {
   const params: Record<string, string> = {};
   if (repoId) {
     params.repo = repoId;
+  }
+  if (providerId) {
+    params.providerId = providerId;
   }
   if (actionError) {
     params.actionError = actionError;

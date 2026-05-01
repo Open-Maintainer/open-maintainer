@@ -291,6 +291,8 @@ export function buildApp() {
           "openai-compatible",
           "anthropic",
           "local-openai-compatible",
+          "codex-cli",
+          "claude-cli",
         ]),
         displayName: z.string(),
         baseUrl: z.string().url(),

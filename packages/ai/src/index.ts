@@ -98,6 +98,21 @@ export function assertProviderConsent(
 }
 
 export function buildProvider(config: ModelProviderConfig): ModelProvider {
+  if (config.kind === "codex-cli") {
+    return buildCodexCliProvider(
+      config.model === "codex-cli"
+        ? { cwd: process.cwd() }
+        : { cwd: process.cwd(), model: config.model },
+    );
+  }
+  if (config.kind === "claude-cli") {
+    return buildClaudeCliProvider(
+      config.model === "claude-cli"
+        ? { cwd: process.cwd() }
+        : { cwd: process.cwd(), model: config.model },
+    );
+  }
+
   return {
     async complete(input) {
       const response = await fetch(

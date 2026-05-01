@@ -156,6 +156,8 @@ export const ModelProviderKindSchema = z.enum([
   "openai-compatible",
   "anthropic",
   "local-openai-compatible",
+  "codex-cli",
+  "claude-cli",
 ]);
 export type ModelProviderKind = z.infer<typeof ModelProviderKindSchema>;
 

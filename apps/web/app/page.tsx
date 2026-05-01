@@ -70,6 +70,8 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
   const repoQuery = singleParam(params.q)?.trim().toLowerCase() ?? "";
   const localRepoError = singleParam(params.localRepoError);
   const actionError = singleParam(params.actionError);
+  const providerError = singleParam(params.providerError);
+  const requestedProviderId = singleParam(params.providerId);
 
   const [health, reposResponse, providersResponse] = await Promise.all([
     fetchJson<Health>("/health"),
@@ -95,6 +97,10 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
   const artifacts = artifactsResponse?.artifacts ?? [];
   const runs = runsResponse?.runs ?? [];
   const providers = providersResponse?.providers ?? [];
+  const selectedProvider =
+    providers.find((provider) => provider.id === requestedProviderId) ??
+    providers.find((provider) => provider.repoContentConsent) ??
+    null;
   const readiness = profile ? getReadiness(profile) : null;
   const prStatus = getPrStatus(runs);
 
@@ -168,6 +174,13 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                       name="actionType"
                       value="generateContext"
                     />
+                    {selectedProvider ? (
+                      <input
+                        type="hidden"
+                        name="providerId"
+                        value={selectedProvider.id}
+                      />
+                    ) : null}
                     <button type="submit">Generate context</button>
                   </form>
                   <form action="/repo-actions" method="post">
@@ -204,6 +217,32 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                   : "blocked"}
               </span>
             </div>
+            <form
+              action="/provider-actions"
+              className="provider-form"
+              method="post"
+            >
+              {repo ? (
+                <input type="hidden" name="repoId" value={repo.id} />
+              ) : null}
+              <label htmlFor="providerType">Provider</label>
+              <select
+                id="providerType"
+                name="providerType"
+                defaultValue="codex"
+              >
+                <option value="codex">Codex CLI</option>
+                <option value="claude">Claude CLI</option>
+              </select>
+              <label className="checkbox-row">
+                <input name="repoContentConsent" type="checkbox" />
+                <span>Allow repository content for generation</span>
+              </label>
+              <button type="submit">Use provider</button>
+              {providerError ? (
+                <p className="error">{providerErrorMessage(providerError)}</p>
+              ) : null}
+            </form>
             {providers.length ? (
               <div className="list">
                 {providers.map((provider) => (
@@ -214,13 +253,36 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                         {provider.kind} / {provider.model}
                       </p>
                     </div>
-                    <span
-                      className={
-                        provider.repoContentConsent ? "badge" : "badge warn"
-                      }
-                    >
-                      {provider.repoContentConsent ? "consented" : "no consent"}
-                    </span>
+                    <div className="row-actions">
+                      <span
+                        className={
+                          provider.repoContentConsent ? "badge" : "badge warn"
+                        }
+                      >
+                        {provider.repoContentConsent
+                          ? provider.id === selectedProvider?.id
+                            ? "selected"
+                            : "consented"
+                          : "no consent"}
+                      </span>
+                      {provider.id !== selectedProvider?.id ? (
+                        <form action="/provider-actions" method="post">
+                          {repo ? (
+                            <input
+                              type="hidden"
+                              name="repoId"
+                              value={repo.id}
+                            />
+                          ) : null}
+                          <input
+                            type="hidden"
+                            name="providerId"
+                            value={provider.id}
+                          />
+                          <button type="submit">Use</button>
+                        </form>
+                      ) : null}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -476,6 +538,19 @@ function actionErrorMessage(error: string): string {
     return "That action needs analysis artifacts or provider consent first.";
   }
   return `Repository action failed with API status ${error}.`;
+}
+
+function providerErrorMessage(error: string): string {
+  if (error === "invalid-provider") {
+    return "Choose Codex CLI or Claude CLI.";
+  }
+  if (error === "missing-consent") {
+    return "Repo-content consent is required before generation can use a provider.";
+  }
+  if (error === "unreachable") {
+    return "The API did not respond while saving the provider.";
+  }
+  return `Provider setup failed with API status ${error}.`;
 }
 
 function getPrStatus(runs: RunWithContext[]): {
