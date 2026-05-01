@@ -51,6 +51,14 @@ docker compose up --build
 bun run smoke:compose
 ```
 
+CI mirrors these gates without publishing releases:
+
+- `CI`: `bun lint`, `bun typecheck`, `bun test`, `bun run build`, and `bun run smoke:mvp`.
+- `Docker Compose Smoke`: starts the self-hosted stack and runs `bun run smoke:compose`.
+- `Open Maintainer Audit`: dogfoods the local action against pull requests.
+- `CodeQL`: scans the TypeScript codebase weekly and on pull requests.
+- `Dependency Review`: blocks pull requests that introduce high-severity vulnerable dependencies.
+
 Common scoped checks:
 
 ```sh

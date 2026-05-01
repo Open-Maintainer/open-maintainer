@@ -106,3 +106,52 @@ describe("GitHub Action MVP", () => {
     );
   });
 });
+
+describe("Quality workflows", () => {
+  it("runs the root quality gates in CI", async () => {
+    const workflow = await readYaml(".github/workflows/ci.yml");
+
+    expect(Object.keys(workflow.jobs).sort()).toEqual([
+      "build",
+      "lint",
+      "smoke-mvp",
+      "test",
+      "typecheck",
+    ]);
+    expect(workflow.jobs.lint.steps).toContainEqual({ run: "bun lint" });
+    expect(workflow.jobs.typecheck.steps).toContainEqual({
+      run: "bun typecheck",
+    });
+    expect(workflow.jobs.test.steps).toContainEqual({ run: "bun test" });
+    expect(workflow.jobs.build.steps).toContainEqual({ run: "bun run build" });
+    expect(workflow.jobs["smoke-mvp"].steps).toContainEqual({
+      run: "bun run smoke:mvp",
+    });
+  });
+
+  it("keeps stack and security checks in dedicated workflows", async () => {
+    const compose = await readYaml(".github/workflows/compose-smoke.yml");
+    const codeql = await readYaml(".github/workflows/codeql.yml");
+    const dependencyReview = await readYaml(
+      ".github/workflows/dependency-review.yml",
+    );
+
+    expect(compose.jobs["compose-smoke"].steps).toContainEqual({
+      name: "Run compose smoke",
+      run: "bun run smoke:compose",
+    });
+    expect(codeql.jobs.analyze.steps).toContainEqual(
+      expect.objectContaining({
+        uses: "github/codeql-action/analyze@v3",
+      }),
+    );
+    expect(dependencyReview.jobs["dependency-review"].steps).toContainEqual(
+      expect.objectContaining({
+        uses: "actions/dependency-review-action@v4",
+        with: {
+          "fail-on-severity": "high",
+        },
+      }),
+    );
+  });
+});
