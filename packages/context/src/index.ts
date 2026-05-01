@@ -745,11 +745,18 @@ export function createContextArtifacts(input: {
     );
   }
   if (targets.has("profile")) {
+    const contextArtifactHashes = definitions
+      .filter((definition) => isContextArtifactPath(definition.type))
+      .map((definition) => ({
+        path: definition.type,
+        hash: contentHash(definition.content),
+      }));
     definitions.push({
       type: ".open-maintainer/profile.json",
       content: `${JSON.stringify(
         {
           ...input.profile,
+          contextArtifactHashes,
           openMaintainerProfileHash: profileFingerprint(input.profile),
         },
         null,
@@ -1325,14 +1332,15 @@ export function parseModelSkillContent(text: string): ModelSkillContent {
 }
 
 export function profileFingerprint(profile: RepoProfile): string {
-  return createHash("sha256")
-    .update(JSON.stringify(fingerprintableProfile(profile)))
-    .digest("hex")
-    .slice(0, 16);
+  return contentHash(JSON.stringify(fingerprintableProfile(profile)));
+}
+
+function contentHash(content: string): string {
+  return createHash("sha256").update(content).digest("hex").slice(0, 16);
 }
 
 export type DriftFinding = {
-  group: "commands" | "ci";
+  group: "commands" | "ci" | "docs" | "templates" | "context";
   changeType: "added" | "removed" | "changed";
   path: string;
   subject: string;
@@ -1356,6 +1364,9 @@ export function compareProfileDrift(input: {
   return [
     ...compareCommandDrift(input.stored, input.current),
     ...compareCiWorkflowDrift(input.stored, input.current),
+    ...compareDocsDrift(input.stored, input.current),
+    ...compareTemplateDrift(input.stored, input.current),
+    ...compareContextArtifactDrift(input.stored, input.current),
   ].sort(
     (left, right) =>
       left.group.localeCompare(right.group) ||
@@ -1434,14 +1445,55 @@ function compareCiWorkflowDrift(
   stored: RepoProfile,
   current: RepoProfile,
 ): DriftFinding[] {
-  const findings = comparePathListDrift({
+  return comparePathListDrift({
     group: "ci",
     storedPaths: stored.ciWorkflows,
     currentPaths: current.ciWorkflows,
     storedHashes: stored.trackedFileHashes,
     currentHashes: current.trackedFileHashes,
   });
-  return findings;
+}
+
+function compareDocsDrift(
+  stored: RepoProfile,
+  current: RepoProfile,
+): DriftFinding[] {
+  return comparePathListDrift({
+    group: "docs",
+    storedPaths: stored.importantDocs,
+    currentPaths: current.importantDocs,
+    storedHashes: stored.trackedFileHashes,
+    currentHashes: current.trackedFileHashes,
+  });
+}
+
+function compareTemplateDrift(
+  stored: RepoProfile,
+  current: RepoProfile,
+): DriftFinding[] {
+  return comparePathListDrift({
+    group: "templates",
+    storedPaths: stored.repoTemplates,
+    currentPaths: current.repoTemplates,
+    storedHashes: stored.trackedFileHashes,
+    currentHashes: current.trackedFileHashes,
+  });
+}
+
+function compareContextArtifactDrift(
+  stored: RepoProfile,
+  current: RepoProfile,
+): DriftFinding[] {
+  if (stored.contextArtifactHashes.length === 0) {
+    return [];
+  }
+  return comparePathListDrift({
+    group: "context",
+    storedPaths: stored.contextArtifactHashes.map((item) => item.path),
+    currentPaths: current.existingContextFiles.filter(isContextArtifactPath),
+    storedHashes: stored.contextArtifactHashes,
+    currentHashes: current.trackedFileHashes,
+  });
 }
 
 function comparePathListDrift(input: {
@@ -1518,6 +1570,7 @@ function fingerprintableProfile(profile: RepoProfile) {
     commands: profile.commands,
     ciWorkflows: profile.ciWorkflows,
     importantDocs: profile.importantDocs,
+    repoTemplates: profile.repoTemplates,
     architecturePathGroups: profile.architecturePathGroups,
     generatedFileHints: profile.generatedFileHints,
     detectedRiskAreas: profile.detectedRiskAreas.filter(
@@ -1533,6 +1586,7 @@ function fingerprintableProfile(profile: RepoProfile) {
     trackedFileHashes: profile.trackedFileHashes.filter(
       (item) => !isContextArtifactPath(item.path),
     ),
+    contextArtifactHashes: profile.contextArtifactHashes,
     agentReadiness: {
       categories: profile.agentReadiness.categories.filter((category) =>
         ["setup clarity", "architecture clarity", "testing and CI"].includes(

@@ -276,6 +276,12 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
   const importantDocs = paths.filter((repoPath) =>
     /^(README|CONTRIBUTING|docs\/|local-docs\/)/i.test(repoPath),
   );
+  const repoTemplates = paths.filter(
+    (repoPath) =>
+      repoPath.startsWith(".github/ISSUE_TEMPLATE/") ||
+      repoPath === ".github/pull_request_template.md" ||
+      repoPath === "PULL_REQUEST_TEMPLATE.md",
+  );
   const existingContextFiles = paths.filter(
     (repoPath) =>
       recognizedContextArtifactPaths.includes(repoPath) ||
@@ -291,6 +297,7 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     ...commands.map((command) => command.source),
     ...ciWorkflows,
     ...importantDocs,
+    ...repoTemplates,
     ...existingContextFiles,
     ...workspaceManifests,
     ...lockfiles,
@@ -308,6 +315,7 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     ...lockfiles,
     ...ciWorkflows,
     ...importantDocs,
+    ...repoTemplates,
     ...existingContextFiles,
     ...configFiles,
   ]) {
@@ -328,6 +336,7 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     commands: dedupeCommands(commands),
     ciWorkflows,
     importantDocs,
+    repoTemplates,
     architecturePathGroups: detectPathGroups(paths),
     generatedFileHints: contextArtifactPaths,
     existingContextFiles,
@@ -338,6 +347,7 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
     lockfiles,
     configFiles,
     trackedFileHashes,
+    contextArtifactHashes: [],
     createdAt: nowIso(),
   };
 

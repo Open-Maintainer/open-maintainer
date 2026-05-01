@@ -30,6 +30,7 @@ const profile: RepoProfile = {
   commands: [{ name: "test", command: "bun test", source: "package.json" }],
   ciWorkflows: [],
   importantDocs: ["README.md"],
+  repoTemplates: [],
   architecturePathGroups: ["apps"],
   generatedFileHints: ["AGENTS.md"],
   existingContextFiles: [],
@@ -45,6 +46,7 @@ const profile: RepoProfile = {
     { path: "README.md", hash: "readme-hash" },
     { path: "package.json", hash: "package-hash" },
   ],
+  contextArtifactHashes: [],
   agentReadiness: {
     score: 47,
     categories: [

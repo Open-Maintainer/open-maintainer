@@ -47,6 +47,10 @@ describe("analyzeRepo", () => {
         },
         { path: ".github/workflows/ci.yml", content: "name: CI" },
         {
+          path: ".github/pull_request_template.md",
+          content: "## Validation",
+        },
+        {
           path: ".claude/skills/repo-overview/SKILL.md",
           content:
             "---\nname: repo-overview\ndescription: Claude project skill.\n---\n\n# Repo Overview",
@@ -64,6 +68,7 @@ describe("analyzeRepo", () => {
     expect(profile.trackedFileHashes.map((item) => item.path)).toContain(
       ".github/workflows/ci.yml",
     );
+    expect(profile.repoTemplates).toEqual([".github/pull_request_template.md"]);
     expect(profile.frameworks).toContain("Scarb");
     expect(profile.commands.map((command) => command.command)).toContain(
       "make build",

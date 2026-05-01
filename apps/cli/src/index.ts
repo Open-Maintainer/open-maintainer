@@ -365,6 +365,15 @@ function formatDriftFinding(
   if (finding.group === "ci") {
     return `drift: CI workflow ${finding.subject} was ${finding.changeType}`;
   }
+  if (finding.group === "docs") {
+    return `drift: docs ${finding.subject} was ${finding.changeType}; review generated context against updated docs`;
+  }
+  if (finding.group === "templates") {
+    return `drift: template ${finding.subject} was ${finding.changeType}; review issue and PR guidance`;
+  }
+  if (finding.group === "context") {
+    return `drift: context artifact ${finding.subject} was ${finding.changeType}; rerun generation or review the artifact`;
+  }
   if (finding.changeType === "added") {
     return `drift: command ${finding.subject} was added: ${JSON.stringify(
       finding.currentValue,

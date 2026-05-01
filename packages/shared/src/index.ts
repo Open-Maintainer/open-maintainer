@@ -41,6 +41,7 @@ export const RepoProfileSchema = z.object({
   commands: z.array(DetectedCommandSchema),
   ciWorkflows: z.array(z.string()),
   importantDocs: z.array(z.string()),
+  repoTemplates: z.array(z.string()).default([]),
   architecturePathGroups: z.array(z.string()),
   generatedFileHints: z.array(z.string()),
   existingContextFiles: z.array(z.string()),
@@ -51,6 +52,7 @@ export const RepoProfileSchema = z.object({
   lockfiles: z.array(z.string()),
   configFiles: z.array(z.string()),
   trackedFileHashes: z.array(TrackedFileHashSchema).default([]),
+  contextArtifactHashes: z.array(TrackedFileHashSchema).default([]),
   agentReadiness: z.object({
     score: z.number().int().min(0).max(100),
     categories: z.array(
