@@ -35,6 +35,8 @@ services:
       DATABASE_URL: postgres://open_maintainer:open_maintainer@postgres:5432/open_maintainer
       REDIS_URL: redis://redis:6379
       GH_TOKEN: ${GH_TOKEN:-}
+      OPEN_MAINTAINER_GIT_AUTHOR_NAME: ${OPEN_MAINTAINER_GIT_AUTHOR_NAME:-Open Maintainer}
+      OPEN_MAINTAINER_GIT_AUTHOR_EMAIL: ${OPEN_MAINTAINER_GIT_AUTHOR_EMAIL:-open-maintainer@users.noreply.github.com}
       OPEN_MAINTAINER_CODEX_MODEL: ${OPEN_MAINTAINER_CODEX_MODEL:-}
       OPEN_MAINTAINER_CLAUDE_MODEL: ${OPEN_MAINTAINER_CLAUDE_MODEL:-}
     volumes:

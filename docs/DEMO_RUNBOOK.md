@@ -281,9 +281,11 @@ Context PR creation requires authenticated GitHub CLI inside the API container:
 
 ```sh
 GH_TOKEN=github_pat_xxx
+OPEN_MAINTAINER_GIT_AUTHOR_NAME="Open Maintainer"
+OPEN_MAINTAINER_GIT_AUTHOR_EMAIL="open-maintainer@users.noreply.github.com"
 ```
 
-Compose passes `GH_TOKEN` from `.env` into the API container. Recreate the API container after adding or rotating the token:
+Compose passes `GH_TOKEN` and the commit author identity from `.env` into the API container. Recreate the API container after adding or rotating the token:
 
 ```sh
 docker compose up -d --force-recreate api

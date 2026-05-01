@@ -178,6 +178,8 @@ describe("MVP API", () => {
     const previousGhCommand = process.env.OPEN_MAINTAINER_GH_COMMAND;
     const previousMountedRoots =
       process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS;
+    const previousGitAuthorName = process.env.OPEN_MAINTAINER_GIT_AUTHOR_NAME;
+    const previousGitAuthorEmail = process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL;
     try {
       await execFileAsync("git", ["init", "-b", "main", repoRoot]);
       await writeFile(
@@ -192,16 +194,22 @@ describe("MVP API", () => {
         path.join(repoRoot, "src/index.ts"),
         "export const ok = true;\n",
       );
-      await execFileAsync("git", ["config", "user.email", "test@example.com"], {
-        cwd: repoRoot,
-      });
-      await execFileAsync("git", ["config", "user.name", "Open Maintainer"], {
-        cwd: repoRoot,
-      });
       await execFileAsync("git", ["add", "."], { cwd: repoRoot });
-      await execFileAsync("git", ["commit", "-m", "Initial commit"], {
-        cwd: repoRoot,
-      });
+      await execFileAsync(
+        "git",
+        [
+          "-c",
+          "user.email=test@example.com",
+          "-c",
+          "user.name=Open Maintainer",
+          "commit",
+          "-m",
+          "Initial commit",
+        ],
+        {
+          cwd: repoRoot,
+        },
+      );
       await execFileAsync("git", ["init", "--bare", remoteRoot]);
       await execFileAsync("git", ["remote", "add", "origin", remoteRoot], {
         cwd: repoRoot,
@@ -304,6 +312,8 @@ process.exit(2);
       process.env.OPEN_MAINTAINER_CODEX_COMMAND = command;
       process.env.OPEN_MAINTAINER_GH_COMMAND = ghCommand;
       process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS = repoRoot;
+      process.env.OPEN_MAINTAINER_GIT_AUTHOR_NAME = "Dashboard Bot";
+      process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL = "dashboard@example.com";
 
       const repoResponse = await app.inject({
         method: "POST",
@@ -409,6 +419,14 @@ process.exit(2);
         { cwd: repoRoot },
       );
       expect(currentBranch.trim()).toBe("feature/context-base");
+      const { stdout: contextCommitAuthor } = await execFileAsync(
+        "git",
+        ["show", "-s", "--format=%an <%ae>", "open-maintainer/context-1"],
+        { cwd: repoRoot },
+      );
+      expect(contextCommitAuthor.trim()).toBe(
+        "Dashboard Bot <dashboard@example.com>",
+      );
     } finally {
       if (previousCodexCommand === undefined) {
         Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
@@ -427,6 +445,16 @@ process.exit(2);
         );
       } else {
         process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS = previousMountedRoots;
+      }
+      if (previousGitAuthorName === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_GIT_AUTHOR_NAME");
+      } else {
+        process.env.OPEN_MAINTAINER_GIT_AUTHOR_NAME = previousGitAuthorName;
+      }
+      if (previousGitAuthorEmail === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_GIT_AUTHOR_EMAIL");
+      } else {
+        process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL = previousGitAuthorEmail;
       }
       await rm(directory, { recursive: true, force: true });
     }

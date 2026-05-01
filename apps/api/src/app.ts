@@ -772,11 +772,11 @@ async function createLocalContextPrWithGh(input: {
     if (!hasStagedChanges) {
       throw new Error("generated context files did not change the worktree.");
     }
-    await runGit(input.worktreeRoot, [
-      "commit",
-      "-m",
-      "Update Open Maintainer context",
-    ]);
+    await runGit(
+      input.worktreeRoot,
+      ["commit", "-m", "Update Open Maintainer context"],
+      gitCommitIdentityEnv(),
+    );
     const commitSha = (
       await runGit(input.worktreeRoot, ["rev-parse", "HEAD"])
     ).trim();
@@ -868,11 +868,16 @@ async function gitHasStagedChanges(cwd: string): Promise<boolean> {
   }
 }
 
-async function runGit(cwd: string, args: string[]): Promise<string> {
+async function runGit(
+  cwd: string,
+  args: string[],
+  env?: Record<string, string>,
+): Promise<string> {
   return runCommand(
     process.env.OPEN_MAINTAINER_GIT_COMMAND ?? "git",
     args,
     cwd,
+    env,
   );
 }
 
@@ -884,10 +889,12 @@ async function runCommand(
   command: string,
   args: string[],
   cwd: string,
+  env?: Record<string, string>,
 ): Promise<string> {
   try {
     const { stdout } = await execFileAsync(command, args, {
       cwd,
+      ...(env ? { env: { ...process.env, ...env } } : {}),
       maxBuffer: 1024 * 1024,
       timeout: 120_000,
     });
@@ -902,6 +909,23 @@ async function runCommand(
     }
     throw error;
   }
+}
+
+function gitCommitIdentityEnv(): Record<string, string> {
+  const name =
+    process.env.OPEN_MAINTAINER_GIT_AUTHOR_NAME ??
+    process.env.GIT_AUTHOR_NAME ??
+    "Open Maintainer";
+  const email =
+    process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL ??
+    process.env.GIT_AUTHOR_EMAIL ??
+    "open-maintainer@users.noreply.github.com";
+  return {
+    GIT_AUTHOR_NAME: name,
+    GIT_AUTHOR_EMAIL: email,
+    GIT_COMMITTER_NAME: name,
+    GIT_COMMITTER_EMAIL: email,
+  };
 }
 
 function isExecError(
