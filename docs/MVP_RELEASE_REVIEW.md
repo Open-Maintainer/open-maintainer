@@ -30,6 +30,7 @@ Excluded:
 | --- | --- |
 | CLI demo works from a fresh checkout. | `bun run smoke:mvp`. |
 | `open-maintainer audit .` produces readiness score and report. | `bun run cli audit tests/fixtures/low-context-ts`. |
+| v0.2 readiness quality is covered across representative repositories. | `tests/v02-readiness.test.ts` covers high-readiness, low-readiness, drift, and missing-context fixtures. |
 | Full artifact generation works and preserves existing files by default. | `bun run cli generate <fixture> --model codex --context codex --skills codex --allow-write`, then `bun run cli doctor <fixture>`. Use `--context claude --skills claude` when Claude Code project skills are part of the review. |
 | GitHub Action audit mode works without default context mutation. | `action.yml`, `.github/workflows/open-maintainer-audit.yml`, and action metadata tests. |
 | GitHub Action warns on missing context, detects drift, and can comment on PRs when enabled. | `tests/action-mvp.test.ts` plus CLI audit and doctor fixture evidence. |
@@ -64,34 +65,38 @@ bun run smoke:compose
 ## Latest dry-run evidence
 
 Date: 2026-05-02
-Base commit: `9bb971f`
+Base commit: `a04cbc9`
 
-Result: passed after Docker Compose startup fix.
+Result: passed for v0.2 readiness-quality release validation.
 
 Commands run:
 
 - `bun lint`: passed.
 - `bun typecheck`: passed.
-- `bun test`: passed, 55 tests across 13 files.
+- `bun test`: passed, 64 tests across 16 files.
 - `bun run build`: passed, including the Next production build.
-- `bun run smoke:mvp`: passed, `MVP smoke passed: 53/100 -> 79/100`.
-- `docker compose down --volumes --remove-orphans`: completed cleanup before the
-  fresh compose run.
-- `docker compose up --build -d`: passed from empty compose volumes.
+- `bun run smoke:mvp`: passed, `MVP smoke passed: 66/100 -> 82/100`.
+- `bun run cli doctor .`: passed, `Agent Readiness: 100/100` and all required
+  artifacts present.
+- `docker compose up --build -d`: passed.
 - `bun run smoke:compose`: passed, `Docker Compose smoke passed.`
 - `docker compose down --volumes --remove-orphans`: completed cleanup.
 
-Observed caveat:
+Readiness quality evidence:
 
-- Docker Desktop was initially not running. After starting Docker Desktop, the
-  first compose start created the stack but the API container exited during
-  `bun install` with `Failed to install 1 package`, and `bun run smoke:compose`
-  failed because `http://localhost:4000/health` never became reachable.
-- A direct `docker compose run --rm api bun install --verbose` succeeded.
-- A second `docker compose up --build -d` followed by `bun run smoke:compose`
-  passed.
+- Profile output now includes first-class setup, architecture, testing, CI,
+  docs, risk-handling, generated-file-handling, and agent-instruction
+  categories.
+- Analyzer profile output now records ownership hints, environment files and
+  variables, generated-file paths, ignore files, and test files.
+- `tests/fixtures/high-readiness-ts` validates a 100/100 readiness repository.
+- `tests/fixtures/low-context-ts` validates low-readiness guidance.
+- `tests/fixtures/missing-context-ts` validates missing Open Maintainer context
+  guidance on an otherwise conventional repository.
+- Drift tests validate changed command, CI, docs, template, context artifact,
+  lock/config, package-boundary, and risk-path surfaces.
 
-Resolution:
+Compose resolution retained:
 
 - Docker Compose now uses a one-shot `deps` service to run
   `bun install --frozen-lockfile` once before API startup.

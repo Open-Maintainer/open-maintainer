@@ -1,10 +1,10 @@
 {
-  "id": "repo_profile_d856c0f9-7900-4e45-97f4-02d8d3b92d44",
-  "repoId": "local_local_open_maintainer",
+  "id": "repo_profile_5a5db02e-3448-4ff8-aa73-a213b0238737",
+  "repoId": "local",
   "version": 1,
-  "owner": "local",
+  "owner": "source",
   "name": "open-maintainer",
-  "defaultBranch": "open-maintainer/mvp-issues-11-23",
+  "defaultBranch": "main",
   "primaryLanguages": ["TypeScript"],
   "frameworks": [
     "next",
@@ -19,37 +19,37 @@
   "commands": [
     {
       "name": "dev",
-      "command": "bun run --cwd apps/api dev",
+      "command": "cd apps/api && bun --watch src/server.ts",
       "source": "apps/api/package.json"
     },
     {
       "name": "build",
-      "command": "bun run --cwd apps/api build",
+      "command": "cd apps/api && tsc -p tsconfig.json",
       "source": "apps/api/package.json"
     },
     {
       "name": "build",
-      "command": "bun run --cwd apps/cli build",
+      "command": "cd apps/cli && tsc -p tsconfig.json",
       "source": "apps/cli/package.json"
     },
     {
       "name": "dev",
-      "command": "bun run --cwd apps/web dev",
+      "command": "cd apps/web && next dev -H 0.0.0.0 -p ${WEB_PORT:-3000}",
       "source": "apps/web/package.json"
     },
     {
       "name": "build",
-      "command": "bun run --cwd apps/web build",
+      "command": "cd apps/web && next build",
       "source": "apps/web/package.json"
     },
     {
       "name": "dev",
-      "command": "bun run --cwd apps/worker dev",
+      "command": "cd apps/worker && bun --watch src/worker.ts",
       "source": "apps/worker/package.json"
     },
     {
       "name": "build",
-      "command": "bun run --cwd apps/worker build",
+      "command": "cd apps/worker && tsc -p tsconfig.json",
       "source": "apps/worker/package.json"
     },
     {
@@ -89,62 +89,92 @@
     },
     {
       "name": "build",
-      "command": "bun run --cwd packages/ai build",
+      "command": "cd packages/ai && tsc -p tsconfig.json",
       "source": "packages/ai/package.json"
     },
     {
       "name": "build",
-      "command": "bun run --cwd packages/analyzer build",
+      "command": "cd packages/analyzer && tsc -p tsconfig.json",
       "source": "packages/analyzer/package.json"
     },
     {
       "name": "build",
-      "command": "bun run --cwd packages/config build",
+      "command": "cd packages/config && tsc -p tsconfig.json",
       "source": "packages/config/package.json"
     },
     {
       "name": "build",
-      "command": "bun run --cwd packages/context build",
+      "command": "cd packages/context && tsc -p tsconfig.json",
       "source": "packages/context/package.json"
     },
     {
       "name": "build",
-      "command": "bun run --cwd packages/db build",
+      "command": "cd packages/db && tsc -p tsconfig.json",
       "source": "packages/db/package.json"
     },
     {
       "name": "build",
-      "command": "bun run --cwd packages/github build",
+      "command": "cd packages/github && tsc -p tsconfig.json",
       "source": "packages/github/package.json"
     },
     {
       "name": "build",
-      "command": "bun run --cwd packages/shared build",
+      "command": "cd packages/shared && tsc -p tsconfig.json",
       "source": "packages/shared/package.json"
     },
     {
+      "name": "test",
+      "command": "cd tests/fixtures/high-readiness-ts && vitest run",
+      "source": "tests/fixtures/high-readiness-ts/package.json"
+    },
+    {
+      "name": "lint",
+      "command": "cd tests/fixtures/high-readiness-ts && biome check .",
+      "source": "tests/fixtures/high-readiness-ts/package.json"
+    },
+    {
+      "name": "build",
+      "command": "cd tests/fixtures/high-readiness-ts && tsc -b",
+      "source": "tests/fixtures/high-readiness-ts/package.json"
+    },
+    {
       "name": "dev",
-      "command": "bun run --cwd tests/fixtures/low-context-ts dev",
+      "command": "cd tests/fixtures/low-context-ts && bun src/server.ts",
       "source": "tests/fixtures/low-context-ts/package.json"
     },
     {
       "name": "test",
-      "command": "bun run --cwd tests/fixtures/low-context-ts test",
+      "command": "cd tests/fixtures/low-context-ts && vitest run",
       "source": "tests/fixtures/low-context-ts/package.json"
     },
     {
       "name": "build",
-      "command": "bun run --cwd tests/fixtures/low-context-ts build",
+      "command": "cd tests/fixtures/low-context-ts && tsc -b",
       "source": "tests/fixtures/low-context-ts/package.json"
     },
     {
       "name": "lint",
-      "command": "bun run --cwd tests/fixtures/low-context-ts lint",
+      "command": "cd tests/fixtures/low-context-ts && biome check .",
       "source": "tests/fixtures/low-context-ts/package.json"
     },
     {
       "name": "test",
-      "command": "bun run --cwd tests/fixtures/with-context test",
+      "command": "cd tests/fixtures/missing-context-ts && vitest run",
+      "source": "tests/fixtures/missing-context-ts/package.json"
+    },
+    {
+      "name": "lint",
+      "command": "cd tests/fixtures/missing-context-ts && biome check .",
+      "source": "tests/fixtures/missing-context-ts/package.json"
+    },
+    {
+      "name": "build",
+      "command": "cd tests/fixtures/missing-context-ts && tsc -b",
+      "source": "tests/fixtures/missing-context-ts/package.json"
+    },
+    {
+      "name": "test",
+      "command": "cd tests/fixtures/with-context && vitest run",
       "source": "tests/fixtures/with-context/package.json"
     }
   ],
@@ -159,12 +189,14 @@
     "CONTRIBUTING.md",
     "docs/DEMO_RUNBOOK.md",
     "docs/MVP_RELEASE_REVIEW.md",
+    "docs/ROADMAP.md",
     "local-docs/MVP_IMPLEMENTATION_PLAN.md",
     "local-docs/PRODUCT_PRD.md",
     "local-docs/SKILLS_GENERATION.md",
     "local-docs/TECH_STACK.md",
     "README.md"
   ],
+  "repoTemplates": [],
   "architecturePathGroups": [
     "apps/api",
     "apps/cli",
@@ -189,29 +221,154 @@
     ".open-maintainer/report.md",
     ".open-maintainer.yml"
   ],
-  "existingContextFiles": [],
-  "detectedRiskAreas": ["No repo-local agent context files detected."],
+  "generatedFilePaths": [
+    ".agents/skills/open-maintainer-start-task/SKILL.md",
+    ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
+    "AGENTS.md",
+    "CONTRIBUTING.md",
+    "apps/web/next-env.d.ts",
+    "packages/analyzer/tests/analyzer.test.ts"
+  ],
+  "existingContextFiles": [
+    ".agents/skills/open-maintainer-pr-review/SKILL.md",
+    ".agents/skills/open-maintainer-start-task/SKILL.md",
+    ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
+    ".agents/skills/open-maintainer-update-cli-generation/SKILL.md",
+    ".agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md",
+    ".agents/skills/open-maintainer-update-github-action-audit/SKILL.md",
+    ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
+    ".agents/skills/open-maintainer-validation-testing/SKILL.md",
+    ".open-maintainer.yml",
+    ".open-maintainer/profile.json",
+    ".open-maintainer/report.md",
+    "AGENTS.md"
+  ],
+  "detectedRiskAreas": [],
+  "riskHintPaths": [],
+  "ownershipHints": [],
+  "environmentFiles": [
+    ".env.example",
+    "tests/fixtures/high-readiness-ts/.env.example"
+  ],
+  "environmentVariables": [
+    "API_BASE_URL",
+    "API_PORT",
+    "AUDIT_OUTPUT_PATH",
+    "BASE_READINESS_SCORE",
+    "DATABASE_URL",
+    "DOCTOR_OUTPUT_PATH",
+    "DRIFT_DETECTED",
+    "GH_TOKEN",
+    "GITHUB_APP_ID",
+    "GITHUB_PRIVATE_KEY_BASE64",
+    "GITHUB_TOKEN",
+    "GITHUB_WEBHOOK_SECRET",
+    "GIT_AUTHOR_EMAIL",
+    "GIT_AUTHOR_NAME",
+    "HOME",
+    "NEXT_PUBLIC_API_BASE_URL",
+    "OPEN_MAINTAINER_CLAUDE_COMMAND",
+    "OPEN_MAINTAINER_CLAUDE_MODEL",
+    "OPEN_MAINTAINER_CODEX_COMMAND",
+    "OPEN_MAINTAINER_CODEX_MODEL",
+    "OPEN_MAINTAINER_DASHBOARD_REPO_ROOT",
+    "OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS",
+    "OPEN_MAINTAINER_GH_COMMAND",
+    "OPEN_MAINTAINER_GIT_AUTHOR_EMAIL",
+    "OPEN_MAINTAINER_GIT_AUTHOR_NAME",
+    "OPEN_MAINTAINER_GIT_COMMAND",
+    "OPEN_MAINTAINER_LOCAL_REPO_CACHE",
+    "READINESS_SCORE",
+    "REDIS_URL",
+    "WEB_BASE_URL",
+    "WEB_PORT"
+  ],
+  "ignoreFiles": [
+    ".dockerignore",
+    ".gitignore",
+    "tests/fixtures/high-readiness-ts/.gitignore",
+    "tests/fixtures/missing-context-ts/.gitignore"
+  ],
+  "testFilePaths": [
+    "apps/api/tests/api.test.ts",
+    "packages/ai/tests/provider.test.ts",
+    "packages/analyzer/tests/analyzer.test.ts",
+    "packages/config/tests/config.test.ts",
+    "packages/context/tests/render.test.ts",
+    "packages/github/tests/webhook.test.ts",
+    "packages/shared/tests/schemas.test.ts",
+    "tests/action-mvp.test.ts",
+    "tests/cli-audit.test.ts",
+    "tests/cli-doctor.test.ts",
+    "tests/cli-help.test.ts",
+    "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
+    "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-start-task/SKILL.md",
+    "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-testing-workflow/SKILL.md",
+    "tests/fixtures/high-readiness-ts/.env.example",
+    "tests/fixtures/high-readiness-ts/.github/workflows/ci.yml",
+    "tests/fixtures/high-readiness-ts/.gitignore",
+    "tests/fixtures/high-readiness-ts/.open-maintainer.yml",
+    "tests/fixtures/high-readiness-ts/AGENTS.md",
+    "tests/fixtures/high-readiness-ts/CONTRIBUTING.md",
+    "tests/fixtures/high-readiness-ts/README.md",
+    "tests/fixtures/high-readiness-ts/bun.lock",
+    "tests/fixtures/high-readiness-ts/docs/ARCHITECTURE.md",
+    "tests/fixtures/high-readiness-ts/package.json",
+    "tests/fixtures/high-readiness-ts/src/index.ts",
+    "tests/fixtures/high-readiness-ts/tests/index.test.ts",
+    "tests/fixtures/high-readiness-ts/tsconfig.json",
+    "tests/fixtures/low-context-ts/README.md",
+    "tests/fixtures/low-context-ts/bun.lock",
+    "tests/fixtures/low-context-ts/package.json",
+    "tests/fixtures/low-context-ts/src/server.ts",
+    "tests/fixtures/low-context-ts/tests/server.test.ts",
+    "tests/fixtures/low-context-ts/tsconfig.json",
+    "tests/fixtures/missing-context-ts/.github/workflows/ci.yml",
+    "tests/fixtures/missing-context-ts/.gitignore",
+    "tests/fixtures/missing-context-ts/CONTRIBUTING.md",
+    "tests/fixtures/missing-context-ts/README.md",
+    "tests/fixtures/missing-context-ts/bun.lock",
+    "tests/fixtures/missing-context-ts/docs/ARCHITECTURE.md",
+    "tests/fixtures/missing-context-ts/package.json",
+    "tests/fixtures/missing-context-ts/src/index.ts",
+    "tests/fixtures/missing-context-ts/tests/index.test.ts",
+    "tests/fixtures/missing-context-ts/tsconfig.json",
+    "tests/fixtures/with-context/AGENTS.md",
+    "tests/fixtures/with-context/README.md",
+    "tests/fixtures/with-context/package.json",
+    "tests/mvp-golden.test.ts",
+    "tests/smoke/compose-smoke.ts",
+    "tests/smoke/local-health.ts",
+    "tests/smoke/mvp-demo.ts",
+    "tests/v02-readiness.test.ts"
+  ],
   "reviewRuleCandidates": [
     "Use bun for dependency and script commands.",
-    "Run `bun run --cwd apps/api build` before finishing changes that affect build.",
-    "Run `bun run --cwd apps/cli build` before finishing changes that affect build.",
-    "Run `bun run --cwd apps/web build` before finishing changes that affect build.",
-    "Run `bun run --cwd apps/worker build` before finishing changes that affect build.",
+    "Run `cd apps/api && tsc -p tsconfig.json` before finishing changes that affect build.",
+    "Run `cd apps/cli && tsc -p tsconfig.json` before finishing changes that affect build.",
+    "Run `cd apps/web && next build` before finishing changes that affect build.",
+    "Run `cd apps/worker && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `biome check .` before finishing changes that affect lint.",
     "Run `tsc -b` before finishing changes that affect typecheck.",
     "Run `vitest run` before finishing changes that affect test.",
     "Run `bun run --cwd packages/shared build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/ai build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build` before finishing changes that affect build.",
-    "Run `bun run --cwd packages/ai build` before finishing changes that affect build.",
-    "Run `bun run --cwd packages/analyzer build` before finishing changes that affect build.",
-    "Run `bun run --cwd packages/config build` before finishing changes that affect build.",
-    "Run `bun run --cwd packages/context build` before finishing changes that affect build.",
-    "Run `bun run --cwd packages/db build` before finishing changes that affect build.",
-    "Run `bun run --cwd packages/github build` before finishing changes that affect build.",
-    "Run `bun run --cwd packages/shared build` before finishing changes that affect build.",
-    "Run `bun run --cwd tests/fixtures/low-context-ts test` before finishing changes that affect test.",
-    "Run `bun run --cwd tests/fixtures/low-context-ts build` before finishing changes that affect build.",
-    "Run `bun run --cwd tests/fixtures/low-context-ts lint` before finishing changes that affect lint.",
-    "Run `bun run --cwd tests/fixtures/with-context test` before finishing changes that affect test."
+    "Run `cd packages/ai && tsc -p tsconfig.json` before finishing changes that affect build.",
+    "Run `cd packages/analyzer && tsc -p tsconfig.json` before finishing changes that affect build.",
+    "Run `cd packages/config && tsc -p tsconfig.json` before finishing changes that affect build.",
+    "Run `cd packages/context && tsc -p tsconfig.json` before finishing changes that affect build.",
+    "Run `cd packages/db && tsc -p tsconfig.json` before finishing changes that affect build.",
+    "Run `cd packages/github && tsc -p tsconfig.json` before finishing changes that affect build.",
+    "Run `cd packages/shared && tsc -p tsconfig.json` before finishing changes that affect build.",
+    "Run `cd tests/fixtures/high-readiness-ts && vitest run` before finishing changes that affect test.",
+    "Run `cd tests/fixtures/high-readiness-ts && biome check .` before finishing changes that affect lint.",
+    "Run `cd tests/fixtures/high-readiness-ts && tsc -b` before finishing changes that affect build.",
+    "Run `cd tests/fixtures/low-context-ts && vitest run` before finishing changes that affect test.",
+    "Run `cd tests/fixtures/low-context-ts && tsc -b` before finishing changes that affect build.",
+    "Run `cd tests/fixtures/low-context-ts && biome check .` before finishing changes that affect lint.",
+    "Run `cd tests/fixtures/missing-context-ts && vitest run` before finishing changes that affect test.",
+    "Run `cd tests/fixtures/missing-context-ts && biome check .` before finishing changes that affect lint.",
+    "Run `cd tests/fixtures/missing-context-ts && tsc -b` before finishing changes that affect build.",
+    "Run `cd tests/fixtures/with-context && vitest run` before finishing changes that affect test."
   ],
   "evidence": [
     {
@@ -263,7 +420,15 @@
       "reason": "package manifest"
     },
     {
+      "path": "tests/fixtures/high-readiness-ts/package.json",
+      "reason": "package manifest"
+    },
+    {
       "path": "tests/fixtures/low-context-ts/package.json",
+      "reason": "package manifest"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/package.json",
       "reason": "package manifest"
     },
     {
@@ -275,7 +440,15 @@
       "reason": "detected repository context"
     },
     {
+      "path": "tests/fixtures/high-readiness-ts/bun.lock",
+      "reason": "detected repository context"
+    },
+    {
       "path": "tests/fixtures/low-context-ts/bun.lock",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/bun.lock",
       "reason": "detected repository context"
     },
     {
@@ -311,6 +484,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "docs/ROADMAP.md",
+      "reason": "detected repository context"
+    },
+    {
       "path": "local-docs/MVP_IMPLEMENTATION_PLAN.md",
       "reason": "detected repository context"
     },
@@ -328,6 +505,54 @@
     },
     {
       "path": "README.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-update-cli-generation/SKILL.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-update-github-action-audit/SKILL.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".open-maintainer.yml",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".open-maintainer/profile.json",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".open-maintainer/report.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "AGENTS.md",
       "reason": "detected repository context"
     },
     {
@@ -383,7 +608,15 @@
       "reason": "detected repository context"
     },
     {
+      "path": "tests/fixtures/high-readiness-ts/tsconfig.json",
+      "reason": "detected repository context"
+    },
+    {
       "path": "tests/fixtures/low-context-ts/tsconfig.json",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/tsconfig.json",
       "reason": "detected repository context"
     },
     {
@@ -393,10 +626,211 @@
     {
       "path": "tsconfig.json",
       "reason": "detected repository context"
+    },
+    {
+      "path": ".env.example",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.env.example",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "apps/web/next-env.d.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "packages/analyzer/tests/analyzer.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".dockerignore",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".gitignore",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.gitignore",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/.gitignore",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "apps/api/tests/api.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "packages/ai/tests/provider.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "packages/config/tests/config.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "packages/context/tests/render.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "packages/github/tests/webhook.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "packages/shared/tests/schemas.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/action-mvp.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/cli-audit.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/cli-doctor.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/cli-help.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-start-task/SKILL.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-testing-workflow/SKILL.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.github/workflows/ci.yml",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.open-maintainer.yml",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/AGENTS.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/CONTRIBUTING.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/README.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/docs/ARCHITECTURE.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/package.json",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/src/index.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/tests/index.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/low-context-ts/README.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/low-context-ts/package.json",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/low-context-ts/src/server.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/low-context-ts/tests/server.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/.github/workflows/ci.yml",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/CONTRIBUTING.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/README.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/docs/ARCHITECTURE.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/package.json",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/src/index.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/tests/index.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/with-context/AGENTS.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/with-context/README.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/fixtures/with-context/package.json",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/mvp-golden.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/smoke/compose-smoke.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/smoke/local-health.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/smoke/mvp-demo.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/v02-readiness.test.ts",
+      "reason": "detected repository context"
     }
   ],
   "workspaceManifests": ["package.json"],
-  "lockfiles": ["bun.lock", "tests/fixtures/low-context-ts/bun.lock"],
+  "lockfiles": [
+    "bun.lock",
+    "tests/fixtures/high-readiness-ts/bun.lock",
+    "tests/fixtures/low-context-ts/bun.lock",
+    "tests/fixtures/missing-context-ts/bun.lock"
+  ],
   "configFiles": [
     "apps/api/tsconfig.json",
     "apps/cli/tsconfig.json",
@@ -411,18 +845,459 @@
     "packages/db/tsconfig.json",
     "packages/github/tsconfig.json",
     "packages/shared/tsconfig.json",
+    "tests/fixtures/high-readiness-ts/tsconfig.json",
     "tests/fixtures/low-context-ts/tsconfig.json",
+    "tests/fixtures/missing-context-ts/tsconfig.json",
     "tsconfig.base.json",
     "tsconfig.json"
   ],
-  "createdAt": "2026-05-01T08:07:07.988Z",
+  "trackedFileHashes": [
+    {
+      "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
+      "hash": "d8adcbdb3ea66bc5"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
+      "hash": "3290b898f1db3b14"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
+      "hash": "3edbcc475149b325"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-update-cli-generation/SKILL.md",
+      "hash": "87860c1603685851"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md",
+      "hash": "d3e84870804d724a"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-update-github-action-audit/SKILL.md",
+      "hash": "8bf24156093b1b90"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
+      "hash": "62aaf2f914efec48"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
+      "hash": "9bb07aca53cf035c"
+    },
+    {
+      "path": ".dockerignore",
+      "hash": "43da3799fc597066"
+    },
+    {
+      "path": ".env.example",
+      "hash": "5f7ec9dd3fff65a0"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "hash": "9ab61d9b9528e3c4"
+    },
+    {
+      "path": ".github/workflows/codeql.yml",
+      "hash": "b7abe9573c7e879a"
+    },
+    {
+      "path": ".github/workflows/compose-smoke.yml",
+      "hash": "81e53cf3c3147dc1"
+    },
+    {
+      "path": ".github/workflows/dependency-review.yml",
+      "hash": "4a102d9aaed12635"
+    },
+    {
+      "path": ".github/workflows/open-maintainer-audit.yml",
+      "hash": "9d5dc76eeb744508"
+    },
+    {
+      "path": ".gitignore",
+      "hash": "35bdfa519b014ee5"
+    },
+    {
+      "path": ".open-maintainer.yml",
+      "hash": "a2c89879339271e5"
+    },
+    {
+      "path": ".open-maintainer/profile.json",
+      "hash": "fba21892be978d91"
+    },
+    {
+      "path": ".open-maintainer/report.md",
+      "hash": "b912e8c62e133b3a"
+    },
+    {
+      "path": "AGENTS.md",
+      "hash": "576aee6a521065da"
+    },
+    {
+      "path": "apps/api/package.json",
+      "hash": "69051fdfe2678677"
+    },
+    {
+      "path": "apps/api/tests/api.test.ts",
+      "hash": "f7f360d11c6ed05d"
+    },
+    {
+      "path": "apps/api/tsconfig.json",
+      "hash": "496ca1dd1394f926"
+    },
+    {
+      "path": "apps/cli/package.json",
+      "hash": "86b6589f3a574a9a"
+    },
+    {
+      "path": "apps/cli/tsconfig.json",
+      "hash": "633e6c835c05107b"
+    },
+    {
+      "path": "apps/web/next-env.d.ts",
+      "hash": "85ae5aee75f01196"
+    },
+    {
+      "path": "apps/web/package.json",
+      "hash": "7137565889b8f8ba"
+    },
+    {
+      "path": "apps/web/tsconfig.json",
+      "hash": "2c9a203016a0a318"
+    },
+    {
+      "path": "apps/worker/package.json",
+      "hash": "dded6ead405d0d37"
+    },
+    {
+      "path": "apps/worker/tsconfig.json",
+      "hash": "7a491b0e22b402c7"
+    },
+    {
+      "path": "biome.json",
+      "hash": "3151caab6676ee21"
+    },
+    {
+      "path": "bun.lock",
+      "hash": "f424388b68e5708e"
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "hash": "14bc416c5489626f"
+    },
+    {
+      "path": "docker-compose.yml",
+      "hash": "5bf9553af5b56282"
+    },
+    {
+      "path": "docs/DEMO_RUNBOOK.md",
+      "hash": "884f408e9e23ba81"
+    },
+    {
+      "path": "docs/MVP_RELEASE_REVIEW.md",
+      "hash": "01c1cbe4d0e913f7"
+    },
+    {
+      "path": "docs/ROADMAP.md",
+      "hash": "77e46e631e3a8249"
+    },
+    {
+      "path": "local-docs/MVP_IMPLEMENTATION_PLAN.md",
+      "hash": "2ab231e96be8a654"
+    },
+    {
+      "path": "local-docs/PRODUCT_PRD.md",
+      "hash": "b38f862120962fee"
+    },
+    {
+      "path": "local-docs/SKILLS_GENERATION.md",
+      "hash": "7abcabaa74d17234"
+    },
+    {
+      "path": "local-docs/TECH_STACK.md",
+      "hash": "d3ddebaf24050fa2"
+    },
+    {
+      "path": "package.json",
+      "hash": "7c35f68aec866a2e"
+    },
+    {
+      "path": "packages/ai/package.json",
+      "hash": "4b1a80049133dc40"
+    },
+    {
+      "path": "packages/ai/tests/provider.test.ts",
+      "hash": "1675a652ced734a6"
+    },
+    {
+      "path": "packages/ai/tsconfig.json",
+      "hash": "c7b76c9a19c1c830"
+    },
+    {
+      "path": "packages/analyzer/package.json",
+      "hash": "a82ee99b60be167c"
+    },
+    {
+      "path": "packages/analyzer/tests/analyzer.test.ts",
+      "hash": "928bb523f6406e3f"
+    },
+    {
+      "path": "packages/analyzer/tsconfig.json",
+      "hash": "c7b76c9a19c1c830"
+    },
+    {
+      "path": "packages/config/package.json",
+      "hash": "576ee911823f6080"
+    },
+    {
+      "path": "packages/config/tests/config.test.ts",
+      "hash": "8cf62e295ab9fced"
+    },
+    {
+      "path": "packages/config/tsconfig.json",
+      "hash": "7a491b0e22b402c7"
+    },
+    {
+      "path": "packages/context/package.json",
+      "hash": "7d79754b468acd96"
+    },
+    {
+      "path": "packages/context/tests/render.test.ts",
+      "hash": "015a8aaf9df6f490"
+    },
+    {
+      "path": "packages/context/tsconfig.json",
+      "hash": "4a462400a391c7bb"
+    },
+    {
+      "path": "packages/db/package.json",
+      "hash": "c39e8c2ae5f4a10a"
+    },
+    {
+      "path": "packages/db/tsconfig.json",
+      "hash": "c7b76c9a19c1c830"
+    },
+    {
+      "path": "packages/github/package.json",
+      "hash": "9d0df47d69186d91"
+    },
+    {
+      "path": "packages/github/tests/webhook.test.ts",
+      "hash": "8c0d5227162a9c81"
+    },
+    {
+      "path": "packages/github/tsconfig.json",
+      "hash": "c7b76c9a19c1c830"
+    },
+    {
+      "path": "packages/shared/package.json",
+      "hash": "76311579f7619c94"
+    },
+    {
+      "path": "packages/shared/tests/schemas.test.ts",
+      "hash": "82cfbf8a5ba55e75"
+    },
+    {
+      "path": "packages/shared/tsconfig.json",
+      "hash": "7a491b0e22b402c7"
+    },
+    {
+      "path": "README.md",
+      "hash": "299a0e73e8cb071c"
+    },
+    {
+      "path": "tests/action-mvp.test.ts",
+      "hash": "c02189f784cdb7e0"
+    },
+    {
+      "path": "tests/cli-audit.test.ts",
+      "hash": "ee6e3f871b70aadb"
+    },
+    {
+      "path": "tests/cli-doctor.test.ts",
+      "hash": "5e4a021501da28ca"
+    },
+    {
+      "path": "tests/cli-help.test.ts",
+      "hash": "7416d80284a29338"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
+      "hash": "2dea451de88a582d"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-start-task/SKILL.md",
+      "hash": "f7518f49cc7ae7c7"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-testing-workflow/SKILL.md",
+      "hash": "35dc0a961aedb76b"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.env.example",
+      "hash": "a7207b8637c37870"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.github/workflows/ci.yml",
+      "hash": "164fe26678f5ac60"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.gitignore",
+      "hash": "92f3048f68dfc05f"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/.open-maintainer.yml",
+      "hash": "0e744334761d1e20"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/AGENTS.md",
+      "hash": "2c020f6fa07de5f4"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/bun.lock",
+      "hash": "01ba4719c80b6fe9"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/CONTRIBUTING.md",
+      "hash": "0eca7f62946027b2"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/docs/ARCHITECTURE.md",
+      "hash": "1954801583222ec5"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/package.json",
+      "hash": "b3a11c803749c126"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/README.md",
+      "hash": "1b3ae1e99ce4e762"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/src/index.ts",
+      "hash": "1e2a69b28a1542f4"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/tests/index.test.ts",
+      "hash": "ee18b35d2d379706"
+    },
+    {
+      "path": "tests/fixtures/high-readiness-ts/tsconfig.json",
+      "hash": "e22e6436525747d8"
+    },
+    {
+      "path": "tests/fixtures/low-context-ts/bun.lock",
+      "hash": "01ba4719c80b6fe9"
+    },
+    {
+      "path": "tests/fixtures/low-context-ts/package.json",
+      "hash": "711de4049f4982af"
+    },
+    {
+      "path": "tests/fixtures/low-context-ts/README.md",
+      "hash": "6c317ded4b2c3e5a"
+    },
+    {
+      "path": "tests/fixtures/low-context-ts/src/server.ts",
+      "hash": "df8e992daad54430"
+    },
+    {
+      "path": "tests/fixtures/low-context-ts/tests/server.test.ts",
+      "hash": "6b23262c88d31615"
+    },
+    {
+      "path": "tests/fixtures/low-context-ts/tsconfig.json",
+      "hash": "e22e6436525747d8"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/.github/workflows/ci.yml",
+      "hash": "27b3b824f60b7d22"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/.gitignore",
+      "hash": "92f3048f68dfc05f"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/bun.lock",
+      "hash": "01ba4719c80b6fe9"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/CONTRIBUTING.md",
+      "hash": "b3fe7b99db20f9ec"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/docs/ARCHITECTURE.md",
+      "hash": "4741a56ac77e064f"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/package.json",
+      "hash": "ce73eae4a6f5688a"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/README.md",
+      "hash": "e9947236141a1fa0"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/src/index.ts",
+      "hash": "380434daa3185ecc"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/tests/index.test.ts",
+      "hash": "e0b9966941307da3"
+    },
+    {
+      "path": "tests/fixtures/missing-context-ts/tsconfig.json",
+      "hash": "e22e6436525747d8"
+    },
+    {
+      "path": "tests/fixtures/with-context/AGENTS.md",
+      "hash": "0b2bc740a619b9e9"
+    },
+    {
+      "path": "tests/fixtures/with-context/package.json",
+      "hash": "8f45bc725056bee3"
+    },
+    {
+      "path": "tests/fixtures/with-context/README.md",
+      "hash": "f2118cdfc17ea6b1"
+    },
+    {
+      "path": "tests/mvp-golden.test.ts",
+      "hash": "6b36d28467e4fd6f"
+    },
+    {
+      "path": "tests/smoke/compose-smoke.ts",
+      "hash": "bc4e3d9622d61107"
+    },
+    {
+      "path": "tests/smoke/local-health.ts",
+      "hash": "3f677a0334030daf"
+    },
+    {
+      "path": "tests/smoke/mvp-demo.ts",
+      "hash": "c7bc8d803f9ecad5"
+    },
+    {
+      "path": "tests/v02-readiness.test.ts",
+      "hash": "88f7f36a542bd6bf"
+    },
+    {
+      "path": "tsconfig.base.json",
+      "hash": "f66eed3af4423122"
+    },
+    {
+      "path": "tsconfig.json",
+      "hash": "c58604b8106529e0"
+    }
+  ],
+  "contextArtifactHashes": [],
+  "createdAt": "2026-05-01T23:34:13.258Z",
   "agentReadiness": {
-    "score": 73,
+    "score": 100,
     "categories": [
       {
         "name": "setup clarity",
-        "score": 20,
-        "maxScore": 20,
+        "score": 13,
+        "maxScore": 13,
         "missing": [],
         "evidence": [
           {
@@ -474,7 +1349,15 @@
             "reason": "package manifest"
           },
           {
+            "path": "tests/fixtures/high-readiness-ts/package.json",
+            "reason": "package manifest"
+          },
+          {
             "path": "tests/fixtures/low-context-ts/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/package.json",
             "reason": "package manifest"
           },
           {
@@ -486,7 +1369,15 @@
             "reason": "detected repository context"
           },
           {
+            "path": "tests/fixtures/high-readiness-ts/bun.lock",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/fixtures/low-context-ts/bun.lock",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/bun.lock",
             "reason": "detected repository context"
           },
           {
@@ -499,6 +1390,10 @@
           },
           {
             "path": "docs/MVP_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/ROADMAP.md",
             "reason": "detected repository context"
           },
           {
@@ -520,13 +1415,37 @@
           {
             "path": "README.md",
             "reason": "detected repository context"
+          },
+          {
+            "path": ".env.example",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.env.example",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/with-context/package.json",
+            "reason": "detected repository context"
           }
         ]
       },
       {
         "name": "architecture clarity",
-        "score": 20,
-        "maxScore": 20,
+        "score": 13,
+        "maxScore": 13,
         "missing": [],
         "evidence": [
           {
@@ -543,6 +1462,10 @@
           },
           {
             "path": "apps/worker/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "package.json",
             "reason": "package manifest"
           },
           {
@@ -574,7 +1497,15 @@
             "reason": "package manifest"
           },
           {
+            "path": "tests/fixtures/high-readiness-ts/package.json",
+            "reason": "package manifest"
+          },
+          {
             "path": "tests/fixtures/low-context-ts/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/package.json",
             "reason": "package manifest"
           },
           {
@@ -582,11 +1513,15 @@
             "reason": "package manifest"
           },
           {
+            "path": "tests/fixtures/high-readiness-ts/bun.lock",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/fixtures/low-context-ts/bun.lock",
             "reason": "detected repository context"
           },
           {
-            "path": "CONTRIBUTING.md",
+            "path": "tests/fixtures/missing-context-ts/bun.lock",
             "reason": "detected repository context"
           },
           {
@@ -598,23 +1533,7 @@
             "reason": "detected repository context"
           },
           {
-            "path": "local-docs/MVP_IMPLEMENTATION_PLAN.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "local-docs/PRODUCT_PRD.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "local-docs/SKILLS_GENERATION.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "local-docs/TECH_STACK.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "README.md",
+            "path": "docs/ROADMAP.md",
             "reason": "detected repository context"
           },
           {
@@ -670,7 +1589,15 @@
             "reason": "detected repository context"
           },
           {
+            "path": "tests/fixtures/high-readiness-ts/tsconfig.json",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/fixtures/low-context-ts/tsconfig.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/tsconfig.json",
             "reason": "detected repository context"
           },
           {
@@ -680,13 +1607,197 @@
           {
             "path": "tsconfig.json",
             "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.env.example",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "apps/web/next-env.d.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/analyzer/tests/analyzer.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.gitignore",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/.gitignore",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "apps/api/tests/api.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/ai/tests/provider.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/config/tests/config.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/context/tests/render.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/github/tests/webhook.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/shared/tests/schemas.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/action-mvp.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/cli-audit.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/cli-doctor.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/cli-help.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-start-task/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-testing-workflow/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.github/workflows/ci.yml",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.open-maintainer.yml",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/AGENTS.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/CONTRIBUTING.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/README.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/docs/ARCHITECTURE.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/src/index.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/tests/index.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/README.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/src/server.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/tests/server.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/.github/workflows/ci.yml",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/CONTRIBUTING.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/README.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/docs/ARCHITECTURE.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/src/index.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/tests/index.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/with-context/AGENTS.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/with-context/README.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/with-context/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/mvp-golden.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/smoke/compose-smoke.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/smoke/local-health.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/smoke/mvp-demo.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/v02-readiness.test.ts",
+            "reason": "detected repository context"
           }
         ]
       },
       {
-        "name": "testing and CI",
-        "score": 20,
-        "maxScore": 20,
+        "name": "testing",
+        "score": 13,
+        "maxScore": 13,
         "missing": [],
         "evidence": [
           {
@@ -738,7 +1849,291 @@
             "reason": "package manifest"
           },
           {
+            "path": "tests/fixtures/high-readiness-ts/package.json",
+            "reason": "package manifest"
+          },
+          {
             "path": "tests/fixtures/low-context-ts/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "tests/fixtures/with-context/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/bun.lock",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/bun.lock",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/bun.lock",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/tsconfig.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/tsconfig.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/tsconfig.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.env.example",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/analyzer/tests/analyzer.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.gitignore",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/.gitignore",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "apps/api/tests/api.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/ai/tests/provider.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/config/tests/config.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/context/tests/render.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/github/tests/webhook.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/shared/tests/schemas.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/action-mvp.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/cli-audit.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/cli-doctor.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/cli-help.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-start-task/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-testing-workflow/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.github/workflows/ci.yml",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.open-maintainer.yml",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/AGENTS.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/CONTRIBUTING.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/README.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/docs/ARCHITECTURE.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/src/index.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/tests/index.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/README.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/src/server.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/tests/server.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/.github/workflows/ci.yml",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/CONTRIBUTING.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/README.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/docs/ARCHITECTURE.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/src/index.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/tests/index.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/with-context/AGENTS.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/with-context/README.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/with-context/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/mvp-golden.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/smoke/compose-smoke.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/smoke/local-health.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/smoke/mvp-demo.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/v02-readiness.test.ts",
+            "reason": "detected repository context"
+          }
+        ]
+      },
+      {
+        "name": "CI",
+        "score": 13,
+        "maxScore": 13,
+        "missing": [],
+        "evidence": [
+          {
+            "path": "apps/api/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "apps/cli/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "apps/web/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "apps/worker/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "packages/ai/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "packages/analyzer/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "packages/config/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "packages/context/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "packages/db/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "packages/github/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "packages/shared/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/package.json",
             "reason": "package manifest"
           },
           {
@@ -764,24 +2159,30 @@
           {
             "path": ".github/workflows/open-maintainer-audit.yml",
             "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/low-context-ts/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/with-context/package.json",
+            "reason": "detected repository context"
           }
         ]
       },
       {
-        "name": "agent instructions",
-        "score": 0,
-        "maxScore": 20,
-        "missing": [
-          "AGENTS.md or CLAUDE.md is missing.",
-          "Repo-local skills are missing."
-        ],
-        "evidence": []
-      },
-      {
-        "name": "safety and review rules",
-        "score": 13,
-        "maxScore": 20,
-        "missing": [".open-maintainer.yml policy file is missing."],
+        "name": "docs",
+        "score": 12,
+        "maxScore": 12,
+        "missing": [],
         "evidence": [
           {
             "path": "CONTRIBUTING.md",
@@ -793,6 +2194,10 @@
           },
           {
             "path": "docs/MVP_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/ROADMAP.md",
             "reason": "detected repository context"
           },
           {
@@ -816,14 +2221,194 @@
             "reason": "detected repository context"
           }
         ]
+      },
+      {
+        "name": "risk handling",
+        "score": 12,
+        "maxScore": 12,
+        "missing": [],
+        "evidence": [
+          {
+            "path": "CONTRIBUTING.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/DEMO_RUNBOOK.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/MVP_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/ROADMAP.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "local-docs/MVP_IMPLEMENTATION_PLAN.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "local-docs/PRODUCT_PRD.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "local-docs/SKILLS_GENERATION.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "local-docs/TECH_STACK.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "README.md",
+            "reason": "detected repository context"
+          }
+        ]
+      },
+      {
+        "name": "generated-file handling",
+        "score": 12,
+        "maxScore": 12,
+        "missing": [],
+        "evidence": [
+          {
+            "path": "CONTRIBUTING.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-update-cli-generation/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-update-github-action-audit/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".open-maintainer.yml",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".open-maintainer/profile.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".open-maintainer/report.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "AGENTS.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "apps/web/next-env.d.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/analyzer/tests/analyzer.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".dockerignore",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".gitignore",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/high-readiness-ts/.gitignore",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/fixtures/missing-context-ts/.gitignore",
+            "reason": "detected repository context"
+          }
+        ]
+      },
+      {
+        "name": "agent instructions",
+        "score": 12,
+        "maxScore": 12,
+        "missing": [],
+        "evidence": [
+          {
+            "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-update-cli-generation/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-update-github-action-audit/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".open-maintainer.yml",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".open-maintainer/profile.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": ".open-maintainer/report.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "AGENTS.md",
+            "reason": "detected repository context"
+          }
+        ]
       }
     ],
-    "missingItems": [
-      "agent instructions: AGENTS.md or CLAUDE.md is missing.",
-      "agent instructions: Repo-local skills are missing.",
-      "safety and review rules: .open-maintainer.yml policy file is missing."
-    ],
-    "generatedAt": "2026-05-01T08:07:07.989Z"
+    "missingItems": [],
+    "generatedAt": "2026-05-01T23:34:13.258Z"
   },
-  "openMaintainerProfileHash": "0e224243203baffc"
+  "openMaintainerProfileHash": "1b350b7b2924a1fb"
 }
