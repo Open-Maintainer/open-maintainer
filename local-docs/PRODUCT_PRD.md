@@ -441,12 +441,13 @@ Severity levels:
 
 ### 11.4 Complete When
 
-- Maintainers can review PR output before posting to GitHub.
+- Maintainers can run local CLI PR review with `gh` and post marked summary
+  plus capped inline findings to GitHub.
 - Findings cite repo evidence.
 - Review avoids generic critique.
 - Duplicate comments are avoided.
 - False-positive feedback can be captured.
-- Tests cover changed-surface detection, validation inference, docs alignment, severity, duplicate avoidance, Action summary and inline posting, dashboard preview, and feedback capture.
+- Tests cover changed-surface detection, validation inference, docs alignment, severity, duplicate avoidance, CLI PR fetching/posting, dashboard preview, and feedback capture.
 
 ## 12. v0.5 Issue Triage and Agent-Safe Backlog Requirements
 

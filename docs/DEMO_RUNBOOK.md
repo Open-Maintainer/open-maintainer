@@ -32,8 +32,9 @@ Implemented and testable:
 - Rule-grounded PR review beta for local Git refs, including summaries,
   walkthroughs, changed-surface analysis, expected validation, docs impact,
   cited findings, merge readiness, residual risk, and JSON output.
-- GitHub Action `mode: review`, with Step Summary output by default,
-  opt-in marked summary comments, and opt-in capped inline comments.
+- CLI PR review posting through `gh`, with marked summary comments and capped
+  duplicate-aware inline comments from a locally authenticated maintainer
+  machine.
 - Dashboard PR review previews, review run history, guarded posting controls,
   and false-positive feedback capture.
 - Self-hosted dashboard foundation with API, worker, web, Postgres, Redis,
@@ -429,12 +430,6 @@ The action supports:
 - `generation-provider`
 - `generation-model`
 - `allow-model-content-transfer`
-- `review-provider`
-- `review-model`
-- `allow-review-content-transfer`
-- `review-comment-on-pr`
-- `review-inline-comments`
-- `review-inline-cap`
 - `context-target`
 - `skills-target`
 - `refresh-branch`
@@ -605,25 +600,35 @@ bun run cli review "$REVIEW_REPO" \
   --output-path .open-maintainer/review.md
 ```
 
-Manual summary posting is a maintainer action in v0.4. Inspect the generated
-markdown first, then post with a GitHub command you control:
+Review a real GitHub PR from the local checkout with locally authenticated
+`gh` and model CLI credentials. This fetches PR metadata and refs, generates a
+model-backed review, updates one marked summary comment, and opens a capped
+inline review with finding recommendations. Normal PR posting output stays
+concise and reports whether comments were posted; add `--output-path` or
+`--json` when you need the full generated review:
 
 ```sh
-gh pr comment 123 --body-file "$REVIEW_REPO/.open-maintainer/review.md"
+bun run cli review . \
+  --pr 123 \
+  --review-provider codex \
+  --review-model gpt-5.5 \
+  --allow-model-content-transfer
 ```
 
-The CLI posting flags are intentionally guarded in v0.4 and fail without
-writing:
+Preview the same PR review without GitHub writes:
 
 ```sh
-bun run cli review "$REVIEW_REPO" \
-  --base-ref HEAD~1 \
-  --head-ref HEAD \
-  --review-post-summary
+bun run cli review . \
+  --pr 123 \
+  --review-provider claude \
+  --allow-model-content-transfer \
+  --dry-run
 ```
 
-Expected result: non-zero exit with a message that review posting is not
-implemented by the CLI.
+`--review-post-summary`, `--review-inline-comments`, and
+`--review-inline-cap` can narrow posting behavior when `--pr` is used.
+Posting flags without `--pr` fail before any GitHub write because there is no
+target pull request.
 
 Run focused review tests:
 
@@ -632,81 +637,7 @@ bun test packages/review
 bun test tests/cli-review.test.ts
 ```
 
-## v0.4 GitHub Action Review Mode
-
-Check-output-only review mode writes to the Step Summary and does not comment:
-
-```yaml
-permissions:
-  contents: read
-
-steps:
-  - uses: actions/checkout@v6
-    with:
-      fetch-depth: 0
-  - uses: open-maintainer/action@v1
-    with:
-      mode: review
-      review-provider: codex
-      allow-review-content-transfer: "true"
-```
-
-Opt-in automatic summary comments update one marked PR comment:
-
-```yaml
-permissions:
-  contents: read
-  issues: write
-  pull-requests: read
-
-steps:
-  - uses: actions/checkout@v6
-    with:
-      fetch-depth: 0
-  - uses: open-maintainer/action@v1
-    with:
-      mode: review
-      review-provider: codex
-      allow-review-content-transfer: "true"
-      review-comment-on-pr: "true"
-```
-
-Opt-in capped inline comments require pull request write permission:
-
-```yaml
-permissions:
-  contents: read
-  pull-requests: write
-
-steps:
-  - uses: actions/checkout@v6
-    with:
-      fetch-depth: 0
-  - uses: open-maintainer/action@v1
-    with:
-      mode: review
-      review-provider: codex
-      allow-review-content-transfer: "true"
-      review-inline-comments: "true"
-      review-inline-cap: "5"
-```
-
-Model-backed Action review requires explicit consent:
-
-```yaml
-steps:
-  - uses: actions/checkout@v6
-    with:
-      fetch-depth: 0
-  - uses: open-maintainer/action@v1
-    with:
-      mode: review
-      review-provider: codex
-      review-model: gpt-5.5
-      allow-review-content-transfer: "true"
-```
-
-Run the Action review coverage:
+Run the Action audit/refresh coverage:
 
 ```sh
 bun test tests/action-mvp.test.ts

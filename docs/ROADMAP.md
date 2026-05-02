@@ -161,7 +161,7 @@ Status: shipped beta.
 
 Goal: provide the first direct repo-aware review product.
 
-Default behavior is dashboard/check-output first. GitHub posting and inline comments are manual or opt-in.
+Default behavior is local maintainer control first. The GitHub Action remains audit/refresh focused; PR review posting runs from the CLI with the maintainer's local `gh` and model CLI authentication.
 
 Scope:
 
@@ -169,10 +169,10 @@ Scope:
 - Review against repo profile, `.open-maintainer.yml`, generated context, changed paths, CI status, and issue acceptance criteria when available.
 - Produce findings only when they cite repo rules or concrete evidence.
 - Support severity levels: blocker, major, minor, note.
-- Support local CLI review output for manual maintainer-controlled posting.
-- Add GitHub Action `mode: review` with Step Summary output by default.
-- Add opt-in automatic summary comments in the Action.
-- Add opt-in capped inline comments in the Action.
+- Support local CLI review output for manual maintainer-controlled review.
+- Add `open-maintainer review --pr <number>` to fetch PR refs and metadata through `gh`.
+- Post one marked summary comment and capped duplicate-aware inline finding comments through `gh`.
+- Support `--dry-run` for PR review previews without GitHub writes.
 - Add dashboard review previews before any GitHub write.
 - Add dashboard finding feedback capture for false positives, accepted findings, needs-more-context findings, and unclear findings.
 - Avoid duplicate comments on repeated pushes.
@@ -180,11 +180,11 @@ Scope:
 
 Complete when:
 
-- Product outcome: maintainers can review a PR using Open Maintainer and see rule-grounded findings before posting them to GitHub.
+- Product outcome: maintainers can review a PR using Open Maintainer from a locally authenticated CLI and post rule-grounded findings to GitHub.
 - Product outcome: maintainers can preview reviews in the dashboard and capture finding feedback for release-quality tuning.
-- Validation evidence: tests cover changed-surface detection, required validation inference, docs alignment, severity classification, duplicate avoidance, Action summary and inline posting, dashboard preview, and feedback capture.
+- Validation evidence: tests cover changed-surface detection, required validation inference, docs alignment, severity classification, duplicate avoidance, CLI PR fetching and posting, dashboard preview, and feedback capture.
 - Quality bar: review findings cite repo evidence and avoid generic critique.
-- Quality bar: automatic GitHub comments and inline comments are disabled by default.
+- Quality bar: hosted Action review comments are out of release scope; CLI PR posting requires an explicit maintainer command and supports `--dry-run`.
 
 ## v0.5: Issue Triage and Agent-Safe Backlog
 

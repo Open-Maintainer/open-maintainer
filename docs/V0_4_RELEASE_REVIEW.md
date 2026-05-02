@@ -9,15 +9,14 @@ Included:
 
 - Local CLI `review` command for rule-grounded PR reviews from Git base/head
   refs.
+- Local CLI `review --pr <number>` workflow that fetches PR metadata and refs
+  through `gh`, runs the selected local model CLI, and posts marked summary plus
+  capped inline review comments through `gh`.
 - Deterministic review by default, with model-backed review only after explicit
   `--review-provider` and `--allow-model-content-transfer`.
 - Review output with summary, walkthrough, changed surface, risk analysis,
   expected validation, validation evidence, docs impact, cited findings, merge
   readiness, residual risk, and JSON output.
-- GitHub Action `mode: review` with Step Summary output by default.
-- Opt-in marked review summary comments through `review-comment-on-pr: "true"`.
-- Opt-in capped inline review comments through
-  `review-inline-comments: "true"` and `review-inline-cap`.
 - Duplicate avoidance for marked summary and inline comments.
 - Dashboard PR review previews for registered local repository worktrees.
 - Dashboard review run history and guarded posting controls.
@@ -26,8 +25,8 @@ Included:
 
 Excluded:
 
-- CLI-posted GitHub review comments. CLI review remains local and non-mutating
-  in v0.4.
+- GitHub Action review posting that depends on hosted-runner model credentials
+  or API token balance.
 - Dashboard GitHub posting without configured credentials and permissions.
 - Merge-blocking required checks from review results.
 - Durable database-backed review history beyond the current self-hosted
@@ -42,10 +41,8 @@ Excluded:
 | Use case | Minimum permissions | GitHub write behavior |
 | --- | --- | --- |
 | CLI local review | Local Git checkout | None |
-| Action review Step Summary | `contents: read` | None |
-| Model-backed review | Local CLI provider credentials plus explicit content-transfer consent | None by itself |
-| Action review summary comment | `contents: read`, `issues: write`, `pull-requests: read` | Updates one marked PR comment |
-| Action capped inline comments | `contents: read`, `pull-requests: write` | Opens one pull request review with capped inline comments |
+| CLI PR review dry run | Local Git checkout, `gh` auth, local CLI provider credentials plus explicit content-transfer consent | None |
+| CLI PR review posting | Local Git checkout, `gh` auth with PR comment/review permission, local CLI provider credentials plus explicit content-transfer consent | Updates one marked PR comment and opens one capped inline review |
 | Dashboard review preview | API access to a registered local worktree | None by default |
 | Dashboard posting controls | GitHub credentials and PR permissions | Guarded; unavailable credentials return a clear error |
 
@@ -58,6 +55,7 @@ bun test packages/review
 bun test tests/action-mvp.test.ts
 bun test apps/api/tests/api.test.ts
 bun test tests/cli-help.test.ts
+bun test tests/cli-review.test.ts
 bun run cli review . --base-ref HEAD~1 --head-ref HEAD --output-path /tmp/open-maintainer-review.md
 bun run cli review . --base-ref HEAD~1 --head-ref HEAD --json
 bun lint
@@ -74,40 +72,30 @@ docker compose down --volumes --remove-orphans
 ## Evidence
 
 Date: 2026-05-02
-Base implementation commits: `6a589c9` through `58322b6`
+Base implementation commits: pending final v0.4.0 commit selection
 Release documentation commit: this packet's commit
 
 Commands run:
 
-- `bun test packages/review`: passed, 19 tests across 4 files.
-- `bun test tests/action-mvp.test.ts`: passed, 8 tests.
-- `bun test apps/api/tests/api.test.ts`: passed, 11 tests.
-- `bun test tests/cli-help.test.ts`: passed, 5 tests.
-- `bun run cli review . --base-ref HEAD~1 --head-ref HEAD --output-path /tmp/open-maintainer-review.md`:
-  passed and wrote review markdown.
-- `bun run cli review . --base-ref HEAD~1 --head-ref HEAD --json`: passed;
-  produced a valid review result with 2 findings across 12 changed files.
-- `bun run cli generate . --model codex --context codex --skills codex --allow-write --refresh-generated`:
-  passed; refreshed generated context artifacts through the model-backed path.
+- `bun test tests/action-mvp.test.ts tests/cli-help.test.ts tests/cli-review.test.ts`:
+  passed, 18 tests across 3 files.
 - `bun lint`: passed.
 - `bun typecheck`: passed.
-- `bun test`: passed, 105 tests across 21 files.
+- `bun test`: passed, 111 tests across 22 files.
 - `bun run build`: passed, including the Next production build.
 - `bun run smoke:mvp`: passed, `MVP smoke passed: 66/100 -> 82/100`.
-- `bun run cli doctor .`: passed, `Agent Readiness: 100/100` and all
-  required artifacts present.
-- `docker compose up --build -d`: passed.
-- `bun run smoke:compose`: passed, `Docker Compose smoke passed.`
-- `docker compose down --volumes --remove-orphans`: completed cleanup.
+- Docker Compose smoke was not rerun for this scope change; no Docker Compose
+  files or service wiring changed.
 
 Focused v0.4 evidence:
 
 - Review package tests cover precheck evidence, model-backed review validation,
   rendering, inline comment rendering, and local Git diff assembly.
 - CLI review tests cover markdown output, JSON output, invalid refs,
-  model-content-transfer consent, and non-mutating posting guards.
-- Action tests cover review mode, Step Summary output, summary comment opt-in,
-  inline comment opt-in, duplicate markers, and default no-write behavior.
+  model-content-transfer consent, PR fetching through `gh`, summary posting,
+  inline review posting, and posting target guards.
+- Action tests cover audit/refresh release dogfooding without hosted PR review
+  provider quota requirements.
 - GitHub helper tests cover summary comment upsert, inline comment planning,
   duplicate avoidance, capped inline comments, and inline review publication.
 - API tests cover dashboard review preview creation/readback, posting guard
@@ -117,14 +105,11 @@ Focused v0.4 evidence:
 
 Manual dry-run expectations before tagging:
 
-- Disposable PR Action run with `mode: review` and read-only permissions writes
-  only the Step Summary.
-- Disposable PR Action run with `review-comment-on-pr: "true"` and
-  `issues: write` creates one marked review summary comment and updates it on
-  rerun.
-- Disposable PR Action run with `review-inline-comments: "true"` and
-  `review-inline-cap` creates no more than the configured number of inline
-  comments and does not duplicate them on rerun.
+- Disposable PR CLI run with `review --pr <number> --dry-run` fetches PR
+  metadata and produces a local review without writing to GitHub.
+- Disposable PR CLI run with `review --pr <number>` creates or updates one
+  marked summary comment and creates capped inline comments without duplicating
+  existing Open Maintainer fingerprints.
 - Dashboard dry run analyzes a local repo, creates a review preview, records a
   review run, submits false-positive feedback with a reason, and reads the
   feedback back with the review.

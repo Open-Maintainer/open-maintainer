@@ -44,7 +44,7 @@ TARGET_REPO="/path/to/selected/repository"
 bun run cli audit "$TARGET_REPO"
 bun run cli generate "$TARGET_REPO" --model codex --context codex --skills codex --allow-write
 bun run cli doctor "$TARGET_REPO"
-bun run cli review "$TARGET_REPO" --base-ref main --head-ref HEAD --review-provider codex --allow-model-content-transfer --output-path .open-maintainer/review.md
+bun run cli review "$TARGET_REPO" --pr 123 --review-provider codex --allow-model-content-transfer --dry-run
 bun run cli pr "$TARGET_REPO" --create
 ```
 
@@ -107,7 +107,7 @@ Existing context files are preserved by default. Use `--force` only when you exp
 
 ## Rule-Grounded PR Review Beta
 
-`review` produces a non-mutating PR review from local Git refs. It writes a summary, walkthrough, changed surface, risk analysis, expected validation, docs impact, cited findings, merge readiness, and residual risk. PR review always runs through a selected LLM CLI provider and requires explicit repository-content transfer consent.
+`review` produces a PR review from local Git refs or from a GitHub pull request fetched with `gh`. It writes a summary, walkthrough, changed surface, risk analysis, expected validation, docs impact, cited findings, merge readiness, and residual risk. PR review always runs through a selected LLM CLI provider and requires explicit repository-content transfer consent.
 
 ```sh
 bun run cli review "$TARGET_REPO" \
@@ -137,10 +137,19 @@ bun run cli review "$TARGET_REPO" \
   --output-path .open-maintainer/review.md
 ```
 
-The CLI review command never posts to GitHub in v0.4. To post manually, inspect the generated markdown first and then use a maintainer-controlled command such as:
+To review and post to a real GitHub PR from a locally authenticated maintainer machine, use `--pr`. The command fetches PR refs with `gh`, updates one marked summary comment, and creates capped duplicate-aware inline comments with recommendations. Normal PR posting output is concise and reports whether comments were posted; use `--output-path` or `--json` when you need the full generated review. Use `--dry-run` to run the review without posting:
 
 ```sh
-gh pr comment <number> --body-file "$TARGET_REPO/.open-maintainer/review.md"
+bun run cli review "$TARGET_REPO" \
+  --pr <number> \
+  --review-provider codex \
+  --allow-model-content-transfer
+
+bun run cli review "$TARGET_REPO" \
+  --pr <number> \
+  --review-provider codex \
+  --allow-model-content-transfer \
+  --dry-run
 ```
 
 ## GitHub Action
@@ -181,9 +190,6 @@ Permission tiers:
 | --- | --- | --- |
 | Audit and Step Summary | `contents: read` | None |
 | Audit PR comment | `contents: read`, `issues: write`, `pull-requests: read` | Updates one marked audit comment |
-| Review Step Summary | `contents: read` | None |
-| Review summary comment | `contents: read`, `issues: write`, `pull-requests: read` | Updates one marked review summary comment |
-| Review inline comments | `contents: read`, `pull-requests: write` | Opens one capped pull request review with inline comments |
 | Refresh PR | `contents: write`, `pull-requests: write` | Pushes `open-maintainer/context-refresh` and opens or updates one PR |
 
 To add a pull request comment using the same summary body, grant comment permission and enable comments:
@@ -236,84 +242,24 @@ steps:
       skills-target: both
 ```
 
-Review mode is check-output-only by default. It appends the generated review to the GitHub Step Summary and does not comment unless comment inputs are enabled:
+Rule-grounded PR review is a maintainer-run CLI workflow in v0.4. It uses the maintainer's local `gh` authentication to fetch PR metadata and refs, then uses the selected local model CLI to generate the review. `--pr` posts one marked summary comment and capped inline finding comments back to GitHub; use `--dry-run` to preview without posting.
 
-```yaml
-permissions:
-  contents: read
-
-steps:
-  - uses: actions/checkout@v6
-    with:
-      fetch-depth: 0
-  - uses: open-maintainer/action@v1
-    with:
-      mode: review
-      review-provider: codex
-      allow-review-content-transfer: "true"
+```sh
+bun run cli review . \
+  --pr 123 \
+  --review-provider codex \
+  --review-model gpt-5.5 \
+  --allow-model-content-transfer
 ```
 
-Opt-in review summary comments update one marked PR comment:
+Dry-run review keeps GitHub untouched:
 
-```yaml
-permissions:
-  contents: read
-  issues: write
-  pull-requests: read
-
-steps:
-  - uses: actions/checkout@v6
-    with:
-      fetch-depth: 0
-  - uses: open-maintainer/action@v1
-    with:
-      mode: review
-      review-provider: codex
-      allow-review-content-transfer: "true"
-      review-comment-on-pr: "true"
-```
-
-Opt-in inline findings are capped and duplicate-aware:
-
-```yaml
-permissions:
-  contents: read
-  pull-requests: write
-
-steps:
-  - uses: actions/checkout@v6
-    with:
-      fetch-depth: 0
-  - uses: open-maintainer/action@v1
-    with:
-      mode: review
-      review-provider: codex
-      allow-review-content-transfer: "true"
-      review-inline-comments: "true"
-      review-inline-cap: "5"
-```
-
-This repository dogfoods the v0.4 review Action in `.github/workflows/open-maintainer-audit.yml` behind explicit configuration:
-
-- Set repository variable `OPEN_MAINTAINER_REVIEW_ENABLED` to `true`.
-- Set secret `OPENAI_API_KEY` for the Codex CLI provider.
-- Optionally set `OPEN_MAINTAINER_REVIEW_MODEL` and `OPEN_MAINTAINER_REVIEW_INLINE_CAP`.
-
-The review job only runs for same-repository pull requests, uses `fetch-depth: 0`, posts one marked summary comment, and publishes capped duplicate-aware inline comments. Fork pull requests keep the read-only audit path.
-
-Model-backed review uses the selected local CLI provider only after explicit consent:
-
-```yaml
-steps:
-  - uses: actions/checkout@v6
-    with:
-      fetch-depth: 0
-  - uses: open-maintainer/action@v1
-    with:
-      mode: review
-      review-provider: codex
-      review-model: gpt-5.5
-      allow-review-content-transfer: "true"
+```sh
+bun run cli review . \
+  --pr 123 \
+  --review-provider claude \
+  --allow-model-content-transfer \
+  --dry-run
 ```
 
 ## Dashboard and GitHub App
