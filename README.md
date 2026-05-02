@@ -293,6 +293,14 @@ steps:
       review-inline-cap: "5"
 ```
 
+This repository dogfoods the v0.4 review Action in `.github/workflows/open-maintainer-audit.yml` behind explicit configuration:
+
+- Set repository variable `OPEN_MAINTAINER_REVIEW_ENABLED` to `true`.
+- Set secret `OPENAI_API_KEY` for the Codex CLI provider.
+- Optionally set `OPEN_MAINTAINER_REVIEW_MODEL` and `OPEN_MAINTAINER_REVIEW_INLINE_CAP`.
+
+The review job only runs for same-repository pull requests, uses `fetch-depth: 0`, posts one marked summary comment, and publishes capped duplicate-aware inline comments. Fork pull requests keep the read-only audit path.
+
 Model-backed review uses the selected local CLI provider only after explicit consent:
 
 ```yaml

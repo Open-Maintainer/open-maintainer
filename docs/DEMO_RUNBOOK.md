@@ -647,6 +647,8 @@ steps:
   - uses: open-maintainer/action@v1
     with:
       mode: review
+      review-provider: codex
+      allow-review-content-transfer: "true"
 ```
 
 Opt-in automatic summary comments update one marked PR comment:
@@ -664,6 +666,8 @@ steps:
   - uses: open-maintainer/action@v1
     with:
       mode: review
+      review-provider: codex
+      allow-review-content-transfer: "true"
       review-comment-on-pr: "true"
 ```
 
@@ -681,6 +685,8 @@ steps:
   - uses: open-maintainer/action@v1
     with:
       mode: review
+      review-provider: codex
+      allow-review-content-transfer: "true"
       review-inline-comments: "true"
       review-inline-cap: "5"
 ```
