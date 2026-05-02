@@ -1247,6 +1247,13 @@ async function prepareReviewPreviewInput(input: {
   if (input.prNumber) {
     const githubReviewInput = await githubReviewInputForPullRequest(input);
     if (githubReviewInput) {
+      if (githubReviewInput.changedFiles.length === 0) {
+        return {
+          ok: false,
+          statusCode: 422,
+          error: `No changed files were detected for PR #${input.prNumber}. Check the pull request before creating a review preview.`,
+        };
+      }
       const profileResult = await latestOrCreateProfile({
         repoId: input.repoId,
         repo: input.repo,
@@ -1275,12 +1282,29 @@ async function prepareReviewPreviewInput(input: {
     };
   }
 
-  const localPullRequest = input.prNumber
-    ? await localPullRequestMetadata({
+  let localPullRequest: Awaited<
+    ReturnType<typeof localPullRequestMetadata>
+  > | null = null;
+  let localPullRequestError: string | null = null;
+  if (input.prNumber) {
+    try {
+      localPullRequest = await localPullRequestMetadata({
         worktreeRoot,
         prNumber: input.prNumber,
-      }).catch(() => null)
-    : null;
+      });
+    } catch (error) {
+      localPullRequestError =
+        error instanceof Error ? error.message : "Unable to resolve PR refs.";
+    }
+  }
+  if (input.prNumber && !input.baseRef && !localPullRequest) {
+    return {
+      ok: false,
+      statusCode: 422,
+      error:
+        `Unable to resolve the base ref for PR #${input.prNumber}. Enter a base ref manually or authenticate gh in the API environment. ${localPullRequestError ?? ""}`.trim(),
+    };
+  }
   const baseRef =
     input.baseRef ?? localPullRequest?.baseRef ?? input.repo.defaultBranch;
   const headRef = input.headRef ?? "HEAD";
@@ -1297,6 +1321,13 @@ async function prepareReviewPreviewInput(input: {
     baseRef,
     headRef,
   });
+  if (localReviewInput.changedFiles.length === 0) {
+    return {
+      ok: false,
+      statusCode: 422,
+      error: `No changed files were detected for ${baseRef}...${headRef}. Check the base/head refs before creating a review preview.`,
+    };
+  }
 
   return {
     ok: true,

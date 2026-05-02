@@ -109,6 +109,20 @@ process.exit(1);
   return command;
 }
 
+async function createFailingGhCli(): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), "api-gh-fail-test-"));
+  const command = path.join(directory, "fake-gh-fail.js");
+  await writeFile(
+    command,
+    `#!/usr/bin/env node
+process.stderr.write("gh is not authenticated\\n");
+process.exit(1);
+`,
+  );
+  await chmod(command, 0o755);
+  return command;
+}
+
 describe("MVP API", () => {
   it("reports service health and worker heartbeat", async () => {
     const beforeRuns = await app.inject({
@@ -402,6 +416,65 @@ describe("MVP API", () => {
       expect(created.json().review.headRef).toBe("HEAD");
       expect(created.json().review.changedFiles[0].path).toBe("src/index.ts");
       expect(created.json().run.repoProfileVersion).toBe(1);
+    } finally {
+      if (previousCodexCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_CODEX_COMMAND = previousCodexCommand;
+      }
+      if (previousGhCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_GH_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_GH_COMMAND = previousGhCommand;
+      }
+    }
+  });
+
+  it("rejects PR-number-only review previews when PR refs cannot be resolved", async () => {
+    const repoRoot = await createLocalPullRequestRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFailingGhCli();
+    const previousCodexCommand = process.env.OPEN_MAINTAINER_CODEX_COMMAND;
+    const previousGhCommand = process.env.OPEN_MAINTAINER_GH_COMMAND;
+    try {
+      process.env.OPEN_MAINTAINER_CODEX_COMMAND = fakeCodex.command;
+      process.env.OPEN_MAINTAINER_GH_COMMAND = fakeGh;
+      const registered = await app.inject({
+        method: "POST",
+        url: "/repos/local",
+        payload: { repoRoot },
+      });
+      expect(registered.statusCode).toBe(200);
+      const repoId = registered.json().repo.id;
+
+      const provider = await app.inject({
+        method: "POST",
+        url: "/model-providers",
+        payload: {
+          kind: "codex-cli",
+          displayName: "Codex CLI",
+          baseUrl: "http://localhost",
+          model: "codex-cli",
+          apiKey: "local-cli",
+          repoContentConsent: true,
+        },
+      });
+      expect(provider.statusCode).toBe(200);
+
+      const created = await app.inject({
+        method: "POST",
+        url: `/repos/${repoId}/reviews`,
+        payload: {
+          prNumber: 52,
+          providerId: provider.json().provider.id,
+        },
+      });
+
+      expect(created.statusCode).toBe(422);
+      expect(created.json().error).toContain(
+        "Unable to resolve the base ref for PR #52",
+      );
+      expect(created.json().error).toContain("gh is not authenticated");
     } finally {
       if (previousCodexCommand === undefined) {
         Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
