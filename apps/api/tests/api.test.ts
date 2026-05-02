@@ -224,6 +224,8 @@ describe("MVP API", () => {
     expect(created.json().run.status).toBe("succeeded");
     expect(created.json().review.prNumber).toBe(48);
     expect(created.json().review.changedFiles[0].path).toBe("src/index.ts");
+    const [finding] = created.json().review.findings;
+    expect(finding.id).toBe("missing-validation-evidence");
 
     const reviews = await app.inject({
       method: "GET",
@@ -238,6 +240,40 @@ describe("MVP API", () => {
     });
     expect(readback.statusCode).toBe(200);
     expect(readback.json().review.id).toBe(created.json().review.id);
+
+    const feedback = await app.inject({
+      method: "POST",
+      url: `/reviews/${created.json().review.id}/feedback`,
+      payload: {
+        findingId: finding.id,
+        verdict: "false_positive",
+        reason: "Validation is covered by the disposable test repo.",
+        actor: "maintainer",
+      },
+    });
+    expect(feedback.statusCode).toBe(200);
+    expect(feedback.json().feedback.verdict).toBe("false_positive");
+    expect(feedback.json().review.feedback).toHaveLength(1);
+
+    const unknownFinding = await app.inject({
+      method: "POST",
+      url: `/reviews/${created.json().review.id}/feedback`,
+      payload: {
+        findingId: "missing-finding",
+        verdict: "false_positive",
+      },
+    });
+    expect(unknownFinding.statusCode).toBe(422);
+    expect(unknownFinding.json().error).toContain("Unknown finding ID");
+
+    const feedbackReadback = await app.inject({
+      method: "GET",
+      url: `/reviews/${created.json().review.id}`,
+    });
+    expect(feedbackReadback.statusCode).toBe(200);
+    expect(feedbackReadback.json().review.feedback[0].findingId).toBe(
+      finding.id,
+    );
 
     const posting = await app.inject({
       method: "POST",

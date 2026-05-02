@@ -5,6 +5,7 @@ import type {
   ModelProviderConfig,
   Repo,
   RepoProfile,
+  ReviewFeedback,
   ReviewResult,
   RunRecord,
 } from "@open-maintainer/shared";
@@ -124,6 +125,16 @@ export class MemoryStore {
     return [...this.reviews.values()].filter(
       (review) => review.repoId === repoId,
     );
+  }
+
+  addReviewFeedback(reviewId: string, feedback: ReviewFeedback): ReviewResult {
+    const review = this.reviews.get(reviewId);
+    if (!review) {
+      throw new Error(`Unknown review: ${reviewId}`);
+    }
+    const updated = { ...review, feedback: [...review.feedback, feedback] };
+    this.reviews.set(reviewId, updated);
+    return updated;
   }
 }
 

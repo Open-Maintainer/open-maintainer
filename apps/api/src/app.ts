@@ -52,6 +52,7 @@ import {
   type ModelProviderConfig,
   type Repo,
   type RepoProfile,
+  ReviewFeedbackSchema,
   newId,
   nowIso,
 } from "@open-maintainer/shared";
@@ -591,6 +592,39 @@ export function buildApp() {
       return reply.code(404).send({ error: "Unknown review." });
     }
     return { review };
+  });
+
+  app.post("/reviews/:reviewId/feedback", async (request, reply) => {
+    const { reviewId } = z
+      .object({ reviewId: z.string() })
+      .parse(request.params);
+    const body = z
+      .object({
+        findingId: z.string().min(1),
+        verdict: ReviewFeedbackSchema.shape.verdict,
+        reason: z.string().trim().min(1).nullable().optional(),
+        actor: z.string().trim().min(1).nullable().optional(),
+      })
+      .parse(request.body ?? {});
+    const review = store.reviews.get(reviewId);
+    if (!review) {
+      return reply.code(404).send({ error: "Unknown review." });
+    }
+    const finding = review.findings.find((item) => item.id === body.findingId);
+    if (!finding) {
+      return reply.code(422).send({
+        error: "Unknown finding ID for review.",
+      });
+    }
+    const feedback = ReviewFeedbackSchema.parse({
+      findingId: finding.id,
+      verdict: body.verdict,
+      reason: body.reason ?? null,
+      actor: body.actor ?? null,
+      createdAt: nowIso(),
+    });
+    const updatedReview = store.addReviewFeedback(review.id, feedback);
+    return { feedback, review: updatedReview };
   });
 
   app.post("/reviews/:reviewId/post-summary", async (request, reply) => {

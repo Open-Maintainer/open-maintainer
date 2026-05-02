@@ -548,6 +548,7 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
 }
 
 function ReviewPreview({ review }: { review: ReviewResult }) {
+  const feedbackCounts = countReviewFeedback(review);
   const findingsBySeverity = ["blocker", "major", "minor", "note"].map(
     (severity) => ({
       severity,
@@ -570,6 +571,24 @@ function ReviewPreview({ review }: { review: ReviewResult }) {
             {review.modelProvider ?? "deterministic"}
           </span>
         </div>
+        <dl className="run-meta">
+          <div>
+            <dt>False positives</dt>
+            <dd>{feedbackCounts.false_positive}</dd>
+          </div>
+          <div>
+            <dt>Accepted</dt>
+            <dd>{feedbackCounts.accepted}</dd>
+          </div>
+          <div>
+            <dt>Needs context</dt>
+            <dd>{feedbackCounts.needs_more_context}</dd>
+          </div>
+          <div>
+            <dt>Unclear</dt>
+            <dd>{feedbackCounts.unclear}</dd>
+          </div>
+        </dl>
         <p>{review.summary}</p>
         <h3>Changed surface</h3>
         <ul className="plain-list">
@@ -593,12 +612,77 @@ function ReviewPreview({ review }: { review: ReviewResult }) {
             <div key={severity}>
               <strong>{severity}</strong>
               <ul className="plain-list">
-                {findings.map((finding) => (
-                  <li key={finding.id}>
-                    {finding.title}
-                    {finding.path ? ` (${finding.path})` : ""}
-                  </li>
-                ))}
+                {findings.map((finding) => {
+                  const findingFeedback = review.feedback.filter(
+                    (feedback) => feedback.findingId === finding.id,
+                  );
+                  return (
+                    <li key={finding.id}>
+                      {finding.title}
+                      {finding.path ? ` (${finding.path})` : ""}
+                      {findingFeedback.length ? (
+                        <p className="muted">
+                          Feedback:{" "}
+                          {findingFeedback
+                            .map((feedback) => feedback.verdict)
+                            .join(", ")}
+                        </p>
+                      ) : null}
+                      <form
+                        action="/review-feedback"
+                        className="provider-form"
+                        method="post"
+                      >
+                        <input
+                          type="hidden"
+                          name="repoId"
+                          value={review.repoId}
+                        />
+                        <input
+                          type="hidden"
+                          name="reviewId"
+                          value={review.id}
+                        />
+                        <input
+                          type="hidden"
+                          name="findingId"
+                          value={finding.id}
+                        />
+                        <label htmlFor={`feedback-reason-${finding.id}`}>
+                          Feedback reason
+                        </label>
+                        <input
+                          id={`feedback-reason-${finding.id}`}
+                          name="reason"
+                          placeholder="optional"
+                          type="text"
+                        />
+                        <div className="row compact">
+                          <button
+                            name="verdict"
+                            type="submit"
+                            value="false_positive"
+                          >
+                            False positive
+                          </button>
+                          <button name="verdict" type="submit" value="accepted">
+                            Accept
+                          </button>
+                          <button
+                            name="verdict"
+                            type="submit"
+                            value="needs_more_context"
+                          >
+                            Needs context
+                          </button>
+                          <button name="verdict" type="submit" value="unclear">
+                            Unclear
+                          </button>
+                        </div>
+                      </form>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ) : null,
@@ -626,6 +710,19 @@ function ReviewPreview({ review }: { review: ReviewResult }) {
       </div>
     </div>
   );
+}
+
+function countReviewFeedback(review: ReviewResult) {
+  const counts = {
+    false_positive: 0,
+    accepted: 0,
+    needs_more_context: 0,
+    unclear: 0,
+  };
+  for (const feedback of review.feedback) {
+    counts[feedback.verdict] += 1;
+  }
+  return counts;
 }
 
 function singleParam(value: string | string[] | undefined): string | undefined {

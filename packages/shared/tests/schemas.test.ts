@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RepoProfileSchema, nowIso } from "../src";
+import { RepoProfileSchema, ReviewFeedbackSchema, nowIso } from "../src";
 
 describe("shared schemas", () => {
   it("validates a versioned repo profile", () => {
@@ -50,5 +50,34 @@ describe("shared schemas", () => {
     });
 
     expect(profile.version).toBe(1);
+  });
+
+  it("validates PR review feedback verdicts", () => {
+    for (const verdict of [
+      "false_positive",
+      "accepted",
+      "needs_more_context",
+      "unclear",
+    ]) {
+      const feedback = ReviewFeedbackSchema.parse({
+        findingId: "missing-validation-evidence",
+        verdict,
+        reason: verdict === "false_positive" ? "Covered by CI." : null,
+        actor: "maintainer",
+        createdAt: nowIso(),
+      });
+
+      expect(feedback.verdict).toBe(verdict);
+    }
+
+    expect(() =>
+      ReviewFeedbackSchema.parse({
+        findingId: "missing-validation-evidence",
+        verdict: "ignored",
+        reason: null,
+        actor: null,
+        createdAt: nowIso(),
+      }),
+    ).toThrow();
   });
 });
