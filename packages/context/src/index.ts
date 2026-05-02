@@ -591,12 +591,20 @@ export function createContextArtifacts(input: {
   }
   if (targets.has("skills")) {
     definitions.push(
-      ...skillDefinitionsForTarget(".agents", input.modelSkills),
+      ...skillDefinitionsForTarget(
+        ".agents",
+        input.profile.name,
+        input.modelSkills,
+      ),
     );
   }
   if (targets.has("claude-skills")) {
     definitions.push(
-      ...skillDefinitionsForTarget(".claude", input.modelSkills),
+      ...skillDefinitionsForTarget(
+        ".claude",
+        input.profile.name,
+        input.modelSkills,
+      ),
     );
   }
   if (targets.has("profile")) {
@@ -641,14 +649,17 @@ export function createContextArtifacts(input: {
 
 function skillDefinitionsForTarget(
   targetRoot: ".agents" | ".claude",
+  repoName: string,
   modelSkills?: ModelSkillContent,
 ): Array<{ type: ArtifactType; content: string }> {
   if (!modelSkills || modelSkills.skills.length === 0) {
     throw new Error("Skill generation requires model skill content.");
   }
+  const repoSlug = slugify(repoName);
   const seen = new Set<string>();
   return modelSkills.skills.flatMap((skill) => {
-    const slug = skillSlugFromPath(skill.path) ?? slugify(skill.name);
+    const rawSlug = skillSlugFromPath(skill.path) ?? slugify(skill.name);
+    const slug = canonicalSkillSlug(rawSlug, repoSlug);
     const path = ArtifactTypeSchema.parse(
       `${targetRoot}/skills/${slug}/SKILL.md`,
     );
@@ -656,8 +667,41 @@ function skillDefinitionsForTarget(
       return [];
     }
     seen.add(path);
-    return [{ type: path, content: skill.markdown }];
+    return [{ type: path, content: normalizeSkillName(skill.markdown, slug) }];
   });
+}
+
+function canonicalSkillSlug(slug: string, repoSlug: string): string {
+  const suffix = slug.startsWith(`${repoSlug}-`)
+    ? slug.slice(repoSlug.length + 1)
+    : slug;
+  if (suffix === "start-task" || suffix === "orientation") {
+    return `${repoSlug}-start-task`;
+  }
+  if (
+    suffix === "testing-workflow" ||
+    suffix === "validation-testing" ||
+    suffix === "validation-workflow" ||
+    suffix === "testing" ||
+    suffix === "validation"
+  ) {
+    return `${repoSlug}-testing-workflow`;
+  }
+  if (
+    suffix === "pr-review" ||
+    suffix === "pull-request-review" ||
+    suffix === "review-pr"
+  ) {
+    return `${repoSlug}-pr-review`;
+  }
+  return slug;
+}
+
+function normalizeSkillName(markdown: string, name: string): string {
+  if (!markdown.startsWith("---\n")) {
+    return markdown;
+  }
+  return markdown.replace(/^name: .+$/m, `name: ${name}`);
 }
 
 export function buildRepoFactsSynthesisPrompt(input: {

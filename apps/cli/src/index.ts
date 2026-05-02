@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { execFile } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -42,6 +42,7 @@ import type { ModelProviderConfig } from "@open-maintainer/shared";
 type CliOptions = {
   force: boolean;
   refreshGenerated: boolean;
+  doctorFix: boolean;
   dryRun: boolean;
   createPr: boolean;
   failOnScoreBelow: number | null;
@@ -156,6 +157,9 @@ Examples:
 
 Check that required generated context artifacts are present and that the stored profile is not stale.
 
+Options:
+  --fix                                Remove obsolete generated context artifacts
+
 Outputs:
   Agent readiness score
   Missing required artifacts, if any
@@ -163,6 +167,7 @@ Outputs:
 
 Examples:
   open-maintainer doctor .
+  open-maintainer doctor . --fix
   open-maintainer doctor ./repo
 `,
   review: `open-maintainer review <repo>
@@ -271,9 +276,16 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return thresholdExit(profile.agentReadiness.score, options);
       }
       case "doctor": {
-        const result = await doctor(repoRoot);
+        let result = await doctor(repoRoot, repoArg);
         for (const line of result.messages) {
           console.log(line);
+        }
+        if (!result.ok && options.doctorFix) {
+          await removeDoctorFixableArtifacts(repoRoot, result.fixablePaths);
+          result = await doctor(repoRoot, repoArg);
+          for (const line of result.messages) {
+            console.log(line);
+          }
         }
         return result.ok ? 0 : 1;
       }
@@ -368,6 +380,20 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
     ...(options.refreshGenerated ? { existingGeneratedPaths } : {}),
     force: options.force,
   });
+  const artifactPaths = new Set(artifacts.map((artifact) => artifact.type));
+  const obsoleteGeneratedPaths = options.force
+    ? obsoleteGeneratedArtifactPaths({
+        generatedPaths: existingGeneratedPaths,
+        artifactPaths,
+        targets,
+      })
+    : [];
+  for (const item of obsoleteGeneratedPaths) {
+    console.log(`remove: ${item} (obsolete generated artifact)`);
+    if (!options.dryRun) {
+      await rm(path.join(repoRoot, item), { force: true });
+    }
+  }
   for (const item of plan) {
     console.log(`${item.action}: ${item.path} (${item.reason})`);
     if (options.dryRun || item.action === "skip") {
@@ -377,6 +403,29 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, item.artifact.content);
   }
+}
+
+function obsoleteGeneratedArtifactPaths(input: {
+  generatedPaths: Set<string>;
+  artifactPaths: Set<string>;
+  targets: ContextArtifactTarget[];
+}): string[] {
+  const targetRoots = new Set<string>();
+  if (input.targets.includes("skills")) {
+    targetRoots.add(".agents/skills/");
+  }
+  if (input.targets.includes("claude-skills")) {
+    targetRoots.add(".claude/skills/");
+  }
+  if (targetRoots.size === 0) {
+    return [];
+  }
+  return [...input.generatedPaths]
+    .filter((generatedPath) =>
+      [...targetRoots].some((root) => generatedPath.startsWith(root)),
+    )
+    .filter((generatedPath) => !input.artifactPaths.has(generatedPath))
+    .sort();
 }
 
 function isOpenMaintainerGeneratedFile(content: string): boolean {
@@ -391,18 +440,12 @@ function isOpenMaintainerGeneratedFile(content: string): boolean {
 
 async function doctor(
   repoRoot: string,
-): Promise<{ ok: boolean; messages: string[] }> {
+  repoDisplayPath = repoRoot,
+): Promise<{ ok: boolean; messages: string[]; fixablePaths: string[] }> {
   const profile = await createProfile(repoRoot);
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
   const filesByPath = new Map(files.map((file) => [file.path, file]));
   const paths = new Set(filesByPath.keys());
-  const required = expectedArtifactTypes({
-    profile,
-    targets: defaultArtifactTargets,
-  });
-  const missing = required.filter(
-    (artifactPath) => !requiredArtifactPresent(artifactPath, paths),
-  );
   const currentProfileHash = profileFingerprint(profile);
   const storedProfile = filesByPath.get(".open-maintainer/profile.json");
   const driftFindings = storedProfile
@@ -419,6 +462,11 @@ async function doctor(
       item.path,
       item.hash,
     ]) ?? [],
+  );
+  const required = doctorRequiredArtifacts(profile, storedContextHashes);
+  const requiredPaths = new Set(required);
+  const missing = required.filter(
+    (artifactPath) => !requiredArtifactPresent(artifactPath, paths),
   );
   const stale = required.filter((artifactPath) => {
     const file = filesByPath.get(artifactPath);
@@ -437,9 +485,24 @@ async function doctor(
       !file.content.includes(`profileHash=${currentProfileHash}`)
     );
   });
+  const obsolete = doctorObsoleteGeneratedArtifacts({
+    files,
+    expectedPaths: requiredPaths,
+    storedContextHashes,
+  });
+  const fixablePaths = obsolete;
+  const fixCommand =
+    fixablePaths.length > 0
+      ? formatDoctorFixCommand({
+          repoPath: repoDisplayPath,
+        })
+      : null;
   return {
     ok:
-      missing.length === 0 && stale.length === 0 && driftFindings.length === 0,
+      missing.length === 0 &&
+      stale.length === 0 &&
+      obsolete.length === 0 &&
+      driftFindings.length === 0,
     messages: [
       `Agent Readiness: ${profile.agentReadiness.score}/100`,
       ...(missing.length > 0
@@ -450,8 +513,86 @@ async function doctor(
         (item) =>
           `drift: ${item} was generated from a different repository profile`,
       ),
+      ...obsolete.map(
+        (item) =>
+          `obsolete: ${item} is a generated context artifact no longer tracked by .open-maintainer/profile.json`,
+      ),
+      ...(fixCommand ? [`fix: ${fixCommand}`] : []),
     ],
+    fixablePaths,
   };
+}
+
+function doctorRequiredArtifacts(
+  profile: ReturnType<typeof analyzeRepo>,
+  storedContextHashes: Map<string, string>,
+): string[] {
+  if (storedContextHashes.size === 0) {
+    return expectedArtifactTypes({
+      profile,
+      targets: defaultArtifactTargets,
+    });
+  }
+  return [
+    ...storedContextHashes.keys(),
+    ".open-maintainer/profile.json",
+    ".open-maintainer/report.md",
+  ];
+}
+
+function doctorObsoleteGeneratedArtifacts(input: {
+  files: Awaited<ReturnType<typeof scanRepository>>;
+  expectedPaths: Set<string>;
+  storedContextHashes: Map<string, string>;
+}): string[] {
+  if (input.storedContextHashes.size === 0) {
+    return [];
+  }
+  return input.files
+    .filter((file) => isGeneratedContextArtifactPath(file.path))
+    .filter((file) => isOpenMaintainerGeneratedFile(file.content))
+    .map((file) => file.path)
+    .filter((filePath) => !input.expectedPaths.has(filePath))
+    .sort();
+}
+
+function isGeneratedContextArtifactPath(repoPath: string): boolean {
+  return (
+    repoPath === "AGENTS.md" ||
+    repoPath === "CLAUDE.md" ||
+    repoPath === ".open-maintainer.yml" ||
+    repoPath === ".github/copilot-instructions.md" ||
+    repoPath === ".cursor/rules/open-maintainer.md" ||
+    repoPath.startsWith(".agents/skills/") ||
+    repoPath.startsWith(".claude/skills/")
+  );
+}
+
+async function removeDoctorFixableArtifacts(
+  repoRoot: string,
+  fixablePaths: string[],
+): Promise<void> {
+  if (fixablePaths.length === 0) {
+    console.log(
+      "fix: no obsolete generated artifacts can be removed automatically",
+    );
+    return;
+  }
+  for (const item of fixablePaths) {
+    console.log(`remove: ${item} (obsolete generated artifact)`);
+    await rm(path.join(repoRoot, item), { force: true });
+  }
+}
+
+function formatDoctorFixCommand({ repoPath }: { repoPath: string }): string {
+  return ["bun run cli doctor", shellQuote(repoPath), "--fix"].join(" ");
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) {
+    return value;
+  }
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function formatDriftFinding(
@@ -929,6 +1070,7 @@ function parseOptions(rawOptions: string[]): CliOptions {
   const options: CliOptions = {
     force: false,
     refreshGenerated: false,
+    doctorFix: false,
     dryRun: false,
     createPr: false,
     failOnScoreBelow: null,
@@ -955,6 +1097,8 @@ function parseOptions(rawOptions: string[]): CliOptions {
     const option = rawOptions[index];
     if (option === "--force") {
       options.force = true;
+    } else if (option === "--fix") {
+      options.doctorFix = true;
     } else if (option === "--refresh-generated") {
       options.refreshGenerated = true;
     } else if (option === "--dry-run") {
