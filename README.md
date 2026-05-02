@@ -107,7 +107,20 @@ Existing context files are preserved by default. Use `--force` only when you exp
 
 ## Rule-Grounded PR Review Beta
 
-`review` produces a PR review from local Git refs or from a GitHub pull request fetched with `gh`. It writes a summary, walkthrough, changed surface, risk analysis, expected validation, docs impact, cited findings, merge readiness, and residual risk. PR review always runs through a selected LLM CLI provider and requires explicit repository-content transfer consent.
+`review` produces a PR review from local Git refs or from a GitHub pull request
+fetched with `gh`. It writes a summary, walkthrough, changed surface, risk
+analysis, expected validation, docs impact, contribution-triage signals, cited
+findings, merge readiness, and residual risk. PR review always runs through a
+selected LLM CLI provider and requires explicit repository-content transfer
+consent.
+
+Contribution triage appears inside the existing PR review output. It helps
+maintainers decide whether a PR is ready for review, needs author input, needs
+maintainer design, is not agent-ready, or looks like possible spam-like
+contribution noise. Open Maintainer evaluates reviewability, scope, evidence,
+validation, and repo alignment; it does not evaluate whether the author used AI.
+Issue triage, issue labels/comments, duplicate handling, stale handling,
+auto-close, and agent task briefs are outside the v0.4.x PR review path.
 
 ```sh
 bun run cli review "$TARGET_REPO" \
