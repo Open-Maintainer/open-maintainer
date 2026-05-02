@@ -471,6 +471,7 @@ export function buildReviewPrompt(input: {
       "- Deterministic precheck evidence is not a contribution-quality classification.",
       "- Do not infer whether the author used AI.",
       "- Assign exactly one contributionTriage category from the output schema using the supplied evidence.",
+      "- Do not assign ready_for_review when GitHub PR state says the PR is draft, has merge conflicts, has a dirty merge state, has changes requested, or has failed/pending checks.",
       "- Do not include a numeric quality score.",
       "- Do not produce issue labels, issue comments, duplicate issue handling, stale handling, auto-close, or agent task briefs.",
       "",
@@ -540,6 +541,10 @@ export function buildReviewPrompt(input: {
           title: input.input.title,
           body: input.input.body,
           author: input.input.author,
+          isDraft: input.input.isDraft,
+          mergeable: input.input.mergeable,
+          mergeStateStatus: input.input.mergeStateStatus,
+          reviewDecision: input.input.reviewDecision,
           baseRef: input.input.baseRef,
           headRef: input.input.headRef,
         },
@@ -658,6 +663,7 @@ export function buildReviewPrompt(input: {
           contributionTriageRules: [
             "Use contributionTriageEvidence as candidate evidence, not as a deterministic classification.",
             "Return a categorical contributionTriage result only from model judgment.",
+            "Do not return ready_for_review if contributionTriageEvidence or checkStatuses show draft status, merge conflicts, dirty merge state, changes requested, failed checks, or pending checks.",
             "Do not include numeric quality scores.",
             "Do not infer whether the author used AI.",
             "Do not output issue labels, issue comments, duplicate issue handling, stale handling, auto-close, or agent task briefs.",
@@ -890,6 +896,24 @@ function buildEvidenceItems(input: {
       summary: `${check.name} ${check.status} ${check.conclusion ?? ""}`.trim(),
     });
   });
+  if (
+    input.input.isDraft !== null ||
+    input.input.mergeable ||
+    input.input.mergeStateStatus ||
+    input.input.reviewDecision
+  ) {
+    items.push({
+      id: "pr_state:1",
+      kind: "check_status",
+      name: "GitHub PR state",
+      summary: [
+        `draft=${input.input.isDraft ?? "unknown"}`,
+        `mergeable=${input.input.mergeable ?? "unknown"}`,
+        `mergeStateStatus=${input.input.mergeStateStatus ?? "unknown"}`,
+        `reviewDecision=${input.input.reviewDecision ?? "unknown"}`,
+      ].join("; "),
+    });
+  }
   input.profile.evidence.forEach((evidence, index) => {
     items.push({
       id: `profile:${index + 1}`,

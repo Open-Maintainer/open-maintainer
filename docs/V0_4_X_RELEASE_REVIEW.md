@@ -43,7 +43,9 @@ taxonomy for v0.4.x.
 Maintainers can opt into a single GitHub PR triage label so the PR list is
 filterable by the contribution-triage category. Label writes require an
 explicit review flag, and missing label creation requires a separate explicit
-flag.
+flag. `open-maintainer/ready-for-review` is guarded by GitHub PR state and is
+not applied when the PR is draft, conflicted, dirty, blocked by requested
+changes, or has failed/pending checks.
 
 Deterministic code may gather candidate evidence, but LLM-backed review owns the
 categorical contribution-triage result. Generated context policy text remains

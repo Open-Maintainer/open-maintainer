@@ -1347,6 +1347,12 @@ async function prepareReviewPreviewInput(input: {
       body: localPullRequest?.body ?? localReviewInput.body,
       url: localPullRequest?.url ?? localReviewInput.url,
       author: localPullRequest?.author ?? localReviewInput.author,
+      isDraft: localPullRequest?.isDraft ?? localReviewInput.isDraft,
+      mergeable: localPullRequest?.mergeable ?? localReviewInput.mergeable,
+      mergeStateStatus:
+        localPullRequest?.mergeStateStatus ?? localReviewInput.mergeStateStatus,
+      reviewDecision:
+        localPullRequest?.reviewDecision ?? localReviewInput.reviewDecision,
     },
     worktreeRoot,
   };
@@ -1423,13 +1429,17 @@ async function localPullRequestMetadata(input: {
   body: string;
   url: string | null;
   author: string | null;
+  isDraft: boolean | null;
+  mergeable: string | null;
+  mergeStateStatus: string | null;
+  reviewDecision: string | null;
 }> {
   const output = await runGh(input.worktreeRoot, [
     "pr",
     "view",
     String(input.prNumber),
     "--json",
-    "baseRefName,title,body,url,author",
+    "baseRefName,title,body,url,author,isDraft,mergeable,mergeStateStatus,reviewDecision",
   ]);
   const parsed = z
     .object({
@@ -1438,6 +1448,10 @@ async function localPullRequestMetadata(input: {
       body: z.string().nullable().optional(),
       url: z.string().url().nullable().optional(),
       author: z.object({ login: z.string().nullable().optional() }).optional(),
+      isDraft: z.boolean().nullable().optional(),
+      mergeable: z.string().nullable().optional(),
+      mergeStateStatus: z.string().nullable().optional(),
+      reviewDecision: z.string().nullable().optional(),
     })
     .parse(JSON.parse(output));
   return {
@@ -1446,6 +1460,10 @@ async function localPullRequestMetadata(input: {
     body: parsed.body ?? "",
     url: parsed.url ?? null,
     author: parsed.author?.login ?? null,
+    isDraft: parsed.isDraft ?? null,
+    mergeable: parsed.mergeable ?? null,
+    mergeStateStatus: parsed.mergeStateStatus ?? null,
+    reviewDecision: parsed.reviewDecision ?? null,
   };
 }
 

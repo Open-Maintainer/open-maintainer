@@ -192,6 +192,11 @@ The default labels are `open-maintainer/ready-for-review`,
 `open-maintainer/needs-author-input`,
 `open-maintainer/needs-maintainer-design`,
 `open-maintainer/not-agent-ready`, and `open-maintainer/possible-spam`.
+Open Maintainer passes GitHub PR state into the review prompt, including draft
+status, mergeability, merge state, review decision, and checks. It refuses to
+apply `open-maintainer/ready-for-review` when GitHub reports objective blockers
+such as draft status, merge conflicts, dirty merge state, requested changes, or
+failed/pending checks.
 
 ## GitHub Action
 

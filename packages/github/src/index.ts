@@ -58,6 +58,9 @@ type GitHubPullRequestData = {
   body: string | null;
   html_url: string;
   user?: { login?: string } | null;
+  draft?: boolean | null;
+  mergeable?: boolean | null;
+  mergeable_state?: string | null;
   base: { ref: string; sha: string };
   head: { ref: string; sha: string };
 };
@@ -642,6 +645,15 @@ export async function fetchPullRequestReviewContext(input: {
     body: pull.body ?? "",
     url: pull.html_url,
     author: pull.user?.login ?? null,
+    isDraft: pull.draft ?? null,
+    mergeable:
+      pull.mergeable === null || pull.mergeable === undefined
+        ? null
+        : pull.mergeable
+          ? "MERGEABLE"
+          : "CONFLICTING",
+    mergeStateStatus: pull.mergeable_state ?? null,
+    reviewDecision: null,
     baseRef: pull.base.ref,
     headRef: pull.head.ref,
     baseSha: pull.base.sha,

@@ -96,6 +96,16 @@ async function createFakeGhCli(input: {
   prNumber: number;
   baseSha: string;
   headSha: string;
+  isDraft?: boolean;
+  mergeable?: string;
+  mergeStateStatus?: string;
+  reviewDecision?: string;
+  statusCheckRollup?: Array<{
+    name: string;
+    status: string;
+    conclusion: string | null;
+    detailsUrl: string;
+  }>;
 }): Promise<{ env: Record<string, string>; callsPath: string }> {
   const directory = await mkdtemp(path.join(tmpdir(), "om-fake-gh-"));
   const command = path.join(directory, "gh");
@@ -124,12 +134,16 @@ if (args[0] === "pr" && args[1] === "view") {
     body: "Acceptance criteria: keep the value intentional.",
     url: "https://github.com/Open-Maintainer/cli-review-fixture/pull/${input.prNumber}",
     author: { login: "maintainer" },
+    isDraft: ${JSON.stringify(input.isDraft ?? false)},
+    mergeable: ${JSON.stringify(input.mergeable ?? "MERGEABLE")},
+    mergeStateStatus: ${JSON.stringify(input.mergeStateStatus ?? "CLEAN")},
+    reviewDecision: ${JSON.stringify(input.reviewDecision ?? "REVIEW_REQUIRED")},
     baseRefName: "main",
     headRefName: "feature",
     baseRefOid: "${input.baseSha}",
     headRefOid: "${input.headSha}",
     comments: [],
-    statusCheckRollup: [{ name: "Tests", status: "COMPLETED", conclusion: "SUCCESS", detailsUrl: "https://example.test/check" }]
+    statusCheckRollup: ${JSON.stringify(input.statusCheckRollup ?? [{ name: "Tests", status: "COMPLETED", conclusion: "SUCCESS", detailsUrl: "https://example.test/check" }])}
   });
   process.exit(0);
 }
@@ -446,6 +460,59 @@ describe("CLI review", () => {
         endpoint: "repos/Open-Maintainer/cli-review-fixture/issues/12/labels",
         input: { labels: ["open-maintainer/ready-for-review"] },
       }),
+    );
+  });
+
+  it("refuses to apply a ready triage label when GitHub reports the PR is blocked", async () => {
+    const fixture = await createReviewRepo();
+    const prNumber = 12;
+    const refs = await attachPullRequestRemote(fixture, prNumber);
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli({
+      prNumber,
+      ...refs,
+      isDraft: true,
+      mergeable: "CONFLICTING",
+      mergeStateStatus: "DIRTY",
+      statusCheckRollup: [
+        {
+          name: "Tests",
+          status: "COMPLETED",
+          conclusion: "FAILURE",
+          detailsUrl: "https://example.test/check",
+        },
+      ],
+    });
+
+    const result = await runCli(
+      [
+        "review",
+        fixture,
+        "--pr",
+        String(prNumber),
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--review-apply-triage-label",
+        "--review-create-triage-labels",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+      },
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "Refusing to apply open-maintainer/ready-for-review",
+    );
+    expect(result.stderr).toContain("PR is draft");
+    expect(result.stderr).toContain("PR has merge conflicts");
+    expect(result.stderr).toContain("blocking checks: Tests");
+
+    const calls = await readFile(fakeGh.callsPath, "utf8").catch(() => "");
+    expect(calls).not.toContain(
+      "repos/Open-Maintainer/cli-review-fixture/issues/12/labels",
     );
   });
 

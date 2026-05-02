@@ -651,7 +651,10 @@ bun run cli review . \
 
 The label is derived from the LLM contribution-triage category and is intended
 for GitHub PR list filtering. Missing Open Maintainer labels are created only
-when `--review-create-triage-labels` is present.
+when `--review-create-triage-labels` is present. GitHub PR state is supplied to
+the model prompt, and the CLI refuses to apply `open-maintainer/ready-for-review`
+when GitHub reports objective blockers such as draft status, merge conflicts,
+dirty merge state, requested changes, or failed/pending checks.
 
 Preview the same PR review without GitHub writes:
 

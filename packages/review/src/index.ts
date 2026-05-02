@@ -38,6 +38,7 @@ export type ReviewEvidencePrecheck = Pick<
 export type ContributionTriageEvidenceSignal =
   | "intent_clarity"
   | "linked_issue_or_acceptance_criteria"
+  | "pr_state"
   | "diff_scope"
   | "validation_evidence"
   | "docs_alignment"
@@ -366,6 +367,16 @@ function buildContributionTriageEvidence(input: {
   const issueCriteria = input.input.issueContext.flatMap(
     (issue) => issue.acceptanceCriteria,
   );
+  const blockingChecks = input.input.checkStatuses.filter((check) =>
+    isBlockingCheckStatus(check),
+  );
+  const prStateSummary = [
+    `draft=${formatUnknownBoolean(input.input.isDraft)}`,
+    `mergeable=${input.input.mergeable ?? "unknown"}`,
+    `mergeStateStatus=${input.input.mergeStateStatus ?? "unknown"}`,
+    `reviewDecision=${input.input.reviewDecision ?? "unknown"}`,
+    `blockingChecks=${blockingChecks.length}`,
+  ].join("; ");
   const generatedFiles = input.input.changedFiles.filter((file) =>
     isGeneratedContextPath(file.path, input.profile),
   );
@@ -422,6 +433,29 @@ function buildContributionTriageEvidence(input: {
             path: null,
             excerpt: reference,
             reason: "PR text references an issue or pull request number.",
+          }),
+        ),
+      ],
+    },
+    {
+      signal: "pr_state",
+      summary: `GitHub PR state: ${prStateSummary}.`,
+      evidence: [
+        reviewCitation({
+          source: "ci_status",
+          path: input.input.url,
+          excerpt: prStateSummary,
+          reason:
+            "GitHub PR state affects whether the PR is ready for human review.",
+        }),
+        ...blockingChecks.map((check) =>
+          reviewCitation({
+            source: "ci_status",
+            path: check.url,
+            excerpt:
+              `${check.name} ${check.status} ${check.conclusion ?? ""}`.trim(),
+            reason:
+              "Blocking check status affects contribution triage readiness.",
           }),
         ),
       ],
@@ -609,6 +643,31 @@ function totalAdditions(files: ReviewInput["changedFiles"]): number {
 
 function totalDeletions(files: ReviewInput["changedFiles"]): number {
   return files.reduce((total, file) => total + file.deletions, 0);
+}
+
+function isBlockingCheckStatus(check: ReviewInput["checkStatuses"][number]) {
+  const status = normalizeState(check.status);
+  const conclusion = normalizeState(check.conclusion);
+  if (status && status !== "COMPLETED") {
+    return true;
+  }
+  return (
+    conclusion === "FAILURE" ||
+    conclusion === "TIMED_OUT" ||
+    conclusion === "CANCELLED" ||
+    conclusion === "ACTION_REQUIRED"
+  );
+}
+
+function normalizeState(value: string | null | undefined): string | null {
+  return value ? value.trim().toUpperCase() : null;
+}
+
+function formatUnknownBoolean(value: boolean | null): string {
+  if (value === null) {
+    return "unknown";
+  }
+  return value ? "true" : "false";
 }
 
 function matchingRiskHints(repoPath: string, profile: RepoProfile): string[] {

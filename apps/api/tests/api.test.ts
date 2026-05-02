@@ -91,13 +91,17 @@ async function createFakeGhCli(): Promise<string> {
   await writeFile(
     command,
     `#!/usr/bin/env node
-if (process.argv.slice(2).join(" ") === "pr view 52 --json baseRefName,title,body,url,author") {
+if (process.argv.slice(2).join(" ") === "pr view 52 --json baseRefName,title,body,url,author,isDraft,mergeable,mergeStateStatus,reviewDecision") {
   process.stdout.write(JSON.stringify({
     baseRefName: "main",
     title: "Require LLM mode for generation and PR review",
     body: "Validation: bun test",
     url: "https://github.com/Open-Maintainer/open-maintainer/pull/52",
-    author: { login: "maintainer" }
+    author: { login: "maintainer" },
+    isDraft: false,
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+    reviewDecision: "REVIEW_REQUIRED"
   }));
   process.exit(0);
 }

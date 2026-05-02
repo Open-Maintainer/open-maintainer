@@ -72,6 +72,10 @@ const reviewInput: ReviewInput = {
   body: "This changes CLI behavior.",
   url: "https://github.com/Open-Maintainer/open-maintainer/pull/42",
   author: "maintainer",
+  isDraft: false,
+  mergeable: "MERGEABLE",
+  mergeStateStatus: "CLEAN",
+  reviewDecision: "REVIEW_REQUIRED",
   baseRef: "main",
   headRef: "feature",
   baseSha: "base-sha",
@@ -188,6 +192,7 @@ describe("review evidence precheck", () => {
     ).toEqual([
       "intent_clarity",
       "linked_issue_or_acceptance_criteria",
+      "pr_state",
       "diff_scope",
       "validation_evidence",
       "docs_alignment",
@@ -260,6 +265,9 @@ describe("review evidence precheck", () => {
     expect(
       candidates.get("linked_issue_or_acceptance_criteria")?.summary,
     ).toContain("1 linked issue context item");
+    expect(candidates.get("pr_state")?.summary).toContain(
+      "mergeStateStatus=CLEAN",
+    );
     expect(candidates.get("high_risk_files")?.summary).toContain(
       "apps/api/src/auth/session.ts",
     );

@@ -789,6 +789,10 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
           body: pullRequest.body,
           url: pullRequest.url,
           author: pullRequest.author,
+          isDraft: pullRequest.isDraft,
+          mergeable: pullRequest.mergeable,
+          mergeStateStatus: pullRequest.mergeStateStatus,
+          reviewDecision: pullRequest.reviewDecision,
           baseSha: pullRequest.baseSha,
           headSha: pullRequest.headSha,
           checkStatuses: pullRequest.checkStatuses,
@@ -798,6 +802,10 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
           prNumber: options.prNumber,
           owner: profile.owner,
           repo: profile.name,
+          isDraft: null,
+          mergeable: null,
+          mergeStateStatus: null,
+          reviewDecision: null,
         }),
   };
   const providerReview = buildReviewProvider({
@@ -873,6 +881,7 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
       inlineCap: options.reviewInlineCap ?? 5,
       applyTriageLabel: options.reviewApplyTriageLabel,
       createTriageLabels: options.reviewCreateTriageLabels,
+      pullRequestState: pullRequest,
     });
     if (!options.json) {
       console.log(`Review generated for pull request #${pullRequest.number}.`);
@@ -931,6 +940,10 @@ type PreparedPullRequestReview = {
   body: string;
   url: string | null;
   author: string | null;
+  isDraft: boolean | null;
+  mergeable: string | null;
+  mergeStateStatus: string | null;
+  reviewDecision: string | null;
   baseRef: string;
   headRef: string;
   baseSha: string;
@@ -945,6 +958,10 @@ type GhPullRequestView = {
   body?: string | null;
   url?: string | null;
   author?: { login?: string | null } | null;
+  isDraft?: boolean | null;
+  mergeable?: string | null;
+  mergeStateStatus?: string | null;
+  reviewDecision?: string | null;
   baseRefName?: string | null;
   headRefName?: string | null;
   baseRefOid?: string | null;
@@ -989,6 +1006,10 @@ async function preparePullRequestReview(
         "body",
         "url",
         "author",
+        "isDraft",
+        "mergeable",
+        "mergeStateStatus",
+        "reviewDecision",
         "baseRefName",
         "headRefName",
         "baseRefOid",
@@ -1025,6 +1046,10 @@ async function preparePullRequestReview(
     body: pr.body ?? "",
     url: pr.url ?? null,
     author: pr.author?.login ?? null,
+    isDraft: pr.isDraft ?? null,
+    mergeable: pr.mergeable ?? null,
+    mergeStateStatus: pr.mergeStateStatus ?? null,
+    reviewDecision: pr.reviewDecision ?? null,
     baseRef: baseSha,
     headRef,
     baseSha,
@@ -1044,6 +1069,7 @@ async function postPullRequestReview(
     inlineCap: number;
     applyTriageLabel: boolean;
     createTriageLabels: boolean;
+    pullRequestState: PreparedPullRequestReview;
   },
 ): Promise<PullRequestReviewPostResult> {
   const repo = await ghJson<GhRepositoryView>(repoRoot, [
@@ -1064,6 +1090,7 @@ async function postPullRequestReview(
     triageLabelsCreated: 0,
   };
   if (options.applyTriageLabel) {
+    assertReadyTriageLabelAllowed(review, options.pullRequestState);
     const applied = await applyReviewTriageLabel(
       repoRoot,
       owner,
@@ -1093,6 +1120,67 @@ async function postPullRequestReview(
     );
   }
   return posted;
+}
+
+function assertReadyTriageLabelAllowed(
+  review: ReviewResult,
+  pullRequest: PreparedPullRequestReview,
+): void {
+  if (review.contributionTriage.category !== "ready_for_review") {
+    return;
+  }
+  const blockers = blockingPullRequestStateReasons(pullRequest);
+  if (blockers.length === 0) {
+    return;
+  }
+  throw new Error(
+    `Refusing to apply open-maintainer/ready-for-review because GitHub reports this PR is blocked: ${blockers.join("; ")}.`,
+  );
+}
+
+function blockingPullRequestStateReasons(
+  pullRequest: PreparedPullRequestReview,
+): string[] {
+  const reasons = [];
+  if (pullRequest.isDraft === true) {
+    reasons.push("PR is draft");
+  }
+  if (normalizeGhState(pullRequest.mergeable) === "CONFLICTING") {
+    reasons.push("PR has merge conflicts");
+  }
+  if (normalizeGhState(pullRequest.mergeStateStatus) === "DIRTY") {
+    reasons.push("merge state is dirty");
+  }
+  if (normalizeGhState(pullRequest.reviewDecision) === "CHANGES_REQUESTED") {
+    reasons.push("changes are requested");
+  }
+  const blockingChecks = pullRequest.checkStatuses.filter((check) =>
+    isBlockingCheckStatus(check),
+  );
+  if (blockingChecks.length > 0) {
+    reasons.push(
+      `blocking checks: ${blockingChecks.map((check) => check.name).join(", ")}`,
+    );
+  }
+  return reasons;
+}
+
+function isBlockingCheckStatus(check: ReviewCheckStatus): boolean {
+  const status = normalizeGhState(check.status);
+  const conclusion = normalizeGhState(check.conclusion);
+  if (status && status !== "COMPLETED") {
+    return true;
+  }
+  return (
+    conclusion === "FAILURE" ||
+    conclusion === "TIMED_OUT" ||
+    conclusion === "CANCELLED" ||
+    conclusion === "ACTION_REQUIRED"
+  );
+}
+
+function normalizeGhState(value: string | null | undefined): string | null {
+  return value ? value.trim().toUpperCase() : null;
 }
 
 async function applyReviewTriageLabel(

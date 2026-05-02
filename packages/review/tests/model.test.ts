@@ -67,6 +67,10 @@ const reviewInput: ReviewInput = {
   body: "Validation: vitest run",
   url: "https://github.com/Open-Maintainer/open-maintainer/pull/43",
   author: "maintainer",
+  isDraft: false,
+  mergeable: "MERGEABLE",
+  mergeStateStatus: "CLEAN",
+  reviewDecision: "REVIEW_REQUIRED",
   baseRef: "main",
   headRef: "feature",
   baseSha: "base-sha",
@@ -160,6 +164,8 @@ describe("model-backed review", () => {
     expect(prompt.user).toContain("reviewKnowledge");
     expect(prompt.user).toContain("repoPrReviewSkill");
     expect(prompt.user).toContain("repoTestingWorkflowSkill");
+    expect(prompt.user).toContain("mergeStateStatus");
+    expect(prompt.user).toContain("pr_state");
   });
 
   it("rejects malformed provider output before it is used", () => {
