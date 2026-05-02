@@ -1,11 +1,13 @@
 {
-  "id": "repo_profile_a21a5fe7-b944-41b7-a38e-cf6b50d9c0b7",
+  "id": "repo_profile_9ddb5fe2-948d-4f0b-b72a-672d47855b95",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
   "name": "open-maintainer",
   "defaultBranch": "main",
-  "primaryLanguages": ["TypeScript"],
+  "primaryLanguages": [
+    "TypeScript"
+  ],
   "frameworks": [
     "next",
     "react",
@@ -289,18 +291,18 @@
     "OPEN_MAINTAINER_CODEX_MODEL",
     "OPEN_MAINTAINER_DASHBOARD_REPO_ROOT",
     "OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS",
+    "OPEN_MAINTAINER_FAKE_CODEX_FINDING",
+    "OPEN_MAINTAINER_FAKE_GH_CALLS",
     "OPEN_MAINTAINER_GH_COMMAND",
     "OPEN_MAINTAINER_GIT_AUTHOR_EMAIL",
     "OPEN_MAINTAINER_GIT_AUTHOR_NAME",
     "OPEN_MAINTAINER_GIT_COMMAND",
     "OPEN_MAINTAINER_LOCAL_REPO_CACHE",
     "OPEN_MAINTAINER_REVIEW_SUMMARY_MARKER",
+    "PATH",
     "READINESS_SCORE",
     "REDIS_URL",
     "REPORT_PATH",
-    "REVIEW_INLINE_CAP",
-    "REVIEW_JSON_PATH",
-    "REVIEW_OUTPUT_PATH",
     "RUNNER_TEMP",
     "SUMMARY_PATH",
     "WEB_BASE_URL",
@@ -887,7 +889,9 @@
       "reason": "detected repository context"
     }
   ],
-  "workspaceManifests": ["package.json"],
+  "workspaceManifests": [
+    "package.json"
+  ],
   "lockfiles": [
     "bun.lock",
     "tests/fixtures/high-readiness-ts/bun.lock",
@@ -986,7 +990,7 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "6cc02f65ca7d431f"
+      "hash": "63921b1f39834a48"
     },
     {
       "path": ".open-maintainer/report.md",
@@ -1054,7 +1058,7 @@
     },
     {
       "path": "docs/DEMO_RUNBOOK.md",
-      "hash": "b98e2d081da14d3e"
+      "hash": "c2da896289a741b3"
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
@@ -1062,7 +1066,7 @@
     },
     {
       "path": "docs/ROADMAP.md",
-      "hash": "14cdb1d0f15c479a"
+      "hash": "91d923a61a89cb50"
     },
     {
       "path": "docs/V0_3_RELEASE_REVIEW.md",
@@ -1070,11 +1074,11 @@
     },
     {
       "path": "docs/V0_4_RELEASE_REVIEW.md",
-      "hash": "1a8f483b270884c5"
+      "hash": "5d2ca9e331883892"
     },
     {
       "path": "local-docs/PRODUCT_PRD.md",
-      "hash": "201661a75ed9d8fb"
+      "hash": "89d1e1ded88f3ef9"
     },
     {
       "path": "package.json",
@@ -1186,11 +1190,11 @@
     },
     {
       "path": "README.md",
-      "hash": "db52fb6c6b4ecf43"
+      "hash": "a09b4cfdfe82105c"
     },
     {
       "path": "tests/action-mvp.test.ts",
-      "hash": "54b9cd6a0db80a04"
+      "hash": "14d1d7b1e2754e47"
     },
     {
       "path": "tests/cli-audit.test.ts",
@@ -1202,11 +1206,11 @@
     },
     {
       "path": "tests/cli-help.test.ts",
-      "hash": "9e129513f77e1b59"
+      "hash": "4331ca4a54ae4d0c"
     },
     {
       "path": "tests/cli-review.test.ts",
-      "hash": "7f5f7a6d357e6acf"
+      "hash": "b4edd8cf4ae18897"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1350,7 +1354,7 @@
     },
     {
       "path": "tests/helpers/fake-model-cli.ts",
-      "hash": "1aceadf15cc2e308"
+      "hash": "8301461df4da7f8b"
     },
     {
       "path": "tests/mvp-golden.test.ts",
@@ -1386,7 +1390,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-02T07:56:43.292Z",
+  "createdAt": "2026-05-02T10:13:29.783Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2580,7 +2584,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T07:56:43.293Z"
+    "generatedAt": "2026-05-02T10:13:29.784Z"
   },
-  "openMaintainerProfileHash": "e903d87a9a483ae7"
+  "openMaintainerProfileHash": "bf874e6958dcfdbd"
 }
