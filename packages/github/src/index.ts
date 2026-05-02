@@ -223,6 +223,18 @@ export type GitHubRepositoryClient = {
       per_page?: number;
       page?: number;
     }): Promise<{ data: GitHubIssueComment[] }>;
+    createComment?(input: {
+      owner: string;
+      repo: string;
+      issue_number: number;
+      body: string;
+    }): Promise<{ data: { id: number; html_url?: string | null } }>;
+    updateComment?(input: {
+      owner: string;
+      repo: string;
+      comment_id: number;
+      body: string;
+    }): Promise<{ data: { id: number; html_url?: string | null } }>;
   };
   checks?: {
     listForRef?(input: {
@@ -263,6 +275,23 @@ export const OPEN_MAINTAINER_REVIEW_SUMMARY_MARKER =
   "<!-- open-maintainer-review-summary -->";
 export const OPEN_MAINTAINER_REVIEW_INLINE_MARKER =
   "<!-- open-maintainer-review-inline -->";
+
+export type ReviewSummaryCommentPlan =
+  | {
+      action: "create";
+      body: string;
+      existingCommentId: null;
+    }
+  | {
+      action: "update";
+      body: string;
+      existingCommentId: number;
+    };
+
+export type ReviewSummaryCommentResult = ReviewSummaryCommentPlan & {
+  commentId: number;
+  url: string | null;
+};
 
 export const DEFAULT_REPOSITORY_CONTENT_LIMITS: RepositoryContentLimits = {
   maxFiles: 80,
@@ -817,6 +846,10 @@ export function isOpenMaintainerReviewComment(body: string): boolean {
   );
 }
 
+export function isOpenMaintainerReviewSummaryComment(body: string): boolean {
+  return body.includes(OPEN_MAINTAINER_REVIEW_SUMMARY_MARKER);
+}
+
 function isNotFoundError(error: unknown): boolean {
   return (
     typeof error === "object" &&
@@ -986,6 +1019,75 @@ export function createMockContextPr(input: {
     artifactVersions: input.artifacts.map((artifact) => artifact.version),
     status: "succeeded",
     createdAt: nowIso(),
+  };
+}
+
+export function renderMarkedReviewSummaryComment(markdown: string): string {
+  const trimmed = markdown.trim();
+  return trimmed.startsWith(OPEN_MAINTAINER_REVIEW_SUMMARY_MARKER)
+    ? trimmed
+    : `${OPEN_MAINTAINER_REVIEW_SUMMARY_MARKER}\n${trimmed}`;
+}
+
+export function planReviewSummaryComment(input: {
+  markdown: string;
+  existingComments: Array<{ id: number; body?: string | null }>;
+}): ReviewSummaryCommentPlan {
+  const body = renderMarkedReviewSummaryComment(input.markdown);
+  const existing = input.existingComments.find((comment) =>
+    isOpenMaintainerReviewSummaryComment(comment.body ?? ""),
+  );
+  return existing
+    ? { action: "update", body, existingCommentId: existing.id }
+    : { action: "create", body, existingCommentId: null };
+}
+
+export async function upsertReviewSummaryComment(input: {
+  owner: string;
+  repo: string;
+  pullNumber: number;
+  markdown: string;
+  client: GitHubRepositoryClient;
+}): Promise<ReviewSummaryCommentResult> {
+  const listComments = input.client.issues?.listComments;
+  const createComment = input.client.issues?.createComment;
+  const updateComment = input.client.issues?.updateComment;
+  if (!listComments || !createComment || !updateComment) {
+    throw new Error(
+      "Review summary posting requires GitHub issue comment read and write permissions.",
+    );
+  }
+  const existingComments = await listPaginated((page) =>
+    listComments({
+      owner: input.owner,
+      repo: input.repo,
+      issue_number: input.pullNumber,
+      per_page: 100,
+      page,
+    }),
+  );
+  const plan = planReviewSummaryComment({
+    markdown: input.markdown,
+    existingComments,
+  });
+  const response =
+    plan.action === "update"
+      ? await updateComment({
+          owner: input.owner,
+          repo: input.repo,
+          comment_id: plan.existingCommentId,
+          body: plan.body,
+        })
+      : await createComment({
+          owner: input.owner,
+          repo: input.repo,
+          issue_number: input.pullNumber,
+          body: plan.body,
+        });
+  return {
+    ...plan,
+    commentId: response.data.id,
+    url: response.data.html_url ?? null,
   };
 }
 

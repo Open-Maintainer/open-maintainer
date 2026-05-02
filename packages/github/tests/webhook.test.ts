@@ -11,8 +11,11 @@ import {
   fetchRepositoryContents,
   isOpenMaintainerReviewComment,
   mapInstallationEvent,
+  planReviewSummaryComment,
   renderContextPrBody,
+  renderMarkedReviewSummaryComment,
   shouldSkipRepositoryPath,
+  upsertReviewSummaryComment,
   verifyWebhookSignature,
 } from "../src";
 
@@ -592,5 +595,116 @@ describe("github helpers", () => {
         "<!-- open-maintainer-review-summary -->\nbody",
       ),
     ).toBe(true);
+  });
+
+  it("plans marked review summary comments without duplicates", () => {
+    const markdown = [
+      "## Open Maintainer PR Review",
+      "",
+      "### Summary",
+      "",
+      "Ready with notes.",
+      "",
+      "### Findings",
+      "",
+      "- No blocker findings.",
+      "",
+      "### Expected Validation",
+      "",
+      "- `bun test`",
+      "",
+      "### Docs Impact",
+      "",
+      "- README.md",
+      "",
+      "### Merge Readiness",
+      "",
+      "**Needs Attention:** validation evidence missing.",
+      "",
+      "### Residual Risk",
+      "",
+      "- CI status unavailable.",
+    ].join("\n");
+
+    const createPlan = planReviewSummaryComment({
+      markdown,
+      existingComments: [{ id: 1, body: "ordinary comment" }],
+    });
+    expect(createPlan.action).toBe("create");
+    expect(createPlan.existingCommentId).toBeNull();
+    expect(createPlan.body).toContain(
+      "<!-- open-maintainer-review-summary -->",
+    );
+    expect(createPlan.body).toContain("### Expected Validation");
+    expect(createPlan.body).toContain("### Docs Impact");
+    expect(createPlan.body).toContain("### Merge Readiness");
+    expect(createPlan.body).toContain("### Residual Risk");
+
+    const updatePlan = planReviewSummaryComment({
+      markdown,
+      existingComments: [
+        { id: 1, body: "ordinary comment" },
+        {
+          id: 2,
+          body: renderMarkedReviewSummaryComment("previous review"),
+        },
+      ],
+    });
+    expect(updatePlan.action).toBe("update");
+    expect(updatePlan.existingCommentId).toBe(2);
+  });
+
+  it("creates or updates one marked review summary comment", async () => {
+    const calls: string[] = [];
+    const comments = [{ id: 10, body: "ordinary comment" }];
+    const client = {
+      issues: {
+        async listComments() {
+          return { data: comments };
+        },
+        async createComment(input: { body: string }) {
+          calls.push(`create:${input.body}`);
+          comments.push({ id: 11, body: input.body });
+          return {
+            data: {
+              id: 11,
+              html_url: "https://github.com/acme/tool/issues/7#issuecomment-11",
+            },
+          };
+        },
+        async updateComment(input: { comment_id: number; body: string }) {
+          calls.push(`update:${input.comment_id}:${input.body}`);
+          return {
+            data: {
+              id: input.comment_id,
+              html_url: "https://github.com/acme/tool/issues/7#issuecomment-11",
+            },
+          };
+        },
+      },
+    };
+
+    const first = await upsertReviewSummaryComment({
+      owner: "acme",
+      repo: "tool",
+      pullNumber: 7,
+      markdown: "## Open Maintainer PR Review\n\nfirst",
+      client,
+    });
+    const second = await upsertReviewSummaryComment({
+      owner: "acme",
+      repo: "tool",
+      pullNumber: 7,
+      markdown: "## Open Maintainer PR Review\n\nsecond",
+      client,
+    });
+
+    expect(first.action).toBe("create");
+    expect(first.commentId).toBe(11);
+    expect(second.action).toBe("update");
+    expect(second.existingCommentId).toBe(11);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toContain("create:");
+    expect(calls[1]).toContain("update:11:");
   });
 });

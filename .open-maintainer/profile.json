@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_e49174f2-ef90-40db-9918-9cfc2e87f5e5",
+  "id": "repo_profile_80677339-40ec-4b9f-8216-6e2473c86979",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -294,9 +294,11 @@
     "OPEN_MAINTAINER_GIT_AUTHOR_NAME",
     "OPEN_MAINTAINER_GIT_COMMAND",
     "OPEN_MAINTAINER_LOCAL_REPO_CACHE",
+    "OPEN_MAINTAINER_REVIEW_SUMMARY_MARKER",
     "READINESS_SCORE",
     "REDIS_URL",
     "REPORT_PATH",
+    "REVIEW_OUTPUT_PATH",
     "RUNNER_TEMP",
     "SUMMARY_PATH",
     "WEB_BASE_URL",
@@ -904,15 +906,15 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "399bc31263d17088"
+      "hash": "9a3dd150e5a34105"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "0e3d46bc6635c728"
+      "hash": "77c2d8fe96bf569b"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "4c88e784741bc0b4"
+      "hash": "eeac8896494d9176"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
@@ -972,11 +974,11 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "fa5e3c45721bbae0"
+      "hash": "7effc660d19240be"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "a8071bb049307500"
+      "hash": "676483f9ae5d3510"
     },
     {
       "path": ".open-maintainer/report.md",
@@ -984,7 +986,7 @@
     },
     {
       "path": "AGENTS.md",
-      "hash": "fcd49f6cd7322836"
+      "hash": "d352bb5dd51064fd"
     },
     {
       "path": "apps/api/package.json",
@@ -1128,7 +1130,7 @@
     },
     {
       "path": "packages/github/tests/webhook.test.ts",
-      "hash": "65d4dab813e6613b"
+      "hash": "9d32897fdc03b343"
     },
     {
       "path": "packages/github/tsconfig.json",
@@ -1176,7 +1178,7 @@
     },
     {
       "path": "tests/action-mvp.test.ts",
-      "hash": "32e7154f1720a2e5"
+      "hash": "865bf41e0b3ef16a"
     },
     {
       "path": "tests/cli-audit.test.ts",
@@ -1366,26 +1368,26 @@
   "contextArtifactHashes": [
     {
       "path": "AGENTS.md",
-      "hash": "d352bb5dd51064fd"
+      "hash": "3c009757757d1148"
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "7effc660d19240be"
+      "hash": "da6ac4d1781bf85b"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "77c2d8fe96bf569b"
+      "hash": "0f5d8a6ec62f89f6"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "eeac8896494d9176"
+      "hash": "ef6a17dcd33a42b1"
     },
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "9a3dd150e5a34105"
+      "hash": "96eb25a90279c745"
     }
   ],
-  "createdAt": "2026-05-02T03:01:37.287Z",
+  "createdAt": "2026-05-02T03:07:32.283Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2551,7 +2553,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T03:01:37.288Z"
+    "generatedAt": "2026-05-02T03:07:32.284Z"
   },
-  "openMaintainerProfileHash": "4c4c60bcd40120c5"
+  "openMaintainerProfileHash": "3d54c58c1d4a9d07"
 }

@@ -144,9 +144,8 @@ runs:
           echo "::error title=Open Maintainer::Model-backed review requires allow-review-content-transfer: 'true'."
           exit 2
         fi
-        if [ "${{ inputs.review-comment-on-pr }}" = "true" ] ||
-          [ "${{ inputs.review-inline-comments }}" = "true" ]; then
-          echo "::error title=Open Maintainer::Review GitHub posting is not implemented yet."
+        if [ "${{ inputs.review-inline-comments }}" = "true" ]; then
+          echo "::error title=Open Maintainer::Review inline comments are not implemented yet."
           exit 2
         fi
     - name: Set up Bun
@@ -387,6 +386,48 @@ runs:
           echo "Review mode needs a pull_request event with base and head refs."
           echo "Current event: ${{ github.event_name }}"
         } >> "$GITHUB_STEP_SUMMARY"
+    - name: Comment review summary on pull request
+      if: ${{ inputs.mode == 'review' && inputs.review-comment-on-pr == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/github-script@v8
+      env:
+        REVIEW_OUTPUT_PATH: ${{ steps.review.outputs.output-path }}
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const fs = require("node:fs");
+          const marker = "<!-- open-maintainer-review-summary -->";
+          const review = fs.readFileSync(process.env.REVIEW_OUTPUT_PATH, "utf8").trim();
+          const body = review.startsWith(marker) ? review : `${marker}\n${review}`;
+          const { owner, repo } = context.repo;
+          const issue_number = context.payload.pull_request.number;
+          try {
+            const comments = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+            const existing = comments.data.find((comment) =>
+              comment.body?.includes(marker)
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body,
+              });
+            }
+          } catch (error) {
+            core.setFailed(`Open Maintainer review was generated, but summary comment posting failed: ${error.message}`);
+          }
     - name: Comment on pull request
       if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
       uses: actions/github-script@v8
