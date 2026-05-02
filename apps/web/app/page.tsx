@@ -272,7 +272,7 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
               <input
                 id="providerModel"
                 name="model"
-                placeholder="Provider default"
+                placeholder="gpt-5.5 for Codex"
                 type="text"
               />
               <label className="checkbox-row">
@@ -439,12 +439,23 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                 <input type="hidden" name="repoId" value={repo.id} />
                 <input type="hidden" name="actionType" value="createReview" />
                 {selectedProvider ? (
-                  <input
-                    type="hidden"
-                    name="providerId"
-                    value={selectedProvider.id}
-                  />
-                ) : null}
+                  <>
+                    <input
+                      name="providerId"
+                      type="hidden"
+                      value={selectedProvider.id}
+                    />
+                    <p className="muted">
+                      Reviews use {selectedProvider.displayName} /{" "}
+                      {selectedProvider.model}.
+                    </p>
+                  </>
+                ) : (
+                  <p className="muted">
+                    Configure and select a consented model provider to run
+                    LLM-backed reviews.
+                  </p>
+                )}
                 <label htmlFor="baseRef">Base ref</label>
                 <input
                   id="baseRef"

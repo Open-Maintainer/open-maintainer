@@ -1,14 +1,24 @@
 import { type NextRequest, NextResponse } from "next/server";
 
+const MAX_DASHBOARD_PARAM_LENGTH = 500;
+
 export function redirectToDashboard(
   request: NextRequest,
   params: Record<string, string>,
 ): NextResponse {
   const url = new URL("/", dashboardOrigin(request));
   for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value);
+    url.searchParams.set(key, safeDashboardParam(value));
   }
   return NextResponse.redirect(url, { status: 303 });
+}
+
+function safeDashboardParam(value: string): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= MAX_DASHBOARD_PARAM_LENGTH) {
+    return normalized;
+  }
+  return `${normalized.slice(0, MAX_DASHBOARD_PARAM_LENGTH - 3)}...`;
 }
 
 function dashboardOrigin(request: NextRequest): string {

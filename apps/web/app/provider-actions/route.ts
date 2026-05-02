@@ -10,7 +10,7 @@ const providerPresets = {
   codex: {
     kind: "codex-cli",
     displayName: "Codex CLI",
-    model: "codex-cli",
+    model: "gpt-5.5",
   },
   claude: {
     kind: "claude-cli",
@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
   const preset = providerPresets[providerType as keyof typeof providerPresets];
   const requestedModel = String(form.get("model") ?? "").trim();
   const repoContentConsent = form.get("repoContentConsent") === "on";
+  const targetModel = requestedModel || preset?.model;
 
   const params: Record<string, string> = {};
   if (repoId) {
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
         (provider) =>
           provider.kind === preset.kind &&
           typeof provider.id === "string" &&
-          (requestedModel.length === 0 || provider.model === requestedModel),
+          provider.model === targetModel,
       );
       if (typeof matchingProvider?.id === "string") {
         return redirectToDashboard(request, {
@@ -77,7 +78,7 @@ export async function POST(request: NextRequest) {
       body: JSON.stringify({
         ...preset,
         baseUrl: "http://localhost",
-        model: requestedModel || preset.model,
+        model: targetModel,
         apiKey: "local-cli",
         repoContentConsent,
       }),
