@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_b05084d9-5589-40f9-9825-f39ad8792e79",
+  "id": "repo_profile_d6009e30-16e9-4913-a0c3-63e8f5a5a28a",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -369,7 +369,8 @@
     "tests/smoke/compose-smoke.ts",
     "tests/smoke/local-health.ts",
     "tests/smoke/mvp-demo.ts",
-    "tests/v02-readiness.test.ts"
+    "tests/v02-readiness.test.ts",
+    "tests/web-redirect.test.ts"
   ],
   "reviewRuleCandidates": [
     "Use bun for dependency and script commands.",
@@ -880,6 +881,10 @@
     {
       "path": "tests/v02-readiness.test.ts",
       "reason": "detected repository context"
+    },
+    {
+      "path": "tests/web-redirect.test.ts",
+      "reason": "detected repository context"
     }
   ],
   "workspaceManifests": ["package.json"],
@@ -913,15 +918,15 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "60cc2649657f22d0"
+      "hash": "54bbcaceba9e42a0"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "75373a2ee93494bf"
+      "hash": "61793b2fbf479aef"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "61450aba197a32c0"
+      "hash": "da5c42c58019d1c9"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
@@ -981,19 +986,19 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "20dce1b04a8d9bb9"
+      "hash": "c49376f6272ae81b"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "01e81a55c2b479c1"
+      "hash": "58e2a16d6af381b9"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "0af167e78917a9fa"
+      "hash": "b2805e1b2868c17e"
     },
     {
       "path": "AGENTS.md",
-      "hash": "ddbea157115256f9"
+      "hash": "ac8f866a3fcb143b"
     },
     {
       "path": "apps/api/package.json",
@@ -1053,7 +1058,7 @@
     },
     {
       "path": "docs/DEMO_RUNBOOK.md",
-      "hash": "7d0bba058ad27610"
+      "hash": "2f75bbd99aca632d"
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
@@ -1085,7 +1090,7 @@
     },
     {
       "path": "packages/ai/tests/provider.test.ts",
-      "hash": "1675a652ced734a6"
+      "hash": "7b85219491fb0bf0"
     },
     {
       "path": "packages/ai/tsconfig.json",
@@ -1161,7 +1166,7 @@
     },
     {
       "path": "packages/review/tests/model.test.ts",
-      "hash": "d219b65b39994334"
+      "hash": "805812d0888c7da6"
     },
     {
       "path": "packages/review/tests/render.test.ts",
@@ -1185,7 +1190,7 @@
     },
     {
       "path": "README.md",
-      "hash": "232783db20cb04de"
+      "hash": "2c35403f114ba8df"
     },
     {
       "path": "tests/action-mvp.test.ts",
@@ -1368,6 +1373,10 @@
       "hash": "88f7f36a542bd6bf"
     },
     {
+      "path": "tests/web-redirect.test.ts",
+      "hash": "a6772317a9f55d70"
+    },
+    {
       "path": "tsconfig.base.json",
       "hash": "f66eed3af4423122"
     },
@@ -1379,26 +1388,26 @@
   "contextArtifactHashes": [
     {
       "path": "AGENTS.md",
-      "hash": "83070e80b3c388e5"
+      "hash": "68f625a51298b4ad"
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "54c4df299f1bf590"
+      "hash": "d76768d5a09a1aaf"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "ea11445a90306955"
+      "hash": "5dd17a7a292bdc76"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "8e4ae0c030421269"
+      "hash": "b8e1cd600687042c"
     },
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "0f1d2d5ee021516f"
+      "hash": "968482f7a53fa197"
     }
   ],
-  "createdAt": "2026-05-02T03:44:17.405Z",
+  "createdAt": "2026-05-02T05:01:53.519Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1935,6 +1944,10 @@
           {
             "path": "tests/v02-readiness.test.ts",
             "reason": "detected repository context"
+          },
+          {
+            "path": "tests/web-redirect.test.ts",
+            "reason": "detected repository context"
           }
         ]
       },
@@ -2234,6 +2247,10 @@
           },
           {
             "path": "tests/v02-readiness.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/web-redirect.test.ts",
             "reason": "detected repository context"
           }
         ]
@@ -2580,7 +2597,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T03:44:17.406Z"
+    "generatedAt": "2026-05-02T05:01:53.520Z"
   },
-  "openMaintainerProfileHash": "10853d3a79b0eb36"
+  "openMaintainerProfileHash": "2336a17dd8df263c"
 }

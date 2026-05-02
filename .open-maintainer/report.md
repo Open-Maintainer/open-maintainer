@@ -141,6 +141,7 @@ Agent Readiness: 100/100
 - Evidence: tests/smoke/local-health.ts (detected repository context)
 - Evidence: tests/smoke/mvp-demo.ts (detected repository context)
 - Evidence: tests/v02-readiness.test.ts (detected repository context)
+- Evidence: tests/web-redirect.test.ts (detected repository context)
 
 ### testing: 13/13
 
@@ -218,6 +219,7 @@ Agent Readiness: 100/100
 - Evidence: tests/smoke/local-health.ts (detected repository context)
 - Evidence: tests/smoke/mvp-demo.ts (detected repository context)
 - Evidence: tests/v02-readiness.test.ts (detected repository context)
+- Evidence: tests/web-redirect.test.ts (detected repository context)
 
 ### CI: 13/13
 
