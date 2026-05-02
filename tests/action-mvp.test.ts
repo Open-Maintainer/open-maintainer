@@ -294,6 +294,12 @@ describe("GitHub Action MVP", () => {
     );
     expect(reviewSteps).toContainEqual(
       expect.objectContaining({
+        name: "Login Codex CLI",
+        run: "printenv OPENAI_API_KEY | codex login --with-api-key",
+      }),
+    );
+    expect(reviewSteps).toContainEqual(
+      expect.objectContaining({
         name: "Smoke Codex API-key auth",
         run: expect.stringContaining('preferred_auth_method="apikey"'),
       }),

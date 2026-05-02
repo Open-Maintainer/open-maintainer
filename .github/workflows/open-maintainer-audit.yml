@@ -48,6 +48,10 @@ jobs:
           fi
       - name: Install Codex CLI
         run: npm install -g "@openai/codex@0.128.0"
+      - name: Login Codex CLI
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: printenv OPENAI_API_KEY | codex login --with-api-key
       - name: Smoke Codex API-key auth
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
