@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_f728376a-f874-4cdd-bbd2-59d3401326f2",
+  "id": "repo_profile_1439d045-a610-495c-90db-ad52d1f031f5",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -199,6 +199,7 @@
     "CONTRIBUTING.md",
     "docs/DEMO_RUNBOOK.md",
     "docs/MVP_RELEASE_REVIEW.md",
+    "docs/PR_REVIEW_DRY_RUN_NOTES.md",
     "docs/PRODUCT_PRD.md",
     "docs/ROADMAP.md",
     "docs/V0_3_RELEASE_REVIEW.md",
@@ -518,6 +519,10 @@
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "docs/PR_REVIEW_DRY_RUN_NOTES.md",
       "reason": "detected repository context"
     },
     {
@@ -996,11 +1001,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "eadba1daac0b9f3e"
+      "hash": "c5d715c08897e503"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "8ada714e1f6d787a"
+      "hash": "4f107bc725ee6a6f"
     },
     {
       "path": "AGENTS.md",
@@ -1069,6 +1074,10 @@
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
       "hash": "b1237b7639c78c71"
+    },
+    {
+      "path": "docs/PR_REVIEW_DRY_RUN_NOTES.md",
+      "hash": "8f82e436b941f2bc"
     },
     {
       "path": "docs/PRODUCT_PRD.md",
@@ -1404,7 +1413,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-02T21:38:17.471Z",
+  "createdAt": "2026-05-02T23:18:59.170Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1508,6 +1517,10 @@
           },
           {
             "path": "docs/MVP_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/PR_REVIEW_DRY_RUN_NOTES.md",
             "reason": "detected repository context"
           },
           {
@@ -1656,6 +1669,10 @@
           },
           {
             "path": "docs/MVP_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/PR_REVIEW_DRY_RUN_NOTES.md",
             "reason": "detected repository context"
           },
           {
@@ -2407,6 +2424,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "docs/PR_REVIEW_DRY_RUN_NOTES.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": "docs/PRODUCT_PRD.md",
             "reason": "detected repository context"
           },
@@ -2452,6 +2473,10 @@
           },
           {
             "path": "docs/MVP_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/PR_REVIEW_DRY_RUN_NOTES.md",
             "reason": "detected repository context"
           },
           {
@@ -2630,7 +2655,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T21:38:17.472Z"
+    "generatedAt": "2026-05-02T23:18:59.170Z"
   },
-  "openMaintainerProfileHash": "7c69e19eb59d4f37"
+  "openMaintainerProfileHash": "bf86b39b5a4e90c6"
 }
