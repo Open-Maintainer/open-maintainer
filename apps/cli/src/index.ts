@@ -43,6 +43,7 @@ import {
 import type {
   ModelProviderConfig,
   ReviewCheckStatus,
+  ReviewContributionTriageCategory,
   ReviewExistingComment,
   ReviewResult,
 } from "@open-maintainer/shared";
@@ -73,6 +74,8 @@ type CliOptions = {
   reviewPostSummary: boolean;
   reviewInlineComments: boolean;
   reviewInlineCap: number | null;
+  reviewApplyTriageLabel: boolean;
+  reviewCreateTriageLabels: boolean;
 };
 
 type ArtifactSelection = "codex" | "claude" | "both";
@@ -205,6 +208,8 @@ Posting options:
   --review-post-summary                 Post or update the marked PR summary comment
   --review-inline-comments              Post capped inline finding comments
   --review-inline-cap <number>          Maximum inline comments (default with --pr: 5)
+  --review-apply-triage-label           Apply one filterable PR label from the contribution-triage category
+  --review-create-triage-labels         Create missing Open Maintainer PR triage labels before applying
 
 Examples:
   open-maintainer review . --base-ref main --head-ref HEAD
@@ -726,11 +731,19 @@ async function pr(repoRoot: string, options: CliOptions): Promise<void> {
 
 async function review(repoRoot: string, options: CliOptions): Promise<void> {
   if (
-    (options.reviewPostSummary || options.reviewInlineComments) &&
+    (options.reviewPostSummary ||
+      options.reviewInlineComments ||
+      options.reviewApplyTriageLabel ||
+      options.reviewCreateTriageLabels) &&
     options.pr === null
   ) {
     throw new Error(
-      "Review posting requires --pr <number> so the CLI can target a GitHub pull request with gh.",
+      "Review GitHub write flags require --pr <number> so the CLI can target a GitHub pull request with gh.",
+    );
+  }
+  if (options.reviewCreateTriageLabels && !options.reviewApplyTriageLabel) {
+    throw new Error(
+      "--review-create-triage-labels requires --review-apply-triage-label.",
     );
   }
   if (
@@ -858,6 +871,8 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
       postSummary: explicitPosting ? options.reviewPostSummary : true,
       postInline: explicitPosting ? options.reviewInlineComments : true,
       inlineCap: options.reviewInlineCap ?? 5,
+      applyTriageLabel: options.reviewApplyTriageLabel,
+      createTriageLabels: options.reviewCreateTriageLabels,
     });
     if (!options.json) {
       console.log(`Review generated for pull request #${pullRequest.number}.`);
@@ -869,7 +884,44 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
 type PullRequestReviewPostResult = {
   summaryComment: boolean;
   inlineComments: number;
+  triageLabel: string | null;
+  triageLabelsCreated: number;
 };
+
+const reviewTriageLabelDefinitions: Record<
+  ReviewContributionTriageCategory,
+  { name: string; color: string; description: string }
+> = {
+  ready_for_review: {
+    name: "open-maintainer/ready-for-review",
+    color: "2da44e",
+    description: "Open Maintainer: PR appears ready for human review.",
+  },
+  needs_author_input: {
+    name: "open-maintainer/needs-author-input",
+    color: "d29922",
+    description: "Open Maintainer: PR needs author information before review.",
+  },
+  needs_maintainer_design: {
+    name: "open-maintainer/needs-maintainer-design",
+    color: "8250df",
+    description: "Open Maintainer: PR needs maintainer design judgment.",
+  },
+  not_agent_ready: {
+    name: "open-maintainer/not-agent-ready",
+    color: "bf8700",
+    description: "Open Maintainer: PR is not ready for agent-assisted review.",
+  },
+  possible_spam: {
+    name: "open-maintainer/possible-spam",
+    color: "cf222e",
+    description: "Open Maintainer: PR may be spam-like contribution noise.",
+  },
+};
+
+const reviewTriageLabelNames = new Set(
+  Object.values(reviewTriageLabelDefinitions).map((label) => label.name),
+);
 
 type PreparedPullRequestReview = {
   number: number;
@@ -990,6 +1042,8 @@ async function postPullRequestReview(
     postSummary: boolean;
     postInline: boolean;
     inlineCap: number;
+    applyTriageLabel: boolean;
+    createTriageLabels: boolean;
   },
 ): Promise<PullRequestReviewPostResult> {
   const repo = await ghJson<GhRepositoryView>(repoRoot, [
@@ -1006,7 +1060,22 @@ async function postPullRequestReview(
   const posted: PullRequestReviewPostResult = {
     summaryComment: false,
     inlineComments: 0,
+    triageLabel: null,
+    triageLabelsCreated: 0,
   };
+  if (options.applyTriageLabel) {
+    const applied = await applyReviewTriageLabel(
+      repoRoot,
+      owner,
+      repoName,
+      review,
+      {
+        createMissingLabels: options.createTriageLabels,
+      },
+    );
+    posted.triageLabel = applied.label;
+    posted.triageLabelsCreated = applied.created;
+  }
   if (options.postSummary) {
     await upsertReviewSummaryComment(repoRoot, owner, repoName, review);
     posted.summaryComment = true;
@@ -1024,6 +1093,77 @@ async function postPullRequestReview(
     );
   }
   return posted;
+}
+
+async function applyReviewTriageLabel(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+  review: ReviewResult,
+  options: { createMissingLabels: boolean },
+): Promise<{ label: string; created: number }> {
+  const category = review.contributionTriage.category;
+  if (review.contributionTriage.status !== "evaluated" || !category) {
+    throw new Error(
+      "--review-apply-triage-label requires an evaluated contribution-triage category.",
+    );
+  }
+  const target = reviewTriageLabelDefinitions[category].name;
+  const created = options.createMissingLabels
+    ? await createMissingReviewTriageLabels(repoRoot, owner, repo)
+    : 0;
+  const existingLabels = await ghApiJson<Array<{ name?: string | null }>>(
+    repoRoot,
+    `repos/${owner}/${repo}/issues/${review.prNumber}/labels?per_page=100`,
+  );
+  const existingNames = new Set(
+    existingLabels.flatMap((label) => (label.name ? [label.name] : [])),
+  );
+  for (const existingName of existingNames) {
+    if (reviewTriageLabelNames.has(existingName) && existingName !== target) {
+      await ghApiWithMethod(
+        repoRoot,
+        `repos/${owner}/${repo}/issues/${review.prNumber}/labels/${encodeURIComponent(existingName)}`,
+        "DELETE",
+      );
+    }
+  }
+  if (!existingNames.has(target)) {
+    await ghApiWithJsonBody(
+      repoRoot,
+      `repos/${owner}/${repo}/issues/${review.prNumber}/labels`,
+      "POST",
+      { labels: [target] },
+    );
+  }
+  return { label: target, created };
+}
+
+async function createMissingReviewTriageLabels(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+): Promise<number> {
+  const repoLabels = await ghApiJson<Array<{ name?: string | null }>>(
+    repoRoot,
+    `repos/${owner}/${repo}/labels?per_page=100`,
+  );
+  const existingNames = new Set(
+    repoLabels.flatMap((label) => (label.name ? [label.name] : [])),
+  );
+  let created = 0;
+  for (const label of Object.values(reviewTriageLabelDefinitions)) {
+    if (existingNames.has(label.name)) {
+      continue;
+    }
+    await ghApiWithJsonBody(repoRoot, `repos/${owner}/${repo}/labels`, "POST", {
+      name: label.name,
+      color: label.color,
+      description: label.description,
+    });
+    created += 1;
+  }
+  return created;
 }
 
 async function upsertReviewSummaryComment(
@@ -1149,10 +1289,17 @@ function formatPullRequestPostStatus(
       `${posted.inlineComments} inline ${posted.inlineComments === 1 ? "comment" : "comments"}`,
     );
   }
+  if (posted.triageLabel) {
+    parts.push(`triage label ${posted.triageLabel}`);
+  }
   if (parts.length === 0) {
     return "PR comments posted: none.";
   }
-  return `PR comments posted: ${parts.join(", ")}.`;
+  const labelNote =
+    posted.triageLabelsCreated > 0
+      ? ` Created ${posted.triageLabelsCreated} triage labels.`
+      : "";
+  return `PR comments posted: ${parts.join(", ")}.${labelNote}`;
 }
 
 async function ghJson<T>(repoRoot: string, args: string[]): Promise<T> {
@@ -1190,6 +1337,14 @@ async function ghApiWithJsonBody(
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+async function ghApiWithMethod(
+  repoRoot: string,
+  endpoint: string,
+  method: "DELETE",
+): Promise<void> {
+  await execGh(repoRoot, ["api", endpoint, "--method", method]);
 }
 
 async function execGh(repoRoot: string, args: string[]): Promise<string> {
@@ -1619,6 +1774,8 @@ function parseOptions(rawOptions: string[]): CliOptions {
     reviewPostSummary: false,
     reviewInlineComments: false,
     reviewInlineCap: null,
+    reviewApplyTriageLabel: false,
+    reviewCreateTriageLabels: false,
   };
   for (let index = 0; index < rawOptions.length; index += 1) {
     const option = rawOptions[index];
@@ -1722,6 +1879,10 @@ function parseOptions(rawOptions: string[]): CliOptions {
       }
       options.reviewInlineCap = cap;
       index += 1;
+    } else if (option === "--review-apply-triage-label") {
+      options.reviewApplyTriageLabel = true;
+    } else if (option === "--review-create-triage-labels") {
+      options.reviewCreateTriageLabels = true;
     } else {
       throw new Error(`Unknown option: ${option}`);
     }

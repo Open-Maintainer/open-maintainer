@@ -633,18 +633,25 @@ continue to work as aliases.
 
 Review a real GitHub PR from the local checkout with locally authenticated
 `gh` and model CLI credentials. This fetches PR metadata and refs, generates a
-model-backed review, updates one marked summary comment, and opens a capped
-inline review with finding recommendations. Normal PR posting output stays
-concise and reports whether comments were posted; add `--output-path` or
-`--json` when you need the full generated review:
+model-backed review, updates one marked summary comment, opens a capped inline
+review with finding recommendations, and can apply one filterable contribution
+triage label. Normal PR posting output stays concise and reports whether
+comments or labels were posted; add `--output-path` or `--json` when you need
+the full generated review:
 
 ```sh
 bun run cli review . \
   --pr 123 \
   --model codex \
   --llm-model gpt-5.5 \
-  --allow-model-content-transfer
+  --allow-model-content-transfer \
+  --review-apply-triage-label \
+  --review-create-triage-labels
 ```
+
+The label is derived from the LLM contribution-triage category and is intended
+for GitHub PR list filtering. Missing Open Maintainer labels are created only
+when `--review-create-triage-labels` is present.
 
 Preview the same PR review without GitHub writes:
 

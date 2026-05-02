@@ -40,6 +40,11 @@ PR review users receive contribution-triage signals inside the existing review
 flow. They do not need to configure a separate triage workflow or policy
 taxonomy for v0.4.x.
 
+Maintainers can opt into a single GitHub PR triage label so the PR list is
+filterable by the contribution-triage category. Label writes require an
+explicit review flag, and missing label creation requires a separate explicit
+flag.
+
 Deterministic code may gather candidate evidence, but LLM-backed review owns the
 categorical contribution-triage result. Generated context policy text remains
 deterministic and separate from model classification.

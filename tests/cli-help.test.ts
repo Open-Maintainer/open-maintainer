@@ -80,6 +80,8 @@ describe("CLI help", () => {
     expect(result.stdout).toContain("--allow-model-content-transfer");
     expect(result.stdout).toContain("--review-provider codex|claude");
     expect(result.stdout).toContain("Alias for --model");
+    expect(result.stdout).toContain("--review-apply-triage-label");
+    expect(result.stdout).toContain("--review-create-triage-labels");
     expect(result.stdout).toContain("Local ref review is non-mutating");
   });
 

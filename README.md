@@ -175,6 +175,24 @@ bun run cli review "$TARGET_REPO" \
   --dry-run
 ```
 
+To make the PR list directly filterable, opt into a single Open Maintainer
+triage label derived from the LLM contribution-triage category. Missing labels
+are created only when `--review-create-triage-labels` is present:
+
+```sh
+bun run cli review "$TARGET_REPO" \
+  --pr <number> \
+  --model codex \
+  --allow-model-content-transfer \
+  --review-apply-triage-label \
+  --review-create-triage-labels
+```
+
+The default labels are `open-maintainer/ready-for-review`,
+`open-maintainer/needs-author-input`,
+`open-maintainer/needs-maintainer-design`,
+`open-maintainer/not-agent-ready`, and `open-maintainer/possible-spam`.
+
 ## GitHub Action
 
 Use the action in OSS repositories before installing a hosted app:
@@ -265,14 +283,16 @@ steps:
       skills-target: both
 ```
 
-Rule-grounded PR review is a maintainer-run CLI workflow in v0.4. It uses the maintainer's local `gh` authentication to fetch PR metadata and refs, then uses the selected local model CLI to generate the review. `--pr` posts one marked summary comment and capped inline finding comments back to GitHub; use `--dry-run` to preview without posting.
+Rule-grounded PR review is a maintainer-run CLI workflow in v0.4. It uses the maintainer's local `gh` authentication to fetch PR metadata and refs, then uses the selected local model CLI to generate the review. `--pr` posts one marked summary comment and capped inline finding comments back to GitHub; use `--review-apply-triage-label` to apply a filterable PR triage label, and use `--dry-run` to preview without posting.
 
 ```sh
 bun run cli review . \
   --pr 123 \
   --model codex \
   --llm-model gpt-5.5 \
-  --allow-model-content-transfer
+  --allow-model-content-transfer \
+  --review-apply-triage-label \
+  --review-create-triage-labels
 ```
 
 Dry-run review keeps GitHub untouched:

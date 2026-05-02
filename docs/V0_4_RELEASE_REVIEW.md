@@ -15,6 +15,8 @@ Included:
 - Deterministic review by default, with model-backed review only after explicit
   `--model` and `--allow-model-content-transfer`. Older
   `--review-provider` scripts remain supported as aliases.
+- Explicit PR triage label writes through the review command so maintainers can
+  filter the GitHub PR list by contribution-triage category.
 - Review output with summary, walkthrough, changed surface, risk analysis,
   expected validation, validation evidence, docs impact, cited findings, merge
   readiness, residual risk, and JSON output.

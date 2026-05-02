@@ -392,6 +392,63 @@ describe("CLI review", () => {
     );
   });
 
+  it("applies a filterable contribution triage label to a pull request", async () => {
+    const fixture = await createReviewRepo();
+    const prNumber = 12;
+    const refs = await attachPullRequestRemote(fixture, prNumber);
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli({ prNumber, ...refs });
+
+    const result = await runCli(
+      [
+        "review",
+        fixture,
+        "--pr",
+        String(prNumber),
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--review-post-summary",
+        "--review-apply-triage-label",
+        "--review-create-triage-labels",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain(
+      "triage label open-maintainer/ready-for-review",
+    );
+    expect(result.stdout).toContain("Created 5 triage labels.");
+
+    const calls = (await readFile(fakeGh.callsPath, "utf8"))
+      .trim()
+      .split(/\r?\n/)
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            endpoint: string;
+            input: { labels?: string[]; name?: string } | null;
+          },
+      );
+    expect(
+      calls.filter(
+        (call) =>
+          call.endpoint === "repos/Open-Maintainer/cli-review-fixture/labels",
+      ),
+    ).toHaveLength(5);
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        endpoint: "repos/Open-Maintainer/cli-review-fixture/issues/12/labels",
+        input: { labels: ["open-maintainer/ready-for-review"] },
+      }),
+    );
+  });
+
   it("requires a pull request target for posting flags", async () => {
     const fixture = await createReviewRepo();
 
@@ -406,6 +463,23 @@ describe("CLI review", () => {
     ]);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("Review posting requires --pr");
+    expect(result.stderr).toContain("Review GitHub write flags require --pr");
+  });
+
+  it("requires triage label application before creating triage labels", async () => {
+    const fixture = await createReviewRepo();
+
+    const result = await runCli([
+      "review",
+      fixture,
+      "--pr",
+      "12",
+      "--review-create-triage-labels",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "--review-create-triage-labels requires --review-apply-triage-label",
+    );
   });
 });

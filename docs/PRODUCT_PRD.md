@@ -484,6 +484,10 @@ v0.4.x PR contribution triage should stay inside the PR review product. It shoul
 - generated-file, lockfile, or dependency changes
 - maintainer-attention recommendation
 
+It may apply one explicit PR triage label for GitHub PR-list filtering when the
+maintainer uses an opt-in write flag. Missing PR triage labels may be created
+only behind an explicit create-labels flag.
+
 It must not introduce full issue triage, issue labels/comments, duplicate issue handling, stale issue handling, auto-close, or agent task briefs.
 
 ### 12.2 Categorization Boundary
@@ -515,7 +519,7 @@ This is deterministic context policy text. It is separate from LLM-only issue/PR
 
 ### 12.4 Simplicity Requirement
 
-PR review users should receive contribution-quality signals without learning a separate triage workflow or configuring a policy taxonomy. The v0.4.x path should save review time inside the existing PR review flow.
+PR review users should receive contribution-quality signals without learning a separate triage workflow or configuring a policy taxonomy. The v0.4.x path should save review time inside the existing PR review flow and let maintainers make the GitHub PR list filterable through explicit PR label writes.
 
 ## 13. v0.5 Issue Triage and Agent-Safe Backlog Requirements
 

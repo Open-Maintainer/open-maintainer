@@ -195,11 +195,12 @@ Complete when:
 
 Goal: tighten the shipped PR review beta with contribution-quality signals without changing v0.4.0 release scope.
 
-This is an additive v0.4.x line because v0.4.0 is already released. The feature name is Contribution Triage, but v0.4.x is limited to PR-side signals inside PR review output.
+This is an additive v0.4.x line because v0.4.0 is already released. The feature name is Contribution Triage, but v0.4.x is limited to PR-side signals inside PR review output plus explicit PR label writes for GitHub PR-list filtering.
 
 Scope:
 
 - Add PR contribution triage signals for intent clarity, linked issue or acceptance criteria, diff scope versus stated intent, validation evidence, docs alignment, broad churn, high-risk files, generated-file changes, lockfile changes, dependency changes, and maintainer-attention recommendation.
+- Add opt-in PR triage labels so maintainers can filter the GitHub PR list by ready for review, needs author input, needs maintainer design, not agent-ready, or possible spam-like contribution noise.
 - Keep the output categorical and evidence-based; do not ship a numeric quality score by default.
 - Keep issue triage, issue labels/comments, duplicate issue handling, stale issue handling, auto-close, and agent task briefs out of v0.4.x.
 - Categorize PR contribution quality with the LLM only. Deterministic code may gather candidate evidence such as changed files, diff stats, check status, linked issue metadata, and missing detected validation text, but it must not independently assign classifications.
@@ -208,8 +209,8 @@ Scope:
 
 Complete when:
 
-- Product outcome: PR review output helps maintainers decide whether a PR is ready for review, needs author input, needs maintainer design, is not agent-ready, or is possible spam-like contribution noise.
-- Validation evidence: tests cover prompt/schema handling, candidate evidence gathering, deterministic generated-context section rendering, and non-mutating review output.
+- Product outcome: PR review output and opt-in PR labels help maintainers decide whether a PR is ready for review, needs author input, needs maintainer design, is not agent-ready, or is possible spam-like contribution noise.
+- Validation evidence: tests cover prompt/schema handling, candidate evidence gathering, deterministic generated-context section rendering, non-mutating review output, and explicit PR label writes.
 - Quality bar: contribution triage is not marketed or implemented as AI authorship detection.
 
 ## v0.5: Issue Triage and Agent-Safe Backlog
