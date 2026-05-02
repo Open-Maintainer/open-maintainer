@@ -1,6 +1,10 @@
 import { cp, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import {
+  codexGenerateArgs,
+  createFakeCodexCli,
+} from "../helpers/fake-model-cli";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
 const fixture = path.join(repoRoot, "tests/fixtures/low-context-ts");
@@ -8,9 +12,10 @@ const workdir = await mkdtemp(path.join(tmpdir(), "open-maintainer-mvp-"));
 
 await cp(fixture, workdir, { recursive: true });
 
-async function runCli(args: string[]) {
+async function runCli(args: string[], env: Record<string, string> = {}) {
   const process = Bun.spawn(["bun", "apps/cli/src/index.ts", ...args], {
     cwd: repoRoot,
+    env: { ...Bun.env, ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -34,15 +39,19 @@ function scoreFrom(output: string): number {
 }
 
 const before = scoreFrom(await runCli(["audit", workdir]));
-await runCli([
-  "generate",
-  workdir,
-  "--deterministic",
-  "--context",
-  "codex",
-  "--skills",
-  "codex",
-]);
+const fakeCodex = await createFakeCodexCli();
+await runCli(
+  [
+    "generate",
+    workdir,
+    ...codexGenerateArgs,
+    "--context",
+    "codex",
+    "--skills",
+    "codex",
+  ],
+  fakeCodex.env,
+);
 const after = scoreFrom(await runCli(["audit", workdir]));
 const doctor = await runCli(["doctor", workdir]);
 await runCli(["pr", workdir, "--create"]);

@@ -5,6 +5,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import {
+  codexGenerateArgs,
+  createFakeCodexCli,
+} from "./helpers/fake-model-cli";
 
 const execFileAsync = promisify(execFile);
 
@@ -14,9 +18,10 @@ const repoRoot = path.resolve(
 );
 const fixtureRoot = path.join(repoRoot, "tests/fixtures/low-context-ts");
 
-async function runCli(args: string[]) {
+async function runCli(args: string[], env: Record<string, string> = {}) {
   const process = Bun.spawn(["bun", "apps/cli/src/index.ts", ...args], {
     cwd: repoRoot,
+    env: { ...Bun.env, ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -64,16 +69,20 @@ describe("CLI audit", () => {
   it("re-audits after init generates context artifacts", async () => {
     const workdir = await mkdtemp(path.join(tmpdir(), "open-maintainer-init-"));
     await cp(fixtureRoot, workdir, { recursive: true });
+    const fakeCodex = await createFakeCodexCli();
 
-    const result = await runCli([
-      "init",
-      workdir,
-      "--deterministic",
-      "--context",
-      "codex",
-      "--skills",
-      "codex",
-    ]);
+    const result = await runCli(
+      [
+        "init",
+        workdir,
+        ...codexGenerateArgs,
+        "--context",
+        "codex",
+        "--skills",
+        "codex",
+      ],
+      fakeCodex.env,
+    );
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
@@ -123,16 +132,20 @@ describe("CLI audit", () => {
       path.join(tmpdir(), "open-maintainer-refresh-generated-"),
     );
     await cp(fixtureRoot, workdir, { recursive: true });
+    const fakeCodex = await createFakeCodexCli();
 
-    const initial = await runCli([
-      "generate",
-      workdir,
-      "--deterministic",
-      "--context",
-      "codex",
-      "--skills",
-      "codex",
-    ]);
+    const initial = await runCli(
+      [
+        "generate",
+        workdir,
+        ...codexGenerateArgs,
+        "--context",
+        "codex",
+        "--skills",
+        "codex",
+      ],
+      fakeCodex.env,
+    );
     expect(initial.exitCode).toBe(0);
 
     const agentsPath = path.join(workdir, "AGENTS.md");
@@ -141,16 +154,19 @@ describe("CLI audit", () => {
     const staleGeneratedConfig = `${await readFile(configPath, "utf8")}\n# stale generated note\n`;
     await writeFile(configPath, staleGeneratedConfig);
 
-    const refresh = await runCli([
-      "generate",
-      workdir,
-      "--deterministic",
-      "--context",
-      "codex",
-      "--skills",
-      "codex",
-      "--refresh-generated",
-    ]);
+    const refresh = await runCli(
+      [
+        "generate",
+        workdir,
+        ...codexGenerateArgs,
+        "--context",
+        "codex",
+        "--skills",
+        "codex",
+        "--refresh-generated",
+      ],
+      fakeCodex.env,
+    );
 
     expect(refresh.exitCode).toBe(0);
     expect(refresh.stderr).toBe("");
@@ -173,16 +189,20 @@ describe("CLI audit", () => {
       path.join(tmpdir(), "open-maintainer-audit-drift-"),
     );
     await cp(fixtureRoot, workdir, { recursive: true });
+    const fakeCodex = await createFakeCodexCli();
 
-    const generate = await runCli([
-      "generate",
-      workdir,
-      "--deterministic",
-      "--context",
-      "codex",
-      "--skills",
-      "codex",
-    ]);
+    const generate = await runCli(
+      [
+        "generate",
+        workdir,
+        ...codexGenerateArgs,
+        "--context",
+        "codex",
+        "--skills",
+        "codex",
+      ],
+      fakeCodex.env,
+    );
     expect(generate.exitCode).toBe(0);
 
     const packageJsonPath = path.join(workdir, "package.json");

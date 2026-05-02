@@ -1,9 +1,9 @@
 import type { RepoProfile, ReviewInput } from "@open-maintainer/shared";
 import { describe, expect, it } from "vitest";
 import {
+  buildReviewEvidencePrecheck,
   classifyChangedSurface,
   detectValidationEvidence,
-  generateDeterministicReview,
   inferExpectedValidation,
 } from "../src";
 
@@ -44,7 +44,7 @@ const profile: RepoProfile = {
   environmentFiles: [],
   environmentVariables: [],
   ignoreFiles: [],
-  testFilePaths: ["packages/review/tests/deterministic.test.ts"],
+  testFilePaths: ["packages/review/tests/precheck.test.ts"],
   reviewRuleCandidates: [
     "Run `vitest run` before finishing changes that affect test.",
   ],
@@ -102,7 +102,7 @@ const reviewInput: ReviewInput = {
   createdAt: "2026-05-02T00:00:00.000Z",
 };
 
-describe("deterministic review", () => {
+describe("review evidence precheck", () => {
   it("classifies changed surfaces from paths", () => {
     expect(classifyChangedSurface(reviewInput, profile)).toEqual([
       "cli",
@@ -164,32 +164,29 @@ describe("deterministic review", () => {
     expect(evidence).toContain("Check `typecheck` reported success.");
   });
 
-  it("emits cited findings for missing validation and docs impact", () => {
-    const review = generateDeterministicReview({
+  it("computes prompt evidence for validation, docs impact, and risk", () => {
+    const precheck = buildReviewEvidencePrecheck({
       profile,
       input: reviewInput,
       rules: profile.reviewRuleCandidates,
     });
 
-    expect(review.expectedValidation.length).toBeGreaterThan(0);
-    expect(review.validationEvidence).toEqual([]);
-    expect(review.docsImpact.map((item) => item.path)).toEqual([
+    expect(precheck.expectedValidation.length).toBeGreaterThan(0);
+    expect(precheck.validationEvidence).toEqual([]);
+    expect(precheck.docsImpact.map((item) => item.path)).toEqual([
       "README.md",
       "docs/DEMO_RUNBOOK.md",
     ]);
-    expect(review.findings.map((finding) => finding.id)).toEqual([
-      "missing-validation-evidence",
-      "docs-impact-readme-md",
-      "docs-impact-docs-demo-runbook-md",
-    ]);
     expect(
-      review.findings.every((finding) => finding.citations.length > 0),
+      precheck.expectedValidation.every((item) => item.evidence.length > 0),
     ).toBe(true);
-    expect(review.mergeReadiness.status).toBe("needs_attention");
+    expect(precheck.riskAnalysis).toEqual([
+      "No risk path or skipped-file risk was detected before model review.",
+    ]);
   });
 
-  it("does not emit generic findings when only docs change", () => {
-    const review = generateDeterministicReview({
+  it("classifies docs-only changes without generating review findings", () => {
+    const precheck = buildReviewEvidencePrecheck({
       profile,
       input: {
         ...reviewInput,
@@ -207,10 +204,8 @@ describe("deterministic review", () => {
       },
     });
 
-    expect(review.changedSurface).toEqual(["docs"]);
-    expect(review.findings).toEqual([]);
-    expect(review.residualRisk).toContain(
-      "No generic critique was emitted without repo evidence.",
-    );
+    expect(precheck.changedSurface).toEqual(["docs"]);
+    expect(precheck.expectedValidation).toEqual([]);
+    expect(precheck.docsImpact).toEqual([]);
   });
 });

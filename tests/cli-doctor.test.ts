@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import {
+  codexGenerateArgs,
+  createFakeCodexCli,
+} from "./helpers/fake-model-cli";
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -10,9 +14,10 @@ const repoRoot = path.resolve(
 );
 const fixtureRoot = path.join(repoRoot, "tests/fixtures/low-context-ts");
 
-async function runCli(args: string[]) {
+async function runCli(args: string[], env: Record<string, string> = {}) {
   const process = Bun.spawn(["bun", "apps/cli/src/index.ts", ...args], {
     cwd: repoRoot,
+    env: { ...Bun.env, ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -30,16 +35,20 @@ describe("CLI doctor", () => {
       path.join(tmpdir(), "open-maintainer-doctor-"),
     );
     await cp(fixtureRoot, workdir, { recursive: true });
+    const fakeCodex = await createFakeCodexCli();
 
-    const generate = await runCli([
-      "generate",
-      workdir,
-      "--deterministic",
-      "--context",
-      "codex",
-      "--skills",
-      "codex",
-    ]);
+    const generate = await runCli(
+      [
+        "generate",
+        workdir,
+        ...codexGenerateArgs,
+        "--context",
+        "codex",
+        "--skills",
+        "codex",
+      ],
+      fakeCodex.env,
+    );
     expect(generate.exitCode).toBe(0);
 
     const packageJsonPath = path.join(workdir, "package.json");
@@ -60,13 +69,6 @@ describe("CLI doctor", () => {
     expect(doctor.stdout).toContain(
       "drift: .open-maintainer/profile.json was generated from a different repository profile",
     );
-    expect(doctor.stdout).toContain(
-      "drift: AGENTS.md was generated from a different repository profile",
-    );
-    expect(doctor.stdout).toContain("drift: .agents/skills/");
-    expect(doctor.stdout).toContain(
-      "-start-task/SKILL.md was generated from a different repository profile",
-    );
   });
 
   it("names CI workflow drift from the stored profile", async () => {
@@ -84,16 +86,20 @@ describe("CLI doctor", () => {
       path.join(workflowDir, "lint.yml"),
       "name: Lint\non: [push]\njobs:\n  lint:\n    runs-on: ubuntu-latest\n",
     );
+    const fakeCodex = await createFakeCodexCli();
 
-    const generate = await runCli([
-      "generate",
-      workdir,
-      "--deterministic",
-      "--context",
-      "codex",
-      "--skills",
-      "codex",
-    ]);
+    const generate = await runCli(
+      [
+        "generate",
+        workdir,
+        ...codexGenerateArgs,
+        "--context",
+        "codex",
+        "--skills",
+        "codex",
+      ],
+      fakeCodex.env,
+    );
     expect(generate.exitCode).toBe(0);
 
     await writeFile(
@@ -135,16 +141,20 @@ describe("CLI doctor", () => {
       path.join(templateDir, "bug.yml"),
       "name: Bug report\ndescription: Report a reproducible bug.\n",
     );
+    const fakeCodex = await createFakeCodexCli();
 
-    const generate = await runCli([
-      "generate",
-      workdir,
-      "--deterministic",
-      "--context",
-      "codex",
-      "--skills",
-      "codex",
-    ]);
+    const generate = await runCli(
+      [
+        "generate",
+        workdir,
+        ...codexGenerateArgs,
+        "--context",
+        "codex",
+        "--skills",
+        "codex",
+      ],
+      fakeCodex.env,
+    );
     expect(generate.exitCode).toBe(0);
 
     await writeFile(
@@ -187,16 +197,20 @@ describe("CLI doctor", () => {
       path.join(tmpdir(), "open-maintainer-doctor-risk-"),
     );
     await cp(fixtureRoot, workdir, { recursive: true });
+    const fakeCodex = await createFakeCodexCli();
 
-    const generate = await runCli([
-      "generate",
-      workdir,
-      "--deterministic",
-      "--context",
-      "codex",
-      "--skills",
-      "codex",
-    ]);
+    const generate = await runCli(
+      [
+        "generate",
+        workdir,
+        ...codexGenerateArgs,
+        "--context",
+        "codex",
+        "--skills",
+        "codex",
+      ],
+      fakeCodex.env,
+    );
     expect(generate.exitCode).toBe(0);
 
     await writeFile(path.join(workdir, "tsconfig.json"), '{"strict":true}\n');

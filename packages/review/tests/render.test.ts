@@ -121,7 +121,7 @@ describe("review schemas", () => {
 });
 
 describe("review renderers", () => {
-  it("renders a deterministic full review document", () => {
+  it("renders a full review document", () => {
     const rendered = renderReviewMarkdown(review);
 
     expect(rendered).toContain("## Open Maintainer PR Review");

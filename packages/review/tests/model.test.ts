@@ -5,8 +5,8 @@ import type {
 } from "@open-maintainer/shared";
 import { describe, expect, it } from "vitest";
 import {
+  buildReviewEvidencePrecheck,
   buildReviewPrompt,
-  generateDeterministicReview,
   generateReview,
   modelReviewOutputJsonSchema,
   parseModelReviewOutput,
@@ -125,8 +125,8 @@ describe("model-backed review", () => {
     expect(invalidPaths).toEqual([]);
   });
 
-  it("builds a prompt from deterministic review, repo context, and PR evidence", () => {
-    const deterministicReview = generateDeterministicReview({
+  it("builds a prompt from precheck evidence, repo context, and PR evidence", () => {
+    const precheck = buildReviewEvidencePrecheck({
       profile,
       input: reviewInput,
       rules: profile.reviewRuleCandidates,
@@ -135,7 +135,7 @@ describe("model-backed review", () => {
     const prompt = buildReviewPrompt({
       profile,
       input: reviewInput,
-      deterministicReview,
+      precheck,
       rules: profile.reviewRuleCandidates,
       promptContext: {
         openMaintainerConfig: "qualityRules:\n  - Run vitest",
@@ -157,15 +157,20 @@ describe("model-backed review", () => {
     ).toThrow();
   });
 
-  it("falls back to deterministic review when no provider is configured", async () => {
-    const review = await generateReview({
+  it("builds review precheck signals without producing final findings", () => {
+    const precheck = buildReviewEvidencePrecheck({
       profile,
       input: reviewInput,
       rules: profile.reviewRuleCandidates,
     });
 
-    expect(review.modelProvider).toBeNull();
-    expect(review.changedSurface).toEqual(["package:review", "risk"]);
+    expect(precheck.changedSurface).toEqual(["package:review", "risk"]);
+    expect(precheck.expectedValidation.map((item) => item.command)).toContain(
+      "vitest run",
+    );
+    expect(precheck.validationEvidence).toContain(
+      "PR body mentions `vitest run`.",
+    );
   });
 
   it("requires repo-content consent before provider review", async () => {

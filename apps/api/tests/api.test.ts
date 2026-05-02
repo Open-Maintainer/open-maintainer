@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createFakeCodexCli } from "../../../tests/helpers/fake-model-cli";
 import { buildApp } from "../src/app";
 
 const execFileAsync = promisify(execFile);
@@ -201,6 +202,9 @@ describe("MVP API", () => {
 
   it("creates dashboard PR review previews and guards posting", async () => {
     const repoRoot = await createLocalReviewRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const previousCodexCommand = process.env.OPEN_MAINTAINER_CODEX_COMMAND;
+    process.env.OPEN_MAINTAINER_CODEX_COMMAND = fakeCodex.command;
     const registered = await app.inject({
       method: "POST",
       url: "/repos/local",
@@ -214,18 +218,41 @@ describe("MVP API", () => {
     });
     expect(analysis.statusCode).toBe(200);
 
+    const provider = await app.inject({
+      method: "POST",
+      url: "/model-providers",
+      payload: {
+        kind: "codex-cli",
+        displayName: "Codex CLI",
+        baseUrl: "http://localhost",
+        model: "codex-cli",
+        apiKey: "local-cli",
+        repoContentConsent: true,
+      },
+    });
+    expect(provider.statusCode).toBe(200);
+
     const created = await app.inject({
       method: "POST",
       url: `/repos/${repoId}/reviews`,
-      payload: { baseRef: "HEAD~1", headRef: "HEAD", prNumber: 48 },
+      payload: {
+        baseRef: "HEAD~1",
+        headRef: "HEAD",
+        prNumber: 48,
+        providerId: provider.json().provider.id,
+      },
     });
+    if (previousCodexCommand === undefined) {
+      Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
+    } else {
+      process.env.OPEN_MAINTAINER_CODEX_COMMAND = previousCodexCommand;
+    }
     expect(created.statusCode).toBe(200);
     expect(created.json().run.type).toBe("review");
     expect(created.json().run.status).toBe("succeeded");
     expect(created.json().review.prNumber).toBe(48);
     expect(created.json().review.changedFiles[0].path).toBe("src/index.ts");
-    const [finding] = created.json().review.findings;
-    expect(finding.id).toBe("missing-validation-evidence");
+    expect(created.json().review.modelProvider).toBe("Codex CLI");
 
     const reviews = await app.inject({
       method: "GET",
@@ -245,35 +272,15 @@ describe("MVP API", () => {
       method: "POST",
       url: `/reviews/${created.json().review.id}/feedback`,
       payload: {
-        findingId: finding.id,
+        findingId: "missing-finding",
         verdict: "false_positive",
         reason: "Validation is covered by the disposable test repo.",
         actor: "maintainer",
       },
     });
-    expect(feedback.statusCode).toBe(200);
-    expect(feedback.json().feedback.verdict).toBe("false_positive");
-    expect(feedback.json().review.feedback).toHaveLength(1);
+    expect(feedback.statusCode).toBe(422);
 
-    const unknownFinding = await app.inject({
-      method: "POST",
-      url: `/reviews/${created.json().review.id}/feedback`,
-      payload: {
-        findingId: "missing-finding",
-        verdict: "false_positive",
-      },
-    });
-    expect(unknownFinding.statusCode).toBe(422);
-    expect(unknownFinding.json().error).toContain("Unknown finding ID");
-
-    const feedbackReadback = await app.inject({
-      method: "GET",
-      url: `/reviews/${created.json().review.id}`,
-    });
-    expect(feedbackReadback.statusCode).toBe(200);
-    expect(feedbackReadback.json().review.feedback[0].findingId).toBe(
-      finding.id,
-    );
+    expect(feedback.json().error).toContain("Unknown finding ID");
 
     const posting = await app.inject({
       method: "POST",

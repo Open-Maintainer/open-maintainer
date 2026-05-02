@@ -5,13 +5,15 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { ReviewResultSchema } from "@open-maintainer/shared";
 import { describe, expect, it } from "vitest";
+import { createFakeCodexCli } from "./helpers/fake-model-cli";
 
 const execFileAsync = promisify(execFile);
 const repoRoot = path.resolve(import.meta.dir, "..");
 
-async function runCli(args: string[]) {
+async function runCli(args: string[], env: Record<string, string> = {}) {
   const process = Bun.spawn(["bun", "apps/cli/src/index.ts", ...args], {
     cwd: repoRoot,
+    env: { ...Bun.env, ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -66,19 +68,26 @@ describe("CLI review", () => {
   it("writes markdown output without GitHub credentials", async () => {
     const fixture = await createReviewRepo();
     const outputPath = ".open-maintainer/review.md";
+    const fakeCodex = await createFakeCodexCli();
 
-    const result = await runCli([
-      "review",
-      fixture,
-      "--base-ref",
-      "HEAD~1",
-      "--head-ref",
-      "HEAD",
-      "--pr-number",
-      "44",
-      "--output-path",
-      outputPath,
-    ]);
+    const result = await runCli(
+      [
+        "review",
+        fixture,
+        "--base-ref",
+        "HEAD~1",
+        "--head-ref",
+        "HEAD",
+        "--pr-number",
+        "44",
+        "--output-path",
+        outputPath,
+        "--review-provider",
+        "codex",
+        "--allow-model-content-transfer",
+      ],
+      fakeCodex.env,
+    );
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
@@ -91,16 +100,23 @@ describe("CLI review", () => {
 
   it("prints ReviewResult JSON", async () => {
     const fixture = await createReviewRepo();
+    const fakeCodex = await createFakeCodexCli();
 
-    const result = await runCli([
-      "review",
-      fixture,
-      "--base-ref",
-      "HEAD~1",
-      "--head-ref",
-      "HEAD",
-      "--json",
-    ]);
+    const result = await runCli(
+      [
+        "review",
+        fixture,
+        "--base-ref",
+        "HEAD~1",
+        "--head-ref",
+        "HEAD",
+        "--json",
+        "--review-provider",
+        "codex",
+        "--allow-model-content-transfer",
+      ],
+      fakeCodex.env,
+    );
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
@@ -108,7 +124,7 @@ describe("CLI review", () => {
     expect(review.changedFiles.map((file) => file.path)).toEqual([
       "src/index.ts",
     ]);
-    expect(review.modelProvider).toBeNull();
+    expect(review.modelProvider).toBe("Codex CLI");
   });
 
   it("prints actionable errors for missing refs", async () => {
