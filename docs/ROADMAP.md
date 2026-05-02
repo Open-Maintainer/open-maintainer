@@ -99,7 +99,8 @@ Scope:
 - Generate `AGENTS.md`, `.open-maintainer.yml`, repo-local skills, and related context artifacts.
 - Preserve existing generated context unless explicitly forced.
 - Require explicit consent before model-backed generation sends repository content to a provider.
-- Support deterministic generation for smoke tests.
+- Keep smoke tests on fake local model providers so context generation and PR
+  review stay on the LLM-backed path.
 - Provide GitHub Action audit mode for missing context and drift warnings.
 - Provide a dashboard foundation for self-hosted analysis and context PR flows.
 

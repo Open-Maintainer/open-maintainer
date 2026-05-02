@@ -87,9 +87,8 @@ Commands run:
   passed and wrote review markdown.
 - `bun run cli review . --base-ref HEAD~1 --head-ref HEAD --json`: passed;
   produced a valid review result with 2 findings across 12 changed files.
-- `bun run cli generate . --deterministic --context codex --skills codex --refresh-generated`:
-  passed; refreshed generated context artifacts without model-backed content
-  transfer.
+- `bun run cli generate . --model codex --context codex --skills codex --allow-write --refresh-generated`:
+  passed; refreshed generated context artifacts through the model-backed path.
 - `bun lint`: passed.
 - `bun typecheck`: passed.
 - `bun test`: passed, 105 tests across 21 files.
@@ -103,8 +102,8 @@ Commands run:
 
 Focused v0.4 evidence:
 
-- Review package tests cover deterministic review output, model-backed review
-  validation, rendering, inline comment rendering, and local Git diff assembly.
+- Review package tests cover precheck evidence, model-backed review validation,
+  rendering, inline comment rendering, and local Git diff assembly.
 - CLI review tests cover markdown output, JSON output, invalid refs,
   model-content-transfer consent, and non-mutating posting guards.
 - Action tests cover review mode, Step Summary output, summary comment opt-in,

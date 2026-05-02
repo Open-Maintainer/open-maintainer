@@ -71,9 +71,8 @@ Result: passed for v0.2 readiness-quality release validation.
 
 Commands run:
 
-- `bun run cli generate . --deterministic --context codex --skills codex --force`:
-  passed; refreshed generated context artifacts without model-backed content
-  transfer.
+- `bun run cli generate . --model codex --context codex --skills codex --allow-write --force`:
+  passed; refreshed generated context artifacts through the model-backed path.
 - `bun run cli audit .`: passed, `Agent Readiness: 100/100`.
 - `bun run cli doctor .`: passed, `Agent Readiness: 100/100` and all
   required artifacts present.

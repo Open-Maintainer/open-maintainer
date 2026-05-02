@@ -60,9 +60,8 @@ Commands run:
 - `bun test tests/action-mvp.test.ts`: passed during implementation.
 - `bun test tests/action-mvp.test.ts tests/cli-audit.test.ts tests/cli-help.test.ts packages/context/tests/render.test.ts packages/github/tests/webhook.test.ts`:
   passed, 36 tests across 5 files.
-- `bun run cli generate . --deterministic --context codex --skills codex --refresh-generated`:
-  passed; refreshed generated context artifacts without model-backed content
-  transfer.
+- `bun run cli generate . --model codex --context codex --skills codex --allow-write --refresh-generated`:
+  passed; refreshed generated context artifacts through the model-backed path.
 - `bun run cli doctor .`: passed, `Agent Readiness: 100/100` and all
   required artifacts present.
 - `bun lint`: passed.
