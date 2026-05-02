@@ -32,11 +32,7 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
 - Evidence: docs/V0_3_RELEASE_REVIEW.md (detected repository context)
-- Evidence: local-docs/MVP_IMPLEMENTATION_PLAN.md (detected repository context)
 - Evidence: local-docs/PRODUCT_PRD.md (detected repository context)
-- Evidence: local-docs/SKILLS_GENERATION.md (detected repository context)
-- Evidence: local-docs/TECH_STACK.md (detected repository context)
-- Evidence: local-docs/V0_3_GITHUB_ACTION_RELEASE_PLAN.md (detected repository context)
 - Evidence: README.md (detected repository context)
 - Evidence: .env.example (detected repository context)
 - Evidence: tests/fixtures/high-readiness-ts/.env.example (detected repository context)
@@ -244,11 +240,7 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
 - Evidence: docs/V0_3_RELEASE_REVIEW.md (detected repository context)
-- Evidence: local-docs/MVP_IMPLEMENTATION_PLAN.md (detected repository context)
 - Evidence: local-docs/PRODUCT_PRD.md (detected repository context)
-- Evidence: local-docs/SKILLS_GENERATION.md (detected repository context)
-- Evidence: local-docs/TECH_STACK.md (detected repository context)
-- Evidence: local-docs/V0_3_GITHUB_ACTION_RELEASE_PLAN.md (detected repository context)
 - Evidence: README.md (detected repository context)
 
 ### risk handling: 12/12
@@ -259,11 +251,7 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
 - Evidence: docs/V0_3_RELEASE_REVIEW.md (detected repository context)
-- Evidence: local-docs/MVP_IMPLEMENTATION_PLAN.md (detected repository context)
 - Evidence: local-docs/PRODUCT_PRD.md (detected repository context)
-- Evidence: local-docs/SKILLS_GENERATION.md (detected repository context)
-- Evidence: local-docs/TECH_STACK.md (detected repository context)
-- Evidence: local-docs/V0_3_GITHUB_ACTION_RELEASE_PLAN.md (detected repository context)
 - Evidence: README.md (detected repository context)
 
 ### generated-file handling: 12/12
