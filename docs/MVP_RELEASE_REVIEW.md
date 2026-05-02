@@ -65,19 +65,23 @@ bun run smoke:compose
 ## Latest dry-run evidence
 
 Date: 2026-05-02
-Base commit: `a04cbc9`
+Base implementation commit: `19a46ac`
 
 Result: passed for v0.2 readiness-quality release validation.
 
 Commands run:
 
+- `bun run cli generate . --deterministic --context codex --skills codex --force`:
+  passed; refreshed generated context artifacts without model-backed content
+  transfer.
+- `bun run cli audit .`: passed, `Agent Readiness: 100/100`.
+- `bun run cli doctor .`: passed, `Agent Readiness: 100/100` and all
+  required artifacts present.
 - `bun lint`: passed.
 - `bun typecheck`: passed.
 - `bun test`: passed, 64 tests across 16 files.
 - `bun run build`: passed, including the Next production build.
 - `bun run smoke:mvp`: passed, `MVP smoke passed: 66/100 -> 82/100`.
-- `bun run cli doctor .`: passed, `Agent Readiness: 100/100` and all required
-  artifacts present.
 - `docker compose up --build -d`: passed.
 - `bun run smoke:compose`: passed, `Docker Compose smoke passed.`
 - `docker compose down --volumes --remove-orphans`: completed cleanup.
@@ -95,6 +99,8 @@ Readiness quality evidence:
   guidance on an otherwise conventional repository.
 - Drift tests validate changed command, CI, docs, template, context artifact,
   lock/config, package-boundary, and risk-path surfaces.
+- Current repository context is fresh after the root `format` script addition;
+  `doctor` reports no stale profile or context drift.
 
 Compose resolution retained:
 
