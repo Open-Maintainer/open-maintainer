@@ -1,11 +1,13 @@
 {
-  "id": "repo_profile_f728376a-f874-4cdd-bbd2-59d3401326f2",
+  "id": "repo_profile_359571c1-71ca-4dea-8e66-e6cfde1cc718",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
   "name": "open-maintainer",
   "defaultBranch": "main",
-  "primaryLanguages": ["TypeScript"],
+  "primaryLanguages": [
+    "TypeScript"
+  ],
   "frameworks": [
     "next",
     "react",
@@ -198,6 +200,7 @@
   "importantDocs": [
     "CONTRIBUTING.md",
     "docs/DEMO_RUNBOOK.md",
+    "docs/mock-prs/ready-for-review.md",
     "docs/MVP_RELEASE_REVIEW.md",
     "docs/PRODUCT_PRD.md",
     "docs/ROADMAP.md",
@@ -514,6 +517,10 @@
     },
     {
       "path": "docs/DEMO_RUNBOOK.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "docs/mock-prs/ready-for-review.md",
       "reason": "detected repository context"
     },
     {
@@ -897,7 +904,9 @@
       "reason": "detected repository context"
     }
   ],
-  "workspaceManifests": ["package.json"],
+  "workspaceManifests": [
+    "package.json"
+  ],
   "lockfiles": [
     "bun.lock",
     "tests/fixtures/high-readiness-ts/bun.lock",
@@ -996,11 +1005,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "eadba1daac0b9f3e"
+      "hash": "c5d715c08897e503"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "8ada714e1f6d787a"
+      "hash": "4f107bc725ee6a6f"
     },
     {
       "path": "AGENTS.md",
@@ -1065,6 +1074,10 @@
     {
       "path": "docs/DEMO_RUNBOOK.md",
       "hash": "c2da896289a741b3"
+    },
+    {
+      "path": "docs/mock-prs/ready-for-review.md",
+      "hash": "32d392f40d7ee8a8"
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
@@ -1404,7 +1417,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-02T21:38:17.471Z",
+  "createdAt": "2026-05-02T22:51:17.527Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1504,6 +1517,10 @@
           },
           {
             "path": "docs/DEMO_RUNBOOK.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/mock-prs/ready-for-review.md",
             "reason": "detected repository context"
           },
           {
@@ -1652,6 +1669,10 @@
           },
           {
             "path": "docs/DEMO_RUNBOOK.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/mock-prs/ready-for-review.md",
             "reason": "detected repository context"
           },
           {
@@ -2403,6 +2424,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "docs/mock-prs/ready-for-review.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": "docs/MVP_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
@@ -2448,6 +2473,10 @@
           },
           {
             "path": "docs/DEMO_RUNBOOK.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/mock-prs/ready-for-review.md",
             "reason": "detected repository context"
           },
           {
@@ -2630,7 +2659,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T21:38:17.472Z"
+    "generatedAt": "2026-05-02T22:51:17.528Z"
   },
-  "openMaintainerProfileHash": "7c69e19eb59d4f37"
+  "openMaintainerProfileHash": "43011bf6b0819df5"
 }
