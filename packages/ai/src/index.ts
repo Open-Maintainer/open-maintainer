@@ -233,6 +233,9 @@ export function buildCodexCliProvider(
         if (options.model) {
           args.push("--model", options.model);
         }
+        if (process.env.OPENAI_API_KEY) {
+          args.push("--config", 'preferred_auth_method="apikey"');
+        }
         if (outputSchema) {
           await writeFile(schemaPath, JSON.stringify(outputSchema));
           args.push("--output-schema", schemaPath);

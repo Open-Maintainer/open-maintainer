@@ -203,6 +203,42 @@ fs.writeFileSync(outputPath, JSON.stringify({ ok: true, source: "codex" }));
     expect(result.model).toBe("gpt-5.5");
   });
 
+  it("selects Codex API-key auth when OPENAI_API_KEY is configured", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "codex-provider-auth-test-"),
+    );
+    const command = path.join(directory, "fake-codex.js");
+    const previousApiKey = process.env.OPENAI_API_KEY;
+    await writeFile(
+      command,
+      `#!/usr/bin/env node
+const fs = require("node:fs");
+const outputIndex = process.argv.indexOf("--output-last-message");
+const outputPath = process.argv[outputIndex + 1];
+fs.writeFileSync(outputPath, JSON.stringify({ argv: process.argv.slice(2) }));
+`,
+    );
+    await chmod(command, 0o755);
+
+    try {
+      process.env.OPENAI_API_KEY = "test-key";
+      const result = await buildCodexCliProvider({
+        command,
+        cwd: directory,
+      }).complete({ system: "Return JSON.", user: "Use schema." });
+
+      expect(JSON.parse(result.text).argv).toContain(
+        'preferred_auth_method="apikey"',
+      );
+    } finally {
+      if (previousApiKey === undefined) {
+        Reflect.deleteProperty(process.env, "OPENAI_API_KEY");
+      } else {
+        process.env.OPENAI_API_KEY = previousApiKey;
+      }
+    }
+  });
+
   it("omits CLI failure output because it can contain repository content", async () => {
     const directory = await mkdtemp(
       path.join(tmpdir(), "codex-provider-failure-test-"),
