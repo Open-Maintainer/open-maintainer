@@ -34,7 +34,7 @@ Agent Readiness: 100/100
 - Evidence: docs/ROADMAP.md (detected repository context)
 - Evidence: docs/V0_3_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/V0_4_RELEASE_REVIEW.md (detected repository context)
-- Evidence: local-docs/PRODUCT_PRD.md (detected repository context)
+- Evidence: docs/CONFLICTING_MOCK_PRD.md (mock conflicting repository context)
 - Evidence: README.md (detected repository context)
 - Evidence: .env.example (detected repository context)
 - Evidence: tests/fixtures/high-readiness-ts/.env.example (detected repository context)
