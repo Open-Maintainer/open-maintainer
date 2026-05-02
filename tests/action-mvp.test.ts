@@ -294,6 +294,12 @@ describe("GitHub Action MVP", () => {
     );
     expect(reviewSteps).toContainEqual(
       expect.objectContaining({
+        name: "Smoke Codex API-key auth",
+        run: expect.stringContaining('preferred_auth_method="apikey"'),
+      }),
+    );
+    expect(reviewSteps).toContainEqual(
+      expect.objectContaining({
         uses: "./",
         with: expect.objectContaining({
           mode: "review",

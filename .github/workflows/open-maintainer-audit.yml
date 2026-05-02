@@ -48,6 +48,22 @@ jobs:
           fi
       - name: Install Codex CLI
         run: npm install -g "@openai/codex@0.128.0"
+      - name: Smoke Codex API-key auth
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPEN_MAINTAINER_REVIEW_MODEL: ${{ vars.OPEN_MAINTAINER_REVIEW_MODEL || 'gpt-5.5' }}
+        run: |
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          codex exec \
+            --ignore-user-config \
+            --skip-git-repo-check \
+            --ephemeral \
+            --sandbox read-only \
+            --cd "$tmp_dir" \
+            --model "$OPEN_MAINTAINER_REVIEW_MODEL" \
+            --config 'preferred_auth_method="apikey"' \
+            "Reply with exactly: ok"
       - uses: ./
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
