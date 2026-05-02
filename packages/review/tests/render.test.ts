@@ -124,12 +124,14 @@ describe("review renderers", () => {
   it("renders a full review document", () => {
     const rendered = renderReviewMarkdown(review);
 
-    expect(rendered).toContain("## Open Maintainer PR Review");
-    expect(rendered).toContain("### Changed Surface");
-    expect(rendered).toContain("### Expected Validation");
-    expect(rendered).toContain("### Docs Impact");
+    expect(rendered).toContain("## OpenMaintainer Review #12");
+    expect(rendered).toContain("### Walkthrough");
+    expect(rendered).toContain("| Area | What changed | Review focus |");
+    expect(rendered).toContain("### Required Validation For This PR");
     expect(rendered).toContain("### Merge Readiness");
-    expect(rendered).toContain("**Blocker: Missing consent guard**");
+    expect(rendered).toContain("#### Blocker: Missing consent guard");
+    expect(rendered).toContain("Impact:");
+    expect(rendered).toContain("Recommendation:");
     expect(rendered).toContain("open_maintainer_config .open-maintainer.yml");
   });
 
@@ -138,7 +140,8 @@ describe("review renderers", () => {
 
     expect(rendered).toContain("<!-- open-maintainer-review-summary -->");
     expect(rendered).toContain("This PR changes the CLI review flow.");
-    expect(rendered).toContain("**Blocked:** A blocker finding is present.");
+    expect(rendered).toContain("### Merge Readiness");
+    expect(rendered).toContain("A blocker finding is present.");
   });
 
   it("renders inline comments from a cited finding", () => {

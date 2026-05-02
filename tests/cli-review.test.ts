@@ -93,8 +93,8 @@ describe("CLI review", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("Review: .open-maintainer/review.md");
     const markdown = await readFile(path.join(fixture, outputPath), "utf8");
-    expect(markdown).toContain("## Open Maintainer PR Review");
-    expect(markdown).toContain("Pull request: #44");
+    expect(markdown).toContain("## OpenMaintainer Review #44");
+    expect(markdown).toContain("### Required Validation For This PR");
     expect(markdown).toContain("src/index.ts");
   });
 

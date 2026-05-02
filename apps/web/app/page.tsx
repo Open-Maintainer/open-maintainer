@@ -601,23 +601,9 @@ function ReviewPreview({ review }: { review: ReviewResult }) {
             <dd>{feedbackCounts.unclear}</dd>
           </div>
         </dl>
-        <p>{review.summary}</p>
-        <h3>Changed surface</h3>
-        <ul className="plain-list">
-          {review.changedSurface.map((surface) => (
-            <li key={surface}>{surface}</li>
-          ))}
-        </ul>
-        <h3>Expected validation</h3>
-        <ul className="plain-list">
-          {review.expectedValidation.length ? (
-            review.expectedValidation.map((item) => (
-              <li key={item.command}>{item.command}</li>
-            ))
-          ) : (
-            <li>No expected validation inferred.</li>
-          )}
-        </ul>
+        <ReviewSummary review={review} />
+        <h3>Walkthrough</h3>
+        <ReviewWalkthrough review={review} />
         <h3>Findings</h3>
         {findingsBySeverity.map(({ severity, findings }) =>
           findings.length ? (
@@ -632,6 +618,7 @@ function ReviewPreview({ review }: { review: ReviewResult }) {
                     <li key={finding.id}>
                       {finding.title}
                       {finding.path ? ` (${finding.path})` : ""}
+                      <FindingDetail finding={finding} />
                       {findingFeedback.length ? (
                         <p className="muted">
                           Feedback:{" "}
@@ -699,18 +686,8 @@ function ReviewPreview({ review }: { review: ReviewResult }) {
             </div>
           ) : null,
         )}
-        <h3>Docs impact</h3>
-        <ul className="plain-list">
-          {review.docsImpact.length ? (
-            review.docsImpact.map((impact) => (
-              <li key={impact.path}>
-                {impact.path}: {impact.reason}
-              </li>
-            ))
-          ) : (
-            <li>No docs impact detected.</li>
-          )}
-        </ul>
+        <h3>Required validation for this PR</h3>
+        <pre>{requiredValidationCommands(review).join("\n")}</pre>
         <h3>Merge readiness</h3>
         <p>{review.mergeReadiness.reason}</p>
         <h3>Residual risk</h3>
@@ -721,6 +698,236 @@ function ReviewPreview({ review }: { review: ReviewResult }) {
         </ul>
       </div>
     </div>
+  );
+}
+
+function ReviewSummary({ review }: { review: ReviewResult }) {
+  const summary = parseReviewSummary(review.summary);
+  const concerns = review.findings.slice(0, 5).map((finding) => finding.title);
+  return (
+    <div>
+      <p>{summary.overview}</p>
+      <p>
+        Risk level:{" "}
+        <strong>{summary.riskLevel ?? inferRiskLevel(review)}</strong>
+      </p>
+      <p>Main concerns:</p>
+      <ul className="plain-list">
+        {concerns.length ? (
+          concerns.map((concern) => <li key={concern}>{concern}</li>)
+        ) : (
+          <li>No concrete findings.</li>
+        )}
+      </ul>
+      {summary.validationSummary ? (
+        <p className="muted">Validation: {summary.validationSummary}</p>
+      ) : null}
+      {summary.docsSummary ? (
+        <p className="muted">Docs: {summary.docsSummary}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function ReviewWalkthrough({ review }: { review: ReviewResult }) {
+  const rows = walkthroughRows(review);
+  return (
+    <div className="table-scroll">
+      <table>
+        <thead>
+          <tr>
+            <th>Area</th>
+            <th>What changed</th>
+            <th>Review focus</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.area}>
+              <td>{row.area}</td>
+              <td>{row.changed}</td>
+              <td>{row.focus}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function FindingDetail({
+  finding,
+}: {
+  finding: ReviewResult["findings"][number];
+}) {
+  const detail = parseFindingBody(finding.body);
+  return (
+    <div className="finding-detail">
+      {detail.category ? <p className="muted">{detail.category}</p> : null}
+      {detail.description ? <p>{detail.description}</p> : null}
+      <p>
+        <strong>Impact:</strong> {detail.impact || "Not specified."}
+      </p>
+      <p>
+        <strong>Recommendation:</strong>{" "}
+        {detail.recommendation || "Not specified."}
+      </p>
+      <details>
+        <summary>Evidence</summary>
+        <ul className="plain-list">
+          {finding.citations.map((citation, index) => (
+            <li key={`${citation.source}-${citation.path ?? index}`}>
+              {citation.source}
+              {citation.path ? ` ${citation.path}` : ""}: {citation.reason}
+              {citation.excerpt ? `: ${citation.excerpt}` : ""}
+            </li>
+          ))}
+        </ul>
+      </details>
+    </div>
+  );
+}
+
+function parseReviewSummary(summary: string) {
+  const lines = summary.split(/\r?\n/).map((line) => line.trim());
+  const riskLine = lines.find((line) => /^Risk:/i.test(line));
+  const validationLine = lines.find((line) => /^Validation:/i.test(line));
+  const docsLine = lines.find((line) => /^Docs:/i.test(line));
+  return {
+    overview:
+      lines
+        .filter(
+          (line) =>
+            line &&
+            !/^Risk:/i.test(line) &&
+            !/^Validation:/i.test(line) &&
+            !/^Docs:/i.test(line),
+        )
+        .join("\n") || summary,
+    riskLevel: riskLine?.replace(/^Risk:\s*/i, "").replace(/\.$/, "") ?? null,
+    validationSummary:
+      validationLine?.replace(/^Validation:\s*/i, "").replace(/\.$/, "") ??
+      null,
+    docsSummary: docsLine?.replace(/^Docs:\s*/i, "").replace(/\.$/, "") ?? null,
+  };
+}
+
+function parseFindingBody(body: string) {
+  const category = body.match(/^Category:\s*(.+)$/m)?.[1] ?? null;
+  const impact = body.match(
+    /^Impact:\s*([\s\S]*?)(?:\nRecommendation:|$)/m,
+  )?.[1];
+  const recommendation = body.match(/^Recommendation:\s*([\s\S]*)$/m)?.[1];
+  const description = body
+    .replace(/^Category:.*$/m, "")
+    .replace(/^Impact:[\s\S]*$/m, "")
+    .trim();
+  return {
+    category,
+    description,
+    impact: impact?.trim() ?? "",
+    recommendation: recommendation?.trim() ?? "",
+  };
+}
+
+function inferRiskLevel(review: ReviewResult) {
+  if (review.findings.some((finding) => finding.severity === "blocker")) {
+    return "critical";
+  }
+  if (review.findings.some((finding) => finding.severity === "major")) {
+    return "high";
+  }
+  if (review.findings.some((finding) => finding.severity === "minor")) {
+    return "medium";
+  }
+  return "low";
+}
+
+function walkthroughRows(review: ReviewResult) {
+  const areas = review.changedSurface.length
+    ? review.changedSurface
+    : review.walkthrough;
+  return areas.map((area) => {
+    const files = review.changedFiles.filter((file) =>
+      fileMatchesSurface(file.path, area),
+    );
+    return {
+      area,
+      changed: files.length
+        ? files
+            .slice(0, 3)
+            .map((file) => file.path)
+            .join(", ")
+        : review.walkthrough[0] || "Changed files in this area.",
+      focus:
+        review.findings.find((finding) =>
+          finding.path ? fileMatchesSurface(finding.path, area) : false,
+        )?.title || "Review changed behavior, validation, and repo policy.",
+    };
+  });
+}
+
+function fileMatchesSurface(repoPath: string, surface: string): boolean {
+  if (surface.startsWith("package:")) {
+    return repoPath.startsWith(`packages/${surface.slice("package:".length)}/`);
+  }
+  if (surface === "api") {
+    return repoPath.startsWith("apps/api/");
+  }
+  if (surface === "cli") {
+    return repoPath.startsWith("apps/cli/");
+  }
+  if (surface === "web") {
+    return repoPath.startsWith("apps/web/");
+  }
+  if (surface === "docs") {
+    return repoPath.endsWith(".md") || repoPath.startsWith("docs/");
+  }
+  if (surface === "github-action/workflow") {
+    return repoPath === "action.yml" || repoPath.startsWith(".github/");
+  }
+  if (surface === "fixtures/tests") {
+    return repoPath.startsWith("tests/");
+  }
+  return repoPath.includes(surface);
+}
+
+function requiredValidationCommands(review: ReviewResult): string[] {
+  const commands = review.expectedValidation
+    .map((item) => item.command)
+    .filter(isReviewValidationCommand);
+  const preferred = [
+    "biome check .",
+    "tsc -b",
+    "vitest run",
+    "bun run build",
+    "bun run tests/smoke/mvp-demo.ts",
+    "bun run tests/smoke/compose-smoke.ts",
+  ];
+  const selected = preferred.filter(
+    (command) =>
+      commands.includes(command) ||
+      (command === "bun run build" &&
+        commands.some((item) => item.includes("bun run --cwd"))),
+  );
+  for (const command of commands) {
+    if (!selected.includes(command) && selected.length < 10) {
+      selected.push(command);
+    }
+  }
+  return selected.length ? selected : ["No required validation inferred."];
+}
+
+function isReviewValidationCommand(command: string): boolean {
+  const normalized = command.toLowerCase();
+  return (
+    !normalized.includes("--watch") &&
+    !normalized.includes(" next dev") &&
+    !normalized.includes("bun src/server") &&
+    !normalized.includes("format --write") &&
+    /(biome check|tsc|typecheck|vitest|bun test|bun run build|smoke|mvp-demo|compose-smoke)/.test(
+      normalized,
+    )
   );
 }
 

@@ -309,55 +309,37 @@ function buildResidualRisk(input: ReviewInput): string[] {
 
 export function renderReviewMarkdown(input: ReviewResult): string {
   const review = parseReviewResult(input);
+  const summary = parseStructuredSummary(review.summary);
   const lines = [
-    "## Open Maintainer PR Review",
+    `## OpenMaintainer Review ${review.prNumber ? `#${review.prNumber}` : "local"}`,
     "",
-    review.prNumber
-      ? `Pull request: #${review.prNumber}`
-      : "Pull request: local review",
-    `Base: ${review.baseRef}${review.baseSha ? ` (${review.baseSha})` : ""}`,
-    `Head: ${review.headRef}${review.headSha ? ` (${review.headSha})` : ""}`,
+    `${review.baseRef}...${review.headRef}`,
     renderModelLine(review),
     "",
     "### Summary",
     "",
-    review.summary,
+    summary.overview,
+    "",
+    `Risk level: **${summary.riskLevel ?? inferredRiskLevel(review)}**`,
+    "",
+    "Main concerns:",
+    renderMainConcerns(review),
     "",
     "### Walkthrough",
     "",
-    renderList(review.walkthrough),
-    "",
-    "### Changed Surface",
-    "",
-    renderList(review.changedSurface),
-    "",
-    "### Risk Analysis",
-    "",
-    renderList(review.riskAnalysis),
-    "",
-    "### Expected Validation",
-    "",
-    renderValidation(review.expectedValidation),
-    "",
-    "### Validation Evidence",
-    "",
-    renderListOrFallback(
-      review.validationEvidence,
-      "No validation evidence detected.",
-    ),
-    "",
-    "### Docs Impact",
-    "",
-    renderDocsImpact(review.docsImpact),
+    renderWalkthroughTable(review),
     "",
     "### Findings",
     "",
     renderFindings(review.findings),
     "",
+    "### Required Validation For This PR",
+    "",
+    renderRequiredValidationBlock(review),
+    "",
     "### Merge Readiness",
     "",
-    `**${formatReadiness(review.mergeReadiness.status)}:** ${review.mergeReadiness.reason}`,
-    renderCitationBlock(review.mergeReadiness.evidence),
+    review.mergeReadiness.reason,
     "",
     "### Residual Risk",
     "",
@@ -371,29 +353,7 @@ export function renderReviewSummaryComment(input: ReviewResult): string {
   const review = parseReviewResult(input);
   return [
     "<!-- open-maintainer-review-summary -->",
-    "## Open Maintainer PR Review",
-    "",
-    review.summary,
-    "",
-    "### Merge Readiness",
-    "",
-    `**${formatReadiness(review.mergeReadiness.status)}:** ${review.mergeReadiness.reason}`,
-    "",
-    "### Findings",
-    "",
-    renderFindings(review.findings),
-    "",
-    "### Expected Validation",
-    "",
-    renderValidation(review.expectedValidation),
-    "",
-    "### Docs Impact",
-    "",
-    renderDocsImpact(review.docsImpact),
-    "",
-    "### Residual Risk",
-    "",
-    renderListOrFallback(review.residualRisk, "No residual risk recorded."),
+    renderReviewMarkdown(review),
   ].join("\n");
 }
 
@@ -454,9 +414,203 @@ function renderDocsImpact(items: ReviewResult["docsImpact"]): string {
     .join("\n");
 }
 
+function parseStructuredSummary(summary: string): {
+  overview: string;
+  riskLevel: string | null;
+  validationSummary: string | null;
+  docsSummary: string | null;
+} {
+  const lines = summary.split(/\r?\n/).map((line) => line.trim());
+  const riskLine = lines.find((line) => /^Risk:/i.test(line));
+  const validationLine = lines.find((line) => /^Validation:/i.test(line));
+  const docsLine = lines.find((line) => /^Docs:/i.test(line));
+  const overview = lines
+    .filter(
+      (line) =>
+        line &&
+        !/^Risk:/i.test(line) &&
+        !/^Validation:/i.test(line) &&
+        !/^Docs:/i.test(line),
+    )
+    .join("\n");
+  return {
+    overview: overview || summary,
+    riskLevel: riskLine?.replace(/^Risk:\s*/i, "").replace(/\.$/, "") ?? null,
+    validationSummary:
+      validationLine?.replace(/^Validation:\s*/i, "").replace(/\.$/, "") ??
+      null,
+    docsSummary: docsLine?.replace(/^Docs:\s*/i, "").replace(/\.$/, "") ?? null,
+  };
+}
+
+function inferredRiskLevel(review: ReviewResult): string {
+  if (review.findings.some((finding) => finding.severity === "blocker")) {
+    return "critical";
+  }
+  if (review.findings.some((finding) => finding.severity === "major")) {
+    return "high";
+  }
+  if (review.findings.some((finding) => finding.severity === "minor")) {
+    return "medium";
+  }
+  return "low";
+}
+
+function renderMainConcerns(review: ReviewResult): string {
+  const concerns = review.findings.slice(0, 5).map((finding) => finding.title);
+  if (concerns.length === 0) {
+    return "- No concrete findings.";
+  }
+  return renderList(concerns);
+}
+
+function renderWalkthroughTable(review: ReviewResult): string {
+  const areas = review.changedSurface.length
+    ? review.changedSurface
+    : review.walkthrough;
+  const rows = areas.map((area) => {
+    const files = review.changedFiles.filter((file) =>
+      fileMatchesSurface(file.path, area),
+    );
+    const changed = files.length
+      ? files
+          .slice(0, 3)
+          .map((file) => `\`${file.path}\``)
+          .join(", ")
+      : review.walkthrough[0] || "Changed files in this area.";
+    const focus =
+      review.riskAnalysis.find((risk) =>
+        risk.toLowerCase().includes(area.toLowerCase()),
+      ) ??
+      review.findings.find((finding) =>
+        finding.path ? fileMatchesSurface(finding.path, area) : false,
+      )?.title ??
+      "Review changed behavior, validation, and repo policy.";
+    return `| \`${area}\` | ${escapeTableCell(changed)} | ${escapeTableCell(focus)} |`;
+  });
+  return [
+    "| Area | What changed | Review focus |",
+    "|---|---|---|",
+    ...(rows.length
+      ? rows
+      : ["| general | Changed files | Review changed behavior |"]),
+  ].join("\n");
+}
+
+function fileMatchesSurface(repoPath: string, surface: string): boolean {
+  if (surface.startsWith("package:")) {
+    return repoPath.startsWith(`packages/${surface.slice("package:".length)}/`);
+  }
+  if (surface === "api") {
+    return repoPath.startsWith("apps/api/");
+  }
+  if (surface === "cli") {
+    return repoPath.startsWith("apps/cli/");
+  }
+  if (surface === "web") {
+    return repoPath.startsWith("apps/web/");
+  }
+  if (surface === "worker") {
+    return repoPath.startsWith("apps/worker/");
+  }
+  if (surface === "docs") {
+    return repoPath.endsWith(".md") || repoPath.startsWith("docs/");
+  }
+  if (surface === "github-action/workflow") {
+    return repoPath === "action.yml" || repoPath.startsWith(".github/");
+  }
+  if (surface === "fixtures/tests") {
+    return repoPath.startsWith("tests/");
+  }
+  return repoPath.includes(surface);
+}
+
+function escapeTableCell(value: string): string {
+  return value.replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
+function renderRequiredValidationBlock(review: ReviewResult): string {
+  const commands = requiredValidationCommands(review);
+  if (commands.length === 0) {
+    return "No required validation was inferred.";
+  }
+  return ["```sh", ...commands, "```"].join("\n");
+}
+
+function requiredValidationCommands(review: ReviewResult): string[] {
+  const commands = review.expectedValidation
+    .map((item) => item.command)
+    .filter(isReviewValidationCommand);
+  const preferred = [
+    "biome check .",
+    "tsc -b",
+    "vitest run",
+    "bun run build",
+    "bun run tests/smoke/mvp-demo.ts",
+    "bun run tests/smoke/compose-smoke.ts",
+  ];
+  const selected = preferred.filter(
+    (command) =>
+      commands.includes(command) ||
+      (command === "bun run build" &&
+        commands.some((item) => item.includes("bun run --cwd"))),
+  );
+  for (const command of commands) {
+    if (!selected.includes(command) && selected.length < 10) {
+      selected.push(command);
+    }
+  }
+  return selected;
+}
+
+function isReviewValidationCommand(command: string): boolean {
+  const normalized = command.toLowerCase();
+  return (
+    !normalized.includes("--watch") &&
+    !normalized.includes(" next dev") &&
+    !normalized.includes("bun src/server") &&
+    !normalized.includes("format --write") &&
+    /(biome check|tsc|typecheck|vitest|bun test|bun run build|smoke|mvp-demo|compose-smoke)/.test(
+      normalized,
+    )
+  );
+}
+
+function parseFindingBody(body: string): {
+  category: string | null;
+  description: string;
+  impact: string;
+  recommendation: string;
+} {
+  const category = body.match(/^Category:\s*(.+)$/m)?.[1] ?? null;
+  const impact = body.match(
+    /^Impact:\s*([\s\S]*?)(?:\nRecommendation:|$)/m,
+  )?.[1];
+  const recommendation = body.match(/^Recommendation:\s*([\s\S]*)$/m)?.[1];
+  const description = body
+    .replace(/^Category:.*$/m, "")
+    .replace(/^Impact:[\s\S]*$/m, "")
+    .trim();
+  return {
+    category,
+    description,
+    impact: impact?.trim() ?? "",
+    recommendation: recommendation?.trim() ?? "",
+  };
+}
+
+function renderParagraphList(value: string): string {
+  return value
+    .split(/\n+/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `- ${line}`)
+    .join("\n");
+}
+
 function renderFindings(findings: ReviewFinding[]): string {
   if (findings.length === 0) {
-    return "- No rule-grounded findings.";
+    return "No concrete findings.";
   }
 
   return severityOrder
@@ -464,16 +618,27 @@ function renderFindings(findings: ReviewFinding[]): string {
       findings.filter((item) => item.severity === severity),
     )
     .map((finding) => {
-      const location =
-        finding.path && finding.line
-          ? ` (${finding.path}:${finding.line})`
-          : finding.path
-            ? ` (${finding.path})`
-            : "";
+      const detail = parseFindingBody(finding.body);
       return [
-        `- **${formatSeverity(finding.severity)}: ${finding.title}**${location}`,
-        `  ${finding.body}`,
-        renderCitationList(finding.citations, "  "),
+        `#### ${formatSeverity(finding.severity)}: ${finding.title}`,
+        "",
+        finding.path
+          ? `File: \`${finding.path}${finding.line ? `:${finding.line}` : ""}\``
+          : "File: not path-specific",
+        "",
+        detail.category ? `Category: ${detail.category}` : "",
+        detail.description,
+        "",
+        "Impact:",
+        detail.impact ? renderParagraphList(detail.impact) : "- Not specified.",
+        "",
+        "Recommendation:",
+        detail.recommendation
+          ? renderParagraphList(detail.recommendation)
+          : "- Not specified.",
+        "",
+        "Evidence:",
+        renderCitationList(finding.citations),
       ].join("\n");
     })
     .join("\n");
