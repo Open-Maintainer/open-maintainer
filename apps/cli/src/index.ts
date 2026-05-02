@@ -281,7 +281,19 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
           console.log(line);
         }
         if (!result.ok && options.doctorFix) {
-          await removeDoctorFixableArtifacts(repoRoot, result.fixablePaths);
+          if (result.fixablePaths.length > 0) {
+            await removeDoctorFixableArtifacts(repoRoot, result.fixablePaths);
+          }
+          if (result.profileNeedsRefresh) {
+            await audit(repoRoot, {
+              ...options,
+              noProfileWrite: false,
+              reportPath: null,
+            });
+            console.log(
+              "fix: refreshed .open-maintainer/profile.json and .open-maintainer/report.md",
+            );
+          }
           result = await doctor(repoRoot, repoArg);
           for (const line of result.messages) {
             console.log(line);
@@ -441,7 +453,12 @@ function isOpenMaintainerGeneratedFile(content: string): boolean {
 async function doctor(
   repoRoot: string,
   repoDisplayPath = repoRoot,
-): Promise<{ ok: boolean; messages: string[]; fixablePaths: string[] }> {
+): Promise<{
+  ok: boolean;
+  messages: string[];
+  fixablePaths: string[];
+  profileNeedsRefresh: boolean;
+}> {
   const profile = await createProfile(repoRoot);
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
   const filesByPath = new Map(files.map((file) => [file.path, file]));
@@ -491,8 +508,10 @@ async function doctor(
     storedContextHashes,
   });
   const fixablePaths = obsolete;
+  const profileNeedsRefresh =
+    stale.includes(".open-maintainer/profile.json") || driftFindings.length > 0;
   const fixCommand =
-    fixablePaths.length > 0
+    fixablePaths.length > 0 || profileNeedsRefresh
       ? formatDoctorFixCommand({
           repoPath: repoDisplayPath,
         })
@@ -520,6 +539,7 @@ async function doctor(
       ...(fixCommand ? [`fix: ${fixCommand}`] : []),
     ],
     fixablePaths,
+    profileNeedsRefresh,
   };
 }
 

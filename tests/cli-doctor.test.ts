@@ -82,6 +82,15 @@ describe("CLI doctor", () => {
     expect(doctor.stdout).toContain(
       "drift: .open-maintainer/profile.json was generated from a different repository profile",
     );
+    expect(doctor.stdout).toContain(`fix: bun run cli doctor ${workdir} --fix`);
+
+    const fixed = await runCli(["doctor", workdir, "--fix"]);
+
+    expect(fixed.exitCode).toBe(0);
+    expect(fixed.stderr).toBe("");
+    expect(fixed.stdout).toContain(
+      "fix: refreshed .open-maintainer/profile.json and .open-maintainer/report.md",
+    );
   });
 
   it("removes obsolete generated context artifacts with --fix", async () => {

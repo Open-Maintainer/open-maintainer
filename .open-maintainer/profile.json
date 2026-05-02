@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_7c9507b0-dfa3-4212-8775-fa57e187f7f5",
+  "id": "repo_profile_a21a5fe7-b944-41b7-a38e-cf6b50d9c0b7",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -264,6 +264,7 @@
   "environmentVariables": [
     "API_BASE_URL",
     "API_PORT",
+    "APP_ENV",
     "AUDIT_EXIT_CODE",
     "AUDIT_OUTPUT_PATH",
     "BASE_READINESS_SCORE",
@@ -985,7 +986,7 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "bb0eb5f2655b3a6d"
+      "hash": "6cc02f65ca7d431f"
     },
     {
       "path": ".open-maintainer/report.md",
@@ -1097,7 +1098,7 @@
     },
     {
       "path": "packages/analyzer/tests/analyzer.test.ts",
-      "hash": "2903238cdee8aec9"
+      "hash": "79a38d95dba38f59"
     },
     {
       "path": "packages/analyzer/tsconfig.json",
@@ -1197,7 +1198,7 @@
     },
     {
       "path": "tests/cli-doctor.test.ts",
-      "hash": "464da56f3a18bc2d"
+      "hash": "e24a5bdaff16ac4b"
     },
     {
       "path": "tests/cli-help.test.ts",
@@ -1385,7 +1386,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-02T07:49:28.180Z",
+  "createdAt": "2026-05-02T07:56:43.292Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2579,7 +2580,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T07:49:28.181Z"
+    "generatedAt": "2026-05-02T07:56:43.293Z"
   },
-  "openMaintainerProfileHash": "7cd8265d91ffc8d7"
+  "openMaintainerProfileHash": "e903d87a9a483ae7"
 }
