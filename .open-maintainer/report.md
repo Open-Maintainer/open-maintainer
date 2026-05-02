@@ -100,9 +100,9 @@ Agent Readiness: 100/100
 - Evidence: packages/config/tests/config.test.ts (detected repository context)
 - Evidence: packages/context/tests/render.test.ts (detected repository context)
 - Evidence: packages/github/tests/webhook.test.ts (detected repository context)
-- Evidence: packages/review/tests/deterministic.test.ts (detected repository context)
 - Evidence: packages/review/tests/local-git.test.ts (detected repository context)
 - Evidence: packages/review/tests/model.test.ts (detected repository context)
+- Evidence: packages/review/tests/precheck.test.ts (detected repository context)
 - Evidence: packages/review/tests/render.test.ts (detected repository context)
 - Evidence: packages/shared/tests/schemas.test.ts (detected repository context)
 - Evidence: tests/action-mvp.test.ts (detected repository context)
@@ -136,6 +136,7 @@ Agent Readiness: 100/100
 - Evidence: tests/fixtures/with-context/AGENTS.md (detected repository context)
 - Evidence: tests/fixtures/with-context/README.md (detected repository context)
 - Evidence: tests/fixtures/with-context/package.json (detected repository context)
+- Evidence: tests/helpers/fake-model-cli.ts (detected repository context)
 - Evidence: tests/mvp-golden.test.ts (detected repository context)
 - Evidence: tests/smoke/compose-smoke.ts (detected repository context)
 - Evidence: tests/smoke/local-health.ts (detected repository context)
@@ -178,9 +179,9 @@ Agent Readiness: 100/100
 - Evidence: packages/config/tests/config.test.ts (detected repository context)
 - Evidence: packages/context/tests/render.test.ts (detected repository context)
 - Evidence: packages/github/tests/webhook.test.ts (detected repository context)
-- Evidence: packages/review/tests/deterministic.test.ts (detected repository context)
 - Evidence: packages/review/tests/local-git.test.ts (detected repository context)
 - Evidence: packages/review/tests/model.test.ts (detected repository context)
+- Evidence: packages/review/tests/precheck.test.ts (detected repository context)
 - Evidence: packages/review/tests/render.test.ts (detected repository context)
 - Evidence: packages/shared/tests/schemas.test.ts (detected repository context)
 - Evidence: tests/action-mvp.test.ts (detected repository context)
@@ -214,6 +215,7 @@ Agent Readiness: 100/100
 - Evidence: tests/fixtures/with-context/AGENTS.md (detected repository context)
 - Evidence: tests/fixtures/with-context/README.md (detected repository context)
 - Evidence: tests/fixtures/with-context/package.json (detected repository context)
+- Evidence: tests/helpers/fake-model-cli.ts (detected repository context)
 - Evidence: tests/mvp-golden.test.ts (detected repository context)
 - Evidence: tests/smoke/compose-smoke.ts (detected repository context)
 - Evidence: tests/smoke/local-health.ts (detected repository context)
@@ -372,4 +374,4 @@ Agent Readiness: 100/100
 
 ## Risk Hints
 
-- No deterministic risk hints detected.
+- No risk hints detected.

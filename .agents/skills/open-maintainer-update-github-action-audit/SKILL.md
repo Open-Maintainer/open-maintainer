@@ -2,55 +2,61 @@
 name: open-maintainer-update-github-action-audit
 description: Use when changing the Open Maintainer composite GitHub Action, audit workflow, PR comment behavior, drift checks, or CI gates.
 ---
+
 # Update GitHub Action Audit
 
 ## Use when
 - Editing `action.yml`.
-- Editing `.github/workflows/open-maintainer-audit.yml`, `.github/workflows/ci.yml`, `.github/workflows/compose-smoke.yml`, `.github/workflows/codeql.yml`, or `.github/workflows/dependency-review.yml`.
-- Changing audit mode, readiness thresholds, report paths, drift checks, PR comments, CI gates, CodeQL, dependency review, or compose smoke CI behavior.
+- Editing `.github/workflows/ci.yml`, `.github/workflows/codeql.yml`, `.github/workflows/compose-smoke.yml`, `.github/workflows/dependency-review.yml`, or `.github/workflows/open-maintainer-audit.yml`.
+- Changing action modes, readiness thresholds, report paths, drift checks, PR comments, refresh/review behavior, content-transfer consent, CI gates, CodeQL, Dependency Review, or Compose smoke CI behavior.
 
 ## Do not use when
-- The change only affects local CLI implementation without action/workflow behavior changes.
-- The task asks for release publishing; release publishing process is Not detected.
+- The change only affects local CLI implementation and action/workflow behavior is unchanged.
+- The task asks for release publishing, tag creation, or deployment; Not detected in provided evidence.
 
 ## Read first
-- `AGENTS.md` GitHub Action and CI rules.
-- `action.yml` for composite action behavior.
-- `.github/workflows/open-maintainer-audit.yml`.
-- `.github/workflows/ci.yml`.
-- `.github/workflows/compose-smoke.yml`.
+- `AGENTS.md`.
+- `action.yml`.
+- Changed workflow file under `.github/workflows`.
+- `.github/workflows/ci.yml` for lint/typecheck/test/build/MVP smoke expectations.
+- `.github/workflows/compose-smoke.yml` for Docker Compose smoke expectations.
 - `.github/workflows/codeql.yml` and `.github/workflows/dependency-review.yml` for security gate context.
-- `apps/cli/src/index.ts` when action behavior invokes CLI commands.
-- `README.md` GitHub Action Audit Mode section.
-- `CONTRIBUTING.md` CI and quality gate notes.
+- CLI source under `apps/cli` when action invokes CLI behavior.
+- `README.md` GitHub Action section and `CONTRIBUTING.md` when public CI behavior changes.
 
 ## Workflow
-- Keep MVP action mode aligned with documented `mode: audit`; unsupported modes are rejected in `action.yml`.
-- Preserve non-mutating PR audit behavior unless intentionally changed: action audit uses `--no-profile-write` by default in selected evidence.
-- Keep drift diagnostics routed through `cli doctor`.
-- Keep PR comment behavior gated by `comment-on-pr` and pull request event context.
-- Keep dependency review severity behavior aligned with workflow evidence: high severity blocks PRs.
-- Update CLI tests/docs when action inputs or CLI invocation behavior changes.
+- Preserve supported `action.yml` mode validation unless intentionally changing it: `audit`, `refresh`, `review`.
+- Preserve supported provider validation unless intentionally changing it: `codex`, `claude`.
+- Preserve supported `context-target` and `skills-target` validation unless intentionally changing it: `codex`, `claude`, `both`.
+- Preserve content-transfer consent gates for refresh and review modes unless intentionally changing them.
+- Keep non-mutating audit behavior aligned with README evidence.
+- Keep PR comment behavior opt-in and permission-aware.
+- Keep Dependency Review severity behavior aligned with workflow evidence: high severity fails.
+- Review shell syntax carefully; local action runner command is Not detected.
 
 ## Validation
-- Root CI-equivalent checks: `bun lint`, `bun typecheck`, `bun test`, `bun run build`, `bun run smoke:mvp`.
-- Direct command equivalents from manifests: `biome check .`, `tsc -b`, `vitest run`, `bun run tests/smoke/mvp-demo.ts`.
-- Compose workflow changes: `docker compose up --build` then `bun run smoke:compose` or `bun run tests/smoke/compose-smoke.ts`.
-- Action-specific local runner command: Not detected; safest fallback is targeted tests plus root CI-equivalent checks and careful review of `action.yml` shell syntax.
+- Lint workflow equivalent: `bun lint` or direct command `biome check .`.
+- Typecheck workflow equivalent: `bun typecheck` or direct command `tsc -b`.
+- Test workflow equivalent: `bun test` or direct command `vitest run`.
+- Build workflow equivalent: `bun run build` or direct workspace build command from `package.json`.
+- MVP smoke: `bun run smoke:mvp` or direct command `bun run tests/smoke/mvp-demo.ts`.
+- Compose workflow changes after stack startup: `bun run smoke:compose` or direct command `bun run tests/smoke/compose-smoke.ts`.
+- Local action runner command: Not detected; safest fallback is targeted tests plus shell review of `action.yml`.
 
 ## Documentation
-- Update `README.md` GitHub Action Audit Mode for input, permission, report, drift, or PR comment changes.
-- Update `CONTRIBUTING.md` when CI gates change.
+- Update `README.md` for action inputs, permissions, report path, drift behavior, refresh/review behavior, or PR comment behavior.
+- Update `CONTRIBUTING.md` when CI gates or validation process changes.
 - Update `docs/MVP_RELEASE_REVIEW.md` when action acceptance evidence changes.
 
 ## Risk checks
-- GitHub Action audit should not mutate checked-out context files unless the user chooses a repository `report-path`; preserve this unless intentionally changed.
-- PR comments require appropriate permissions documented in README.
-- CodeQL and dependency review are security-relevant workflows.
-- Not detected: release publishing process, CODEOWNERS, reviewer assignment policy.
+- GitHub Action refresh/review content transfer is consent-gated and high risk.
+- PR comments require appropriate permissions.
+- CodeQL and Dependency Review are security-relevant workflows.
+- Do not add secrets or credentials.
+- Release publishing process, CODEOWNERS, and reviewer assignment policy: Not detected.
 
 ## Done when
-- Action inputs, CLI invocations, and docs agree.
-- Workflow syntax and shell behavior were reviewed.
+- Action inputs, CLI invocations, workflow behavior, and docs agree.
+- Workflow shell syntax was reviewed.
 - CI-equivalent validation ran or skipped checks include reasons.
 - Security gate changes are explicitly called out.
