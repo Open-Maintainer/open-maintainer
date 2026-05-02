@@ -246,6 +246,47 @@ export const ReviewChangedFileSchema = z.object({
 });
 export type ReviewChangedFile = z.infer<typeof ReviewChangedFileSchema>;
 
+export const ReviewSkippedFileSchema = z.object({
+  path: z.string().min(1),
+  reason: z.enum([
+    "filtered",
+    "max_files",
+    "max_file_bytes",
+    "max_total_bytes",
+    "not_file",
+    "not_found",
+    "binary",
+    "unavailable",
+  ]),
+});
+export type ReviewSkippedFile = z.infer<typeof ReviewSkippedFileSchema>;
+
+export const ReviewCheckStatusSchema = z.object({
+  name: z.string().min(1),
+  status: z.string().min(1),
+  conclusion: z.string().nullable(),
+  url: z.string().url().nullable(),
+});
+export type ReviewCheckStatus = z.infer<typeof ReviewCheckStatusSchema>;
+
+export const ReviewIssueContextSchema = z.object({
+  number: z.number().int().positive(),
+  title: z.string().min(1),
+  body: z.string(),
+  acceptanceCriteria: z.array(z.string().min(1)),
+  url: z.string().url().nullable(),
+});
+export type ReviewIssueContext = z.infer<typeof ReviewIssueContextSchema>;
+
+export const ReviewExistingCommentSchema = z.object({
+  id: z.number().int().positive(),
+  kind: z.enum(["summary", "inline"]),
+  body: z.string(),
+  path: z.string().nullable(),
+  line: z.number().int().positive().nullable(),
+});
+export type ReviewExistingComment = z.infer<typeof ReviewExistingCommentSchema>;
+
 export const ReviewValidationExpectationSchema = z.object({
   command: z.string().min(1),
   reason: z.string().min(1),
@@ -320,6 +361,29 @@ export const ReviewResultSchema = z.object({
   createdAt: z.string(),
 });
 export type ReviewResult = z.infer<typeof ReviewResultSchema>;
+
+export const ReviewInputSchema = z.object({
+  repoId: z.string(),
+  owner: z.string(),
+  repo: z.string(),
+  prNumber: z.number().int().positive().nullable(),
+  title: z.string().nullable(),
+  body: z.string(),
+  url: z.string().url().nullable(),
+  author: z.string().nullable(),
+  baseRef: z.string().min(1),
+  headRef: z.string().min(1),
+  baseSha: z.string().nullable(),
+  headSha: z.string().nullable(),
+  changedFiles: z.array(ReviewChangedFileSchema),
+  commits: z.array(z.string().min(1)),
+  checkStatuses: z.array(ReviewCheckStatusSchema),
+  issueContext: z.array(ReviewIssueContextSchema),
+  existingComments: z.array(ReviewExistingCommentSchema),
+  skippedFiles: z.array(ReviewSkippedFileSchema),
+  createdAt: z.string(),
+});
+export type ReviewInput = z.infer<typeof ReviewInputSchema>;
 
 export const HealthSchema = z.object({
   status: z.enum(["ok", "degraded"]),

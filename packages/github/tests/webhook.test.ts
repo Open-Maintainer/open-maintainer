@@ -5,7 +5,11 @@ import {
   type GitHubRepositoryClient,
   createContextBranchName,
   createContextPr,
+  extractAcceptanceCriteria,
+  extractLinkedIssueNumbers,
+  fetchPullRequestReviewContext,
   fetchRepositoryContents,
+  isOpenMaintainerReviewComment,
   mapInstallationEvent,
   renderContextPrBody,
   shouldSkipRepositoryPath,
@@ -372,5 +376,221 @@ describe("github helpers", () => {
     expect(contextPr.commitSha).toBe("commit-1");
     expect(contextPr.prNumber).toBe(12);
     expect(contextPr.artifactVersions).toEqual([3]);
+  });
+
+  it("assembles bounded pull request review context", async () => {
+    const filePages = [
+      Array.from({ length: 100 }, (_, index) => ({
+        filename: `src/file-${index}.ts`,
+        status: "modified",
+        additions: 1,
+        deletions: 0,
+        patch: `@@ -1 +1 @@\n-export const value = ${index};\n+export const value = ${index + 1};`,
+      })),
+      [
+        {
+          filename: "dist/generated.js",
+          status: "modified",
+          additions: 1,
+          deletions: 1,
+          patch: "@@ generated",
+        },
+        {
+          filename: "src/too-big.ts",
+          status: "modified",
+          additions: 1,
+          deletions: 1,
+          patch: "x".repeat(500),
+        },
+      ],
+    ];
+    const client: GitHubRepositoryClient = {
+      repos: {
+        async getContent() {
+          throw notFound();
+        },
+        async createOrUpdateFileContents() {
+          return { data: { commit: { sha: "unused" } } };
+        },
+        async getCombinedStatusForRef() {
+          return {
+            data: {
+              statuses: [
+                {
+                  context: "ci/test",
+                  state: "success",
+                  target_url: "https://github.com/acme/tool/actions/runs/1",
+                },
+              ],
+            },
+          };
+        },
+      },
+      git: {
+        async getRef() {
+          return { data: { object: { sha: "unused" } } };
+        },
+        async createRef() {
+          return {};
+        },
+        async updateRef() {
+          return {};
+        },
+      },
+      pulls: {
+        async get() {
+          return {
+            data: {
+              number: 7,
+              title: "Add review context",
+              body: "Fixes #12",
+              html_url: "https://github.com/acme/tool/pull/7",
+              user: { login: "maintainer" },
+              base: { ref: "main", sha: "base-sha" },
+              head: { ref: "feature", sha: "head-sha" },
+            },
+          };
+        },
+        async list() {
+          return { data: [] };
+        },
+        async listFiles(input) {
+          return { data: filePages[(input.page ?? 1) - 1] ?? [] };
+        },
+        async listCommits() {
+          return { data: [{ sha: "commit-1" }] };
+        },
+        async listReviewComments() {
+          return {
+            data: [
+              {
+                id: 33,
+                body: "<!-- open-maintainer-review-inline -->\ninline",
+                path: "src/file-1.ts",
+                line: 4,
+              },
+            ],
+          };
+        },
+        async create() {
+          throw new Error("unused");
+        },
+        async update() {
+          throw new Error("unused");
+        },
+      },
+      issues: {
+        async get() {
+          return {
+            data: {
+              number: 12,
+              title: "Review context",
+              body: [
+                "## Acceptance Criteria",
+                "- PR files are collected",
+                "- Checks are included",
+                "",
+                "## Notes",
+                "Done",
+              ].join("\n"),
+              html_url: "https://github.com/acme/tool/issues/12",
+            },
+          };
+        },
+        async listComments() {
+          return {
+            data: [
+              {
+                id: 22,
+                body: "<!-- open-maintainer-review-summary -->\nsummary",
+              },
+              { id: 23, body: "ordinary comment" },
+            ],
+          };
+        },
+      },
+      checks: {
+        async listForRef() {
+          return {
+            data: {
+              check_runs: [
+                {
+                  name: "build",
+                  status: "completed",
+                  conclusion: "success",
+                  html_url: "https://github.com/acme/tool/actions/runs/2",
+                },
+              ],
+            },
+          };
+        },
+      },
+    };
+
+    const context = await fetchPullRequestReviewContext({
+      repoId: "repo_1",
+      owner: "acme",
+      repo: "tool",
+      pullNumber: 7,
+      limits: { maxFiles: 101, maxFileBytes: 200 },
+      client,
+    });
+
+    expect(context.prNumber).toBe(7);
+    expect(context.baseSha).toBe("base-sha");
+    expect(context.headSha).toBe("head-sha");
+    expect(context.changedFiles).toHaveLength(100);
+    expect(context.changedFiles[0]).toEqual(
+      expect.objectContaining({
+        path: "src/file-0.ts",
+        status: "modified",
+      }),
+    );
+    expect(context.skippedFiles).toEqual([
+      { path: "dist/generated.js", reason: "filtered" },
+      { path: "src/too-big.ts", reason: "max_file_bytes" },
+    ]);
+    expect(context.commits).toEqual(["commit-1"]);
+    expect(context.checkStatuses.map((check) => check.name).sort()).toEqual([
+      "build",
+      "ci/test",
+    ]);
+    expect(context.issueContext[0]?.acceptanceCriteria).toEqual([
+      "PR files are collected",
+      "Checks are included",
+    ]);
+    expect(context.existingComments).toEqual([
+      {
+        id: 22,
+        kind: "summary",
+        body: "<!-- open-maintainer-review-summary -->\nsummary",
+        path: null,
+        line: null,
+      },
+      {
+        id: 33,
+        kind: "inline",
+        body: "<!-- open-maintainer-review-inline -->\ninline",
+        path: "src/file-1.ts",
+        line: 4,
+      },
+    ]);
+  });
+
+  it("extracts linked issues and acceptance criteria for review context", () => {
+    expect(
+      extractLinkedIssueNumbers("Fixes #12 and resolves acme/tool#15."),
+    ).toEqual([12, 15]);
+    expect(
+      extractAcceptanceCriteria(
+        "Intro\n## Acceptance Criteria\n- First item\n- [x] Done item\n## Other\nNope",
+      ),
+    ).toEqual(["First item", "Done item"]);
+    expect(isOpenMaintainerReviewComment("ordinary comment")).toBe(false);
+    expect(
+      isOpenMaintainerReviewComment(
+        "<!-- open-maintainer-review-summary -->\nbody",
+      ),
+    ).toBe(true);
   });
 });

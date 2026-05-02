@@ -7,6 +7,12 @@ import type {
   GeneratedArtifact,
   Installation,
   Repo,
+  ReviewChangedFile,
+  ReviewCheckStatus,
+  ReviewExistingComment,
+  ReviewInput,
+  ReviewIssueContext,
+  ReviewSkippedFile,
 } from "@open-maintainer/shared";
 import { newId, nowIso } from "@open-maintainer/shared";
 
@@ -44,6 +50,59 @@ type GitHubFileContent = {
 
 type GitHubContentData = GitHubFileContent | GitHubFileContent[];
 
+type GitHubPullRequestData = {
+  number: number;
+  title: string;
+  body: string | null;
+  html_url: string;
+  user?: { login?: string } | null;
+  base: { ref: string; sha: string };
+  head: { ref: string; sha: string };
+};
+
+type GitHubPullRequestFile = {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch?: string;
+  previous_filename?: string;
+};
+
+type GitHubPullRequestCommit = {
+  sha: string;
+};
+
+type GitHubIssueComment = {
+  id: number;
+  body?: string | null;
+};
+
+type GitHubReviewComment = GitHubIssueComment & {
+  path?: string | null;
+  line?: number | null;
+};
+
+type GitHubIssueData = {
+  number: number;
+  title: string;
+  body: string | null;
+  html_url?: string | null;
+};
+
+type GitHubCheckRun = {
+  name: string;
+  status?: string | null;
+  conclusion?: string | null;
+  html_url?: string | null;
+};
+
+type GitHubStatus = {
+  context: string;
+  state: string;
+  target_url?: string | null;
+};
+
 export type GitHubRepositoryClient = {
   repos: {
     getContent(input: {
@@ -61,6 +120,11 @@ export type GitHubRepositoryClient = {
       branch: string;
       sha?: string;
     }): Promise<{ data: { commit?: { sha?: string } } }>;
+    getCombinedStatusForRef?(input: {
+      owner: string;
+      repo: string;
+      ref: string;
+    }): Promise<{ data: { statuses: GitHubStatus[] } }>;
   };
   git: {
     getRef(input: {
@@ -97,6 +161,11 @@ export type GitHubRepositoryClient = {
     }>;
   };
   pulls: {
+    get?(input: {
+      owner: string;
+      repo: string;
+      pull_number: number;
+    }): Promise<{ data: GitHubPullRequestData }>;
     list(input: {
       owner: string;
       repo: string;
@@ -119,6 +188,50 @@ export type GitHubRepositoryClient = {
       title: string;
       body: string;
     }): Promise<{ data: { number: number; html_url: string } }>;
+    listFiles?(input: {
+      owner: string;
+      repo: string;
+      pull_number: number;
+      per_page?: number;
+      page?: number;
+    }): Promise<{ data: GitHubPullRequestFile[] }>;
+    listCommits?(input: {
+      owner: string;
+      repo: string;
+      pull_number: number;
+      per_page?: number;
+      page?: number;
+    }): Promise<{ data: GitHubPullRequestCommit[] }>;
+    listReviewComments?(input: {
+      owner: string;
+      repo: string;
+      pull_number: number;
+      per_page?: number;
+      page?: number;
+    }): Promise<{ data: GitHubReviewComment[] }>;
+  };
+  issues?: {
+    get?(input: {
+      owner: string;
+      repo: string;
+      issue_number: number;
+    }): Promise<{ data: GitHubIssueData }>;
+    listComments?(input: {
+      owner: string;
+      repo: string;
+      issue_number: number;
+      per_page?: number;
+      page?: number;
+    }): Promise<{ data: GitHubIssueComment[] }>;
+  };
+  checks?: {
+    listForRef?(input: {
+      owner: string;
+      repo: string;
+      ref: string;
+      per_page?: number;
+      page?: number;
+    }): Promise<{ data: { check_runs: GitHubCheckRun[] } }>;
   };
 };
 
@@ -145,6 +258,11 @@ export type SkippedRepositoryFile = {
     | "not_file"
     | "not_found";
 };
+
+export const OPEN_MAINTAINER_REVIEW_SUMMARY_MARKER =
+  "<!-- open-maintainer-review-summary -->";
+export const OPEN_MAINTAINER_REVIEW_INLINE_MARKER =
+  "<!-- open-maintainer-review-inline -->";
 
 export const DEFAULT_REPOSITORY_CONTENT_LIMITS: RepositoryContentLimits = {
   maxFiles: 80,
@@ -358,6 +476,345 @@ export async function fetchRepositoryFilesForAnalysis(input: {
     client,
     ...(input.limits ? { limits: input.limits } : {}),
   });
+}
+
+export async function fetchPullRequestReviewContext(input: {
+  repoId: string;
+  owner: string;
+  repo: string;
+  pullNumber: number;
+  linkedIssueNumbers?: number[];
+  limits?: Partial<RepositoryContentLimits>;
+  client?: GitHubRepositoryClient;
+  auth?: GitHubAppInstallationAuth;
+}): Promise<ReviewInput> {
+  const client = resolveGitHubClient(input);
+  if (!client.pulls.get || !client.pulls.listFiles) {
+    throw new Error("GitHub pull request read APIs are unavailable.");
+  }
+  const limits = {
+    ...DEFAULT_REPOSITORY_CONTENT_LIMITS,
+    ...input.limits,
+  };
+  const pull = (
+    await client.pulls.get({
+      owner: input.owner,
+      repo: input.repo,
+      pull_number: input.pullNumber,
+    })
+  ).data;
+  const listFiles = client.pulls.listFiles;
+  const files = await listPaginated((page) =>
+    listFiles({
+      owner: input.owner,
+      repo: input.repo,
+      pull_number: input.pullNumber,
+      per_page: 100,
+      page,
+    }),
+  );
+  const listCommits = client.pulls.listCommits;
+  const commits = listCommits
+    ? await listPaginated((page) =>
+        listCommits({
+          owner: input.owner,
+          repo: input.repo,
+          pull_number: input.pullNumber,
+          per_page: 100,
+          page,
+        }),
+      )
+    : [];
+  const listIssueComments = client.issues?.listComments;
+  const issueComments = listIssueComments
+    ? await listPaginated((page) =>
+        listIssueComments({
+          owner: input.owner,
+          repo: input.repo,
+          issue_number: input.pullNumber,
+          per_page: 100,
+          page,
+        }),
+      )
+    : [];
+  const listReviewComments = client.pulls.listReviewComments;
+  const reviewComments = listReviewComments
+    ? await listPaginated((page) =>
+        listReviewComments({
+          owner: input.owner,
+          repo: input.repo,
+          pull_number: input.pullNumber,
+          per_page: 100,
+          page,
+        }),
+      )
+    : [];
+  const issueNumbers = [
+    ...new Set([
+      ...extractLinkedIssueNumbers(pull.body ?? ""),
+      ...(input.linkedIssueNumbers ?? []),
+    ]),
+  ].filter((issueNumber) => issueNumber !== input.pullNumber);
+  const issueContext = await fetchIssueContext({
+    owner: input.owner,
+    repo: input.repo,
+    issueNumbers,
+    client,
+  });
+  const { changedFiles, skippedFiles } = boundedReviewFiles(files, limits);
+
+  return {
+    repoId: input.repoId,
+    owner: input.owner,
+    repo: input.repo,
+    prNumber: pull.number,
+    title: pull.title,
+    body: pull.body ?? "",
+    url: pull.html_url,
+    author: pull.user?.login ?? null,
+    baseRef: pull.base.ref,
+    headRef: pull.head.ref,
+    baseSha: pull.base.sha,
+    headSha: pull.head.sha,
+    changedFiles,
+    commits: commits.map((commit) => commit.sha),
+    checkStatuses: await fetchCheckStatuses({
+      owner: input.owner,
+      repo: input.repo,
+      ref: pull.head.sha,
+      client,
+    }),
+    issueContext,
+    existingComments: [
+      ...issueComments
+        .filter((comment) => isOpenMaintainerReviewComment(comment.body ?? ""))
+        .map((comment) => ({
+          id: comment.id,
+          kind: "summary" as const,
+          body: comment.body ?? "",
+          path: null,
+          line: null,
+        })),
+      ...reviewComments
+        .filter((comment) => isOpenMaintainerReviewComment(comment.body ?? ""))
+        .map((comment) => ({
+          id: comment.id,
+          kind: "inline" as const,
+          body: comment.body ?? "",
+          path: comment.path ?? null,
+          line: comment.line ?? null,
+        })),
+    ],
+    skippedFiles,
+    createdAt: nowIso(),
+  };
+}
+
+async function listPaginated<T>(
+  fetchPage: (page: number) => Promise<{ data: T[] } | undefined>,
+): Promise<T[]> {
+  const items: T[] = [];
+  for (let page = 1; ; page += 1) {
+    const response = await fetchPage(page);
+    const pageItems = response?.data ?? [];
+    items.push(...pageItems);
+    if (pageItems.length < 100) {
+      return items;
+    }
+  }
+}
+
+function boundedReviewFiles(
+  files: GitHubPullRequestFile[],
+  limits: RepositoryContentLimits,
+): {
+  changedFiles: ReviewChangedFile[];
+  skippedFiles: ReviewSkippedFile[];
+} {
+  const changedFiles: ReviewChangedFile[] = [];
+  const skippedFiles: ReviewSkippedFile[] = [];
+  let totalBytes = 0;
+
+  for (const file of files) {
+    const path = file.filename.replace(/^\/+/, "");
+    const patch = file.patch ?? null;
+    const patchBytes = patch ? Buffer.byteLength(patch, "utf8") : 0;
+    if (shouldSkipRepositoryPath(path)) {
+      skippedFiles.push({ path, reason: "filtered" });
+      continue;
+    }
+    if (changedFiles.length >= limits.maxFiles) {
+      skippedFiles.push({ path, reason: "max_files" });
+      continue;
+    }
+    if (!patch && file.status !== "removed") {
+      skippedFiles.push({ path, reason: "unavailable" });
+      continue;
+    }
+    if (patchBytes > limits.maxFileBytes) {
+      skippedFiles.push({ path, reason: "max_file_bytes" });
+      continue;
+    }
+    if (totalBytes + patchBytes > limits.maxTotalBytes) {
+      skippedFiles.push({ path, reason: "max_total_bytes" });
+      continue;
+    }
+
+    totalBytes += patchBytes;
+    changedFiles.push({
+      path,
+      status: mapGitHubFileStatus(file.status),
+      additions: file.additions,
+      deletions: file.deletions,
+      patch,
+      previousPath: file.previous_filename ?? null,
+    });
+  }
+
+  return { changedFiles, skippedFiles };
+}
+
+function mapGitHubFileStatus(status: string): ReviewChangedFile["status"] {
+  if (status === "added") {
+    return "added";
+  }
+  if (status === "removed") {
+    return "removed";
+  }
+  if (status === "renamed") {
+    return "renamed";
+  }
+  if (status === "copied") {
+    return "copied";
+  }
+  return "modified";
+}
+
+async function fetchCheckStatuses(input: {
+  owner: string;
+  repo: string;
+  ref: string;
+  client: GitHubRepositoryClient;
+}): Promise<ReviewCheckStatus[]> {
+  const checks = input.client.checks?.listForRef
+    ? await listCheckRuns(input)
+    : [];
+  const statuses = input.client.repos.getCombinedStatusForRef
+    ? (
+        await input.client.repos.getCombinedStatusForRef({
+          owner: input.owner,
+          repo: input.repo,
+          ref: input.ref,
+        })
+      ).data.statuses.map((status) => ({
+        name: status.context,
+        status: status.state,
+        conclusion: status.state,
+        url: status.target_url ?? null,
+      }))
+    : [];
+  return [...checks, ...statuses];
+}
+
+async function listCheckRuns(input: {
+  owner: string;
+  repo: string;
+  ref: string;
+  client: GitHubRepositoryClient;
+}): Promise<ReviewCheckStatus[]> {
+  const checkRuns = await listPaginated(async (page) => {
+    const response = await input.client.checks?.listForRef?.({
+      owner: input.owner,
+      repo: input.repo,
+      ref: input.ref,
+      per_page: 100,
+      page,
+    });
+    return response
+      ? { data: response.data.check_runs }
+      : { data: [] as GitHubCheckRun[] };
+  });
+  return checkRuns.map((check) => ({
+    name: check.name,
+    status: check.status ?? "unknown",
+    conclusion: check.conclusion ?? null,
+    url: check.html_url ?? null,
+  }));
+}
+
+async function fetchIssueContext(input: {
+  owner: string;
+  repo: string;
+  issueNumbers: number[];
+  client: GitHubRepositoryClient;
+}): Promise<ReviewIssueContext[]> {
+  if (!input.client.issues?.get) {
+    return [];
+  }
+  const issues: ReviewIssueContext[] = [];
+  for (const issueNumber of input.issueNumbers) {
+    const issue = (
+      await input.client.issues.get({
+        owner: input.owner,
+        repo: input.repo,
+        issue_number: issueNumber,
+      })
+    ).data;
+    issues.push({
+      number: issue.number,
+      title: issue.title,
+      body: issue.body ?? "",
+      acceptanceCriteria: extractAcceptanceCriteria(issue.body ?? ""),
+      url: issue.html_url ?? null,
+    });
+  }
+  return issues;
+}
+
+export function extractLinkedIssueNumbers(text: string): number[] {
+  const issueNumbers = new Set<number>();
+  const pattern =
+    /\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+(?:[\w.-]+\/[\w.-]+)?#(\d+)\b/gi;
+  for (const match of text.matchAll(pattern)) {
+    const issueNumber = Number(match[1]);
+    if (Number.isInteger(issueNumber) && issueNumber > 0) {
+      issueNumbers.add(issueNumber);
+    }
+  }
+  return [...issueNumbers];
+}
+
+export function extractAcceptanceCriteria(text: string): string[] {
+  const lines = text.split(/\r?\n/);
+  const criteria: string[] = [];
+  let inSection = false;
+  for (const line of lines) {
+    if (/^#{1,6}\s+acceptance criteria\b/i.test(line.trim())) {
+      inSection = true;
+      continue;
+    }
+    if (inSection && /^#{1,6}\s+/.test(line.trim())) {
+      break;
+    }
+    if (inSection) {
+      const item = line
+        .trim()
+        .replace(/^- \[[ xX]\]\s+/, "")
+        .replace(/^[-*]\s+/, "");
+      if (item) {
+        criteria.push(item);
+      }
+    }
+  }
+  return criteria;
+}
+
+export function isOpenMaintainerReviewComment(body: string): boolean {
+  return (
+    body.includes(OPEN_MAINTAINER_REVIEW_SUMMARY_MARKER) ||
+    body.includes(OPEN_MAINTAINER_REVIEW_INLINE_MARKER) ||
+    body.includes("## Open Maintainer PR Review")
+  );
 }
 
 function isNotFoundError(error: unknown): boolean {

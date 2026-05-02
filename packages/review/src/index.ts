@@ -5,6 +5,8 @@ import type {
   ReviewSeverity,
 } from "@open-maintainer/shared";
 import { ReviewResultSchema } from "@open-maintainer/shared";
+export { assembleLocalReviewInput } from "./local-git";
+export type { LocalReviewInputOptions } from "./local-git";
 
 const severityOrder: ReviewSeverity[] = ["blocker", "major", "minor", "note"];
 
