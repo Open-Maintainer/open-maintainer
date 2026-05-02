@@ -139,6 +139,9 @@ fs.writeFileSync(outputPath, JSON.stringify({ ok: true }));
       expect(JSON.parse(result.text)).toEqual({ ok: true });
       expect(args).toContain("--output-schema");
       expect(
+        args.slice(args.indexOf("--model"), args.indexOf("--model") + 2),
+      ).toEqual(["--model", "gpt-5.5"]);
+      expect(
         args.slice(args.indexOf("--cd"), args.indexOf("--cd") + 2),
       ).toEqual(["--cd", process.cwd()]);
 
@@ -197,7 +200,38 @@ fs.writeFileSync(outputPath, JSON.stringify({ ok: true, source: "codex" }));
     }).complete({ system: "Return JSON.", user: "Use schema." });
 
     expect(JSON.parse(result.text)).toEqual({ ok: true, source: "codex" });
-    expect(result.model).toBe("codex-cli");
+    expect(result.model).toBe("gpt-5.5");
+  });
+
+  it("omits CLI failure output because it can contain repository content", async () => {
+    const directory = await mkdtemp(
+      path.join(tmpdir(), "codex-provider-failure-test-"),
+    );
+    const command = path.join(directory, "fake-codex.js");
+    await writeFile(
+      command,
+      `#!/usr/bin/env node
+process.stdin.resume();
+process.stdin.on("data", (chunk) => process.stderr.write(chunk));
+process.stdin.on("end", () => process.exit(1));
+`,
+    );
+    await chmod(command, 0o755);
+
+    await expect(
+      buildCodexCliProvider({ command, cwd: directory }).complete({
+        system: "Return JSON.",
+        user: "secret repository prompt",
+      }),
+    ).rejects.toThrow(
+      "Codex CLI exited with code 1. CLI output was omitted because it can contain repository content.",
+    );
+    await expect(
+      buildCodexCliProvider({ command, cwd: directory }).complete({
+        system: "Return JSON.",
+        user: "secret repository prompt",
+      }),
+    ).rejects.not.toThrow("secret repository prompt");
   });
 
   it("runs Claude CLI provider through schema-constrained print mode", async () => {

@@ -30,6 +30,8 @@ export type CompletionOptions = {
   outputSchema?: unknown;
 };
 
+export const DEFAULT_CODEX_CLI_MODEL = "gpt-5.5";
+
 export type BuildProviderOptions = {
   cwd?: string;
 };
@@ -119,7 +121,7 @@ export function buildProvider(
         return buildCodexCliProvider({
           command: codexCommand(),
           cwd,
-          ...(config.model === "codex-cli" ? {} : { model: config.model }),
+          model: resolveCodexCliModel(config.model),
           ...(options?.outputSchema
             ? { outputSchema: options.outputSchema }
             : {}),
@@ -254,13 +256,20 @@ export function buildCodexCliProvider(
         );
         return {
           text: text.trim(),
-          model: options.model ?? "codex-cli",
+          model: options.model ?? DEFAULT_CODEX_CLI_MODEL,
         };
       } finally {
         await rm(workdir, { recursive: true, force: true });
       }
     },
   };
+}
+
+export function resolveCodexCliModel(model: string | null | undefined): string {
+  const normalized = model?.trim();
+  return normalized && normalized !== "codex-cli"
+    ? normalized
+    : DEFAULT_CODEX_CLI_MODEL;
 }
 
 export function buildClaudeCliProvider(
@@ -397,15 +406,16 @@ async function runProcess(input: {
       const stdoutText = Buffer.concat(stdout).toString("utf8");
       const stderrText = Buffer.concat(stderr).toString("utf8");
       if (code !== 0) {
-        reject(
-          new Error(
-            `${input.label} exited with code ${code}.\n${stderrText || stdoutText}`,
-          ),
-        );
+        reject(new Error(formatProcessFailure(input.label, code)));
         return;
       }
       resolve({ stdout: stdoutText, stderr: stderrText });
     });
     child.stdin.end(input.stdin);
   });
+}
+
+function formatProcessFailure(label: string, code: number | null): string {
+  const codeText = code === null ? "unknown" : String(code);
+  return `${label} exited with code ${codeText}. CLI output was omitted because it can contain repository content.`;
 }

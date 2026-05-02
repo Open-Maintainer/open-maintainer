@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
+  DEFAULT_CODEX_CLI_MODEL,
   buildClaudeCliProvider,
   buildCodexCliProvider,
 } from "@open-maintainer/ai";
@@ -638,6 +639,10 @@ function buildReviewProvider(input: {
     );
   }
   const createdAt = new Date(0).toISOString();
+  const codexModel =
+    input.model ??
+    process.env.OPEN_MAINTAINER_CODEX_MODEL ??
+    DEFAULT_CODEX_CLI_MODEL;
   const providerConfig: ModelProviderConfig =
     input.provider === "codex"
       ? {
@@ -645,7 +650,7 @@ function buildReviewProvider(input: {
           kind: "codex-cli",
           displayName: "Codex CLI",
           baseUrl: "http://localhost",
-          model: input.model ?? "codex-cli",
+          model: codexModel,
           encryptedApiKey: "local-cli",
           repoContentConsent: true,
           createdAt,
@@ -666,7 +671,7 @@ function buildReviewProvider(input: {
     input.provider === "codex"
       ? buildCodexCliProvider({
           cwd: input.repoRoot,
-          ...(input.model ? { model: input.model } : {}),
+          model: codexModel,
         })
       : buildClaudeCliProvider({
           cwd: input.repoRoot,
