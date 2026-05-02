@@ -13,8 +13,11 @@ import type {
 import {
   ReviewFindingSchema,
   ReviewResultSchema,
+  newId,
+  nowIso,
 } from "@open-maintainer/shared";
 import { z } from "zod";
+import type { ReviewEvidencePrecheck } from "./index";
 
 const ModelReviewFindingSchema = ReviewFindingSchema.omit({ id: true }).extend({
   id: z.string().min(1).optional(),
@@ -125,7 +128,7 @@ export type ModelBackedReviewOptions = {
   profile: RepoProfile;
   input: ReviewInput;
   rules?: string[];
-  deterministicReview: ReviewResult;
+  precheck: ReviewEvidencePrecheck;
   providerConfig: ModelProviderConfig;
   provider: ModelProvider;
   promptContext?: ReviewPromptContext;
@@ -145,35 +148,44 @@ export async function generateModelBackedReview(
     profile: options.profile,
     findings: parsed.findings,
   });
-  const mergeReadiness = mergeReadinessSignals(
-    options.deterministicReview.mergeReadiness,
-    parsed.mergeReadiness,
-  );
+  const mergeReadiness = modelMergeReadiness(parsed.mergeReadiness);
 
   return ReviewResultSchema.parse({
-    ...options.deterministicReview,
-    id: options.deterministicReview.id,
-    repoId: options.repoId ?? options.deterministicReview.repoId,
-    summary: parsed.summary ?? options.deterministicReview.summary,
-    findings: mergeFindings(
-      options.deterministicReview.findings,
-      validation.findings,
-    ),
+    id: newId("review"),
+    repoId: options.repoId ?? options.input.repoId,
+    prNumber: options.input.prNumber,
+    baseRef: options.input.baseRef,
+    headRef: options.input.headRef,
+    baseSha: options.input.baseSha,
+    headSha: options.input.headSha,
+    summary:
+      parsed.summary ??
+      `Model-backed review for ${options.profile.owner}/${options.profile.name}.`,
+    walkthrough: options.precheck.walkthrough,
+    changedSurface: options.precheck.changedSurface,
+    riskAnalysis: options.precheck.riskAnalysis,
+    expectedValidation: options.precheck.expectedValidation,
+    validationEvidence: options.precheck.validationEvidence,
+    docsImpact: options.precheck.docsImpact,
+    findings: validation.findings.sort(compareFindingSeverity),
     mergeReadiness,
     residualRisk: [
-      ...options.deterministicReview.residualRisk,
+      ...options.precheck.residualRisk,
       ...parsed.residualRisk,
       ...validation.residualRisk,
     ],
+    changedFiles: options.input.changedFiles,
+    feedback: [],
     modelProvider: options.providerConfig.displayName,
     model: completion.model || options.providerConfig.model,
+    createdAt: nowIso(),
   });
 }
 
 export function buildReviewPrompt(input: {
   profile: RepoProfile;
   input: ReviewInput;
-  deterministicReview: ReviewResult;
+  precheck: ReviewEvidencePrecheck;
   rules?: string[];
   promptContext?: ReviewPromptContext;
 }) {
@@ -198,14 +210,13 @@ export function buildReviewPrompt(input: {
     riskHintPaths: input.profile.riskHintPaths,
     reviewRuleCandidates: input.profile.reviewRuleCandidates,
   };
-  const deterministic = {
-    changedSurface: input.deterministicReview.changedSurface,
-    expectedValidation: input.deterministicReview.expectedValidation,
-    validationEvidence: input.deterministicReview.validationEvidence,
-    docsImpact: input.deterministicReview.docsImpact,
-    riskAnalysis: input.deterministicReview.riskAnalysis,
-    residualRisk: input.deterministicReview.residualRisk,
-    findings: input.deterministicReview.findings,
+  const precheck = {
+    changedSurface: input.precheck.changedSurface,
+    expectedValidation: input.precheck.expectedValidation,
+    validationEvidence: input.precheck.validationEvidence,
+    docsImpact: input.precheck.docsImpact,
+    riskAnalysis: input.precheck.riskAnalysis,
+    residualRisk: input.precheck.residualRisk,
   };
 
   return {
@@ -219,7 +230,7 @@ export function buildReviewPrompt(input: {
     ].join("\n"),
     user: JSON.stringify(
       {
-        task: "Review this pull request against approved repo context and deterministic analysis.",
+        task: "Review this pull request against approved repo context and precomputed repository evidence.",
         citationRules: [
           "changed_file citations must use a changed file path.",
           "repo_profile citations must use a profile evidence, command, config, workflow, doc, or lockfile path.",
@@ -246,7 +257,7 @@ export function buildReviewPrompt(input: {
         changedFiles,
         checkStatuses: input.input.checkStatuses,
         issueContext,
-        deterministicReview: deterministic,
+        precheck,
         outputRequirements: {
           maxFindings: 10,
           severities: ["blocker", "major", "minor", "note"],
@@ -357,22 +368,6 @@ function isKnownGeneratedContextPath(path: string, profile: RepoProfile) {
   );
 }
 
-function mergeFindings(
-  deterministic: ReviewFinding[],
-  model: ReviewFinding[],
-): ReviewFinding[] {
-  const seen = new Set<string>();
-  const merged: ReviewFinding[] = [];
-  for (const finding of [...deterministic, ...model]) {
-    const key = `${finding.title}:${finding.path ?? ""}:${finding.line ?? ""}`;
-    if (!seen.has(key)) {
-      seen.add(key);
-      merged.push(finding);
-    }
-  }
-  return merged.sort(compareFindingSeverity);
-}
-
 function compareFindingSeverity(a: ReviewFinding, b: ReviewFinding): number {
   const severityOrder: Record<ReviewSeverity, number> = {
     blocker: 0,
@@ -383,31 +378,21 @@ function compareFindingSeverity(a: ReviewFinding, b: ReviewFinding): number {
   return severityOrder[a.severity] - severityOrder[b.severity];
 }
 
-function mergeReadinessSignals(
-  deterministic: ReviewMergeReadiness,
+function modelMergeReadiness(
   model?: ModelReviewOutput["mergeReadiness"],
 ): ReviewMergeReadiness {
   if (!model) {
-    return deterministic;
+    return {
+      status: "unknown",
+      reason: "Model output did not include merge readiness.",
+      evidence: [],
+    };
   }
-  const modelReadiness: ReviewMergeReadiness = {
+  return {
     status: model.status,
     reason: model.reason,
-    evidence: deterministic.evidence,
+    evidence: [],
   };
-  return readinessRank(modelReadiness.status) <
-    readinessRank(deterministic.status)
-    ? modelReadiness
-    : deterministic;
-}
-
-function readinessRank(status: ReviewMergeReadiness["status"]): number {
-  return {
-    blocked: 0,
-    needs_attention: 1,
-    unknown: 2,
-    ready: 3,
-  }[status];
 }
 
 function slugify(value: string): string {

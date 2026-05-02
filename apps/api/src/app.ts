@@ -21,7 +21,6 @@ import {
   buildRepoFactsSynthesisPrompt,
   buildSkillSynthesisPrompt,
   createContextArtifacts,
-  deterministicContextOutput,
   modelArtifactContentJsonSchema,
   modelSkillContentJsonSchema,
   parseModelArtifactContent,
@@ -511,10 +510,14 @@ export function buildApp() {
     if (body.providerId && !provider) {
       return reply.code(404).send({ error: "Unknown model provider." });
     }
+    if (!provider) {
+      return reply.code(403).send({
+        error:
+          "Review preview requires an explicit model provider with repo-content consent.",
+      });
+    }
     try {
-      if (provider) {
-        assertProviderConsent(provider);
-      }
+      assertProviderConsent(provider);
     } catch (error) {
       return reply.code(403).send({
         error:
@@ -551,12 +554,8 @@ export function buildApp() {
           prNumber: body.prNumber ?? null,
         },
         rules: profile.reviewRuleCandidates,
-        ...(provider
-          ? {
-              providerConfig: provider,
-              provider: buildProvider(provider, { cwd: worktreeRoot }),
-            }
-          : {}),
+        providerConfig: provider,
+        provider: buildProvider(provider, { cwd: worktreeRoot }),
       });
       store.reviews.set(review.id, review);
       store.updateRun(run.id, {
@@ -796,7 +795,7 @@ async function generateContextArtifactsForRun(input: {
   context: "codex" | "claude" | "both" | undefined;
   skills: "codex" | "claude" | "both" | undefined;
 }): Promise<GeneratedArtifact[]> {
-  let output = deterministicContextOutput(input.profile);
+  let output: ReturnType<typeof structuredContextOutputFromRepoFacts>;
   let modelArtifacts: ModelArtifactContent | undefined;
   let modelSkills: ModelSkillContent | undefined;
   try {
@@ -821,20 +820,16 @@ async function generateContextArtifactsForRun(input: {
       outputSchema: modelArtifactContentJsonSchema,
     });
     modelArtifacts = parseModelArtifactContent(artifactCompletion.text);
-    try {
-      const skillPrompt = buildSkillSynthesisPrompt({
-        profile: input.profile,
-        repoFacts,
-        agentsMd: modelArtifacts.agentsMd,
-        files: repoFiles,
-      });
-      const skillCompletion = await modelProvider.complete(skillPrompt, {
-        outputSchema: modelSkillContentJsonSchema,
-      });
-      modelSkills = parseModelSkillContent(skillCompletion.text);
-    } catch {
-      modelSkills = undefined;
-    }
+    const skillPrompt = buildSkillSynthesisPrompt({
+      profile: input.profile,
+      repoFacts,
+      agentsMd: modelArtifacts.agentsMd,
+      files: repoFiles,
+    });
+    const skillCompletion = await modelProvider.complete(skillPrompt, {
+      outputSchema: modelSkillContentJsonSchema,
+    });
+    modelSkills = parseModelSkillContent(skillCompletion.text);
   } catch (error) {
     store.updateRun(input.runId, {
       status: "failed",
@@ -851,8 +846,8 @@ async function generateContextArtifactsForRun(input: {
     repoId: input.repoId,
     profile: input.profile,
     output,
-    ...(modelArtifacts ? { modelArtifacts } : {}),
-    ...(modelSkills ? { modelSkills } : {}),
+    modelArtifacts,
+    modelSkills,
     modelProvider: input.provider.displayName,
     model: input.provider.model,
     nextVersion: currentArtifactCount + 1,

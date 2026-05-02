@@ -210,12 +210,14 @@ export function buildCodexCliProvider(
   options: CodexCliProviderOptions,
 ): ModelProvider {
   return {
-    async complete(input) {
+    async complete(input, completeOptions) {
       const workdir = await mkdtemp(
         path.join(tmpdir(), "open-maintainer-codex-"),
       );
       const outputPath = path.join(workdir, "last-message.txt");
       const schemaPath = path.join(workdir, "schema.json");
+      const outputSchema =
+        completeOptions?.outputSchema ?? options.outputSchema;
       try {
         const args = [
           "exec",
@@ -231,8 +233,8 @@ export function buildCodexCliProvider(
         if (options.model) {
           args.push("--model", options.model);
         }
-        if (options.outputSchema) {
-          await writeFile(schemaPath, JSON.stringify(options.outputSchema));
+        if (outputSchema) {
+          await writeFile(schemaPath, JSON.stringify(outputSchema));
           args.push("--output-schema", schemaPath);
         }
         args.push("-");
@@ -246,7 +248,7 @@ export function buildCodexCliProvider(
         ].join("\n");
         const result = await runProcess({
           label: "Codex CLI",
-          command: options.command ?? "codex",
+          command: options.command ?? codexCommand(),
           args,
           stdin: prompt,
           timeoutMs: options.timeoutMs ?? 300_000,
@@ -276,7 +278,9 @@ export function buildClaudeCliProvider(
   options: ClaudeCliProviderOptions,
 ): ModelProvider {
   return {
-    async complete(input) {
+    async complete(input, completeOptions) {
+      const outputSchema =
+        completeOptions?.outputSchema ?? options.outputSchema;
       const args = [
         "--print",
         "--permission-mode",
@@ -289,8 +293,8 @@ export function buildClaudeCliProvider(
       if (options.model) {
         args.push("--model", options.model);
       }
-      if (options.outputSchema) {
-        args.push("--json-schema", JSON.stringify(options.outputSchema));
+      if (outputSchema) {
+        args.push("--json-schema", JSON.stringify(outputSchema));
       }
 
       const prompt = [
@@ -303,7 +307,7 @@ export function buildClaudeCliProvider(
       args.push(prompt);
       const result = await runProcess({
         label: "Claude CLI",
-        command: options.command ?? "claude",
+        command: options.command ?? claudeCommand(),
         args,
         stdin: "",
         cwd: options.cwd,

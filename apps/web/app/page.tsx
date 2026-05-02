@@ -277,7 +277,7 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
               />
               <label className="checkbox-row">
                 <input name="repoContentConsent" type="checkbox" />
-                <span>Allow repository content for generation</span>
+                <span>Allow repository content for generation and review</span>
               </label>
               <button type="submit">Use provider</button>
               {providerError ? (
@@ -452,8 +452,8 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                   </>
                 ) : (
                   <p className="muted">
-                    Configure and select a consented model provider to run
-                    LLM-backed reviews.
+                    Configure and select a consented model provider to run PR
+                    reviews.
                   </p>
                 )}
                 <label htmlFor="baseRef">Base ref</label>
@@ -579,7 +579,7 @@ function ReviewPreview({ review }: { review: ReviewResult }) {
             </p>
           </div>
           <span className="badge">
-            {review.modelProvider ?? "deterministic"}
+            {review.modelProvider ?? "model unavailable"}
           </span>
         </div>
         <dl className="run-meta">
@@ -815,6 +815,9 @@ function actionErrorMessage(error: string): string {
   }
   if (error === "unreachable") {
     return "The API did not respond to that repository action.";
+  }
+  if (error === "missing-provider") {
+    return "Choose a consented model provider before generating context or reviewing a PR.";
   }
   if (error === "409") {
     return "That action needs analysis artifacts or provider consent first.";

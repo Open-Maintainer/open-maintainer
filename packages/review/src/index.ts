@@ -9,7 +9,7 @@ import type {
   ReviewSeverity,
   ReviewValidationExpectation,
 } from "@open-maintainer/shared";
-import { ReviewResultSchema, newId, nowIso } from "@open-maintainer/shared";
+import { ReviewResultSchema } from "@open-maintainer/shared";
 import { type ReviewPromptContext, generateModelBackedReview } from "./model";
 export { assembleLocalReviewInput } from "./local-git";
 export type { LocalReviewInputOptions } from "./local-git";
@@ -22,99 +22,65 @@ export type { ModelBackedReviewOptions, ModelReviewOutput } from "./model";
 
 const severityOrder: ReviewSeverity[] = ["blocker", "major", "minor", "note"];
 
-export type DeterministicReviewOptions = {
+export type ReviewEvidencePrecheck = Pick<
+  ReviewResult,
+  | "walkthrough"
+  | "changedSurface"
+  | "riskAnalysis"
+  | "expectedValidation"
+  | "validationEvidence"
+  | "docsImpact"
+  | "residualRisk"
+>;
+
+export type GenerateReviewOptions = {
   repoId?: string;
   profile: RepoProfile;
   input: ReviewInput;
   rules?: string[];
-};
-
-export type GenerateReviewOptions = DeterministicReviewOptions & {
-  providerConfig?: ModelProviderConfig | null;
-  provider?: ModelProvider | null;
+  providerConfig: ModelProviderConfig;
+  provider: ModelProvider;
   promptContext?: ReviewPromptContext;
 };
 
 export async function generateReview(
   options: GenerateReviewOptions,
 ): Promise<ReviewResult> {
-  const deterministicReview = generateDeterministicReview(options);
-  if (!options.providerConfig || !options.provider) {
-    return deterministicReview;
-  }
+  const precheck = buildReviewEvidencePrecheck(options);
   return generateModelBackedReview({
     ...(options.repoId ? { repoId: options.repoId } : {}),
     profile: options.profile,
     input: options.input,
     rules: options.rules ?? [],
-    deterministicReview,
+    precheck,
     providerConfig: options.providerConfig,
     provider: options.provider,
     ...(options.promptContext ? { promptContext: options.promptContext } : {}),
   });
 }
 
-export function generateDeterministicReview(
-  options: DeterministicReviewOptions,
-): ReviewResult {
-  const changedSurface = classifyChangedSurface(options.input, options.profile);
+export function buildReviewEvidencePrecheck(input: {
+  profile: RepoProfile;
+  input: ReviewInput;
+  rules?: string[];
+}): ReviewEvidencePrecheck {
+  const changedSurface = classifyChangedSurface(input.input, input.profile);
   const expectedValidation = inferExpectedValidation({
-    profile: options.profile,
+    profile: input.profile,
     changedSurface,
-    input: options.input,
-    rules: options.rules ?? [],
+    input: input.input,
+    rules: input.rules ?? [],
   });
   const validationEvidence = detectValidationEvidence(
-    options.input,
+    input.input,
     expectedValidation,
   );
-  const docsImpact = inferDocsImpact(options.input, changedSurface);
-  const findings = buildDeterministicFindings({
-    profile: options.profile,
-    input: options.input,
-    changedSurface,
-    expectedValidation,
-    validationEvidence,
-    docsImpact,
-  });
-  const riskAnalysis = buildRiskAnalysis(options.input, options.profile);
-  const residualRisk = buildResidualRisk(options.input, findings);
-  const mergeReadiness = findings.some(
-    (finding) => finding.severity === "blocker",
-  )
-    ? {
-        status: "blocked" as const,
-        reason: "At least one blocker finding must be resolved before merge.",
-        evidence:
-          findings.find((finding) => finding.severity === "blocker")
-            ?.citations ?? [],
-      }
-    : findings.some((finding) => finding.severity === "major")
-      ? {
-          status: "needs_attention" as const,
-          reason:
-            "Major findings or missing validation evidence need maintainer attention.",
-          evidence:
-            findings.find((finding) => finding.severity === "major")
-              ?.citations ?? [],
-        }
-      : {
-          status: "ready" as const,
-          reason:
-            "No blocker or major deterministic findings were produced from available evidence.",
-          evidence: [],
-        };
+  const docsImpact = inferDocsImpact(input.input, changedSurface);
+  const riskAnalysis = buildRiskAnalysis(input.input, input.profile);
+  const residualRisk = buildResidualRisk(input.input);
 
-  return parseReviewResult({
-    id: newId("review"),
-    repoId: options.repoId ?? options.input.repoId,
-    prNumber: options.input.prNumber,
-    baseRef: options.input.baseRef,
-    headRef: options.input.headRef,
-    baseSha: options.input.baseSha,
-    headSha: options.input.headSha,
-    summary: `Deterministic review for ${options.profile.owner}/${options.profile.name} across ${changedSurface.length} changed surface${changedSurface.length === 1 ? "" : "s"}.`,
-    walkthrough: options.input.changedFiles.map(
+  return {
+    walkthrough: input.input.changedFiles.map(
       (file) =>
         `${file.status} ${file.path} (+${file.additions}/-${file.deletions})`,
     ),
@@ -123,15 +89,8 @@ export function generateDeterministicReview(
     expectedValidation,
     validationEvidence,
     docsImpact,
-    findings,
-    mergeReadiness,
     residualRisk,
-    changedFiles: options.input.changedFiles,
-    feedback: [],
-    modelProvider: null,
-    model: null,
-    createdAt: nowIso(),
-  });
+  };
 }
 
 export function parseReviewResult(input: unknown): ReviewResult {
@@ -320,43 +279,6 @@ function inferDocsImpact(input: ReviewInput, changedSurface: string[]) {
   return docsChanged ? [] : [...impacts.values()];
 }
 
-function buildDeterministicFindings(input: {
-  profile: RepoProfile;
-  input: ReviewInput;
-  changedSurface: string[];
-  expectedValidation: ReviewValidationExpectation[];
-  validationEvidence: string[];
-  docsImpact: ReviewResult["docsImpact"];
-}): ReviewFinding[] {
-  const findings: ReviewFinding[] = [];
-  if (
-    input.expectedValidation.length > 0 &&
-    input.validationEvidence.length === 0
-  ) {
-    findings.push({
-      id: "missing-validation-evidence",
-      title: "Missing validation evidence",
-      severity: "major",
-      body: "Expected validation was inferred, but no matching PR body or CI evidence was detected.",
-      path: null,
-      line: null,
-      citations: input.expectedValidation.flatMap((item) => item.evidence),
-    });
-  }
-  for (const docsImpact of input.docsImpact.filter((item) => item.required)) {
-    findings.push({
-      id: `docs-impact-${slugify(docsImpact.path)}`,
-      title: "Documentation impact needs review",
-      severity: "minor",
-      body: `${docsImpact.path} may need updates: ${docsImpact.reason}`,
-      path: docsImpact.path,
-      line: null,
-      citations: docsImpact.evidence,
-    });
-  }
-  return findings;
-}
-
 function buildRiskAnalysis(input: ReviewInput, profile: RepoProfile): string[] {
   const risks = new Set<string>();
   for (const skipped of input.skippedFiles) {
@@ -371,22 +293,16 @@ function buildRiskAnalysis(input: ReviewInput, profile: RepoProfile): string[] {
   }
   return risks.size > 0
     ? [...risks].sort()
-    : ["No deterministic risk path or skipped-file risk was detected."];
+    : ["No risk path or skipped-file risk was detected before model review."];
 }
 
-function buildResidualRisk(
-  input: ReviewInput,
-  findings: ReviewFinding[],
-): string[] {
+function buildResidualRisk(input: ReviewInput): string[] {
   const risks = [];
   if (input.checkStatuses.length === 0) {
     risks.push("CI/check status was unavailable in the review input.");
   }
   if (input.issueContext.length === 0) {
     risks.push("No linked issue acceptance criteria were available.");
-  }
-  if (findings.length === 0) {
-    risks.push("No generic critique was emitted without repo evidence.");
   }
   return risks;
 }
@@ -498,7 +414,7 @@ export function renderInlineReviewComment(finding: ReviewFinding): string {
 function renderModelLine(review: ReviewResult): string {
   return review.modelProvider && review.model
     ? `Model: ${review.modelProvider} / ${review.model}`
-    : "Model: deterministic or not recorded";
+    : "Model: not recorded";
 }
 
 function renderList(items: string[]): string {

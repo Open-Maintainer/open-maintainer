@@ -16,9 +16,10 @@ import {
   buildRepoFactsSynthesisPrompt,
   buildSkillSynthesisPrompt,
   compareProfileDrift,
+  contentHash,
   createContextArtifacts,
   defaultArtifactTargets,
-  deterministicContextOutput,
+  expectedArtifactTypes,
   modelArtifactContentJsonSchema,
   modelSkillContentJsonSchema,
   parseModelArtifactContent,
@@ -49,7 +50,6 @@ type CliOptions = {
   model: ArtifactModel | null;
   context: ArtifactSelection | null;
   skills: ArtifactSelection | null;
-  deterministic: boolean;
   allowWrite: boolean;
   llmModel: string | null;
   baseRef: string | null;
@@ -119,7 +119,6 @@ Model options:
   --model codex|claude                  LLM CLI backend used to generate artifact bodies
   --llm-model <model>                   Optional backend model override
   --allow-write                         Required with --model; permits model-backed artifact writes
-  --deterministic                       Use template-only artifact generation for offline smoke tests
 
 Write options:
   --force                               Overwrite existing generated artifact files
@@ -130,7 +129,6 @@ Examples:
   open-maintainer generate ./repo --model codex --context codex --skills codex --allow-write
   open-maintainer generate ./repo --model claude --context claude --skills claude --allow-write
   open-maintainer generate ./repo --model codex --context both --skills both --allow-write
-  open-maintainer generate ./repo --deterministic --context codex --skills codex
 `,
   init: `open-maintainer init <repo>
 
@@ -147,14 +145,12 @@ Generate options:
   --skills codex|claude|both            Generate .agents skills, .claude skills, or both
   --llm-model <model>                   Optional backend model override
   --allow-write                         Required with --model; permits model-backed artifact writes
-  --deterministic                       Use template-only artifact generation for offline smoke tests
   --force                               Overwrite existing generated artifact files
   --refresh-generated                   Overwrite only existing Open Maintainer generated files
   --dry-run                             Print planned writes without writing files
 
 Examples:
   open-maintainer init ./repo --model codex --context codex --skills codex --allow-write
-  open-maintainer init ./repo --deterministic --context codex --skills codex
 `,
   doctor: `open-maintainer doctor <repo>
 
@@ -183,7 +179,7 @@ Output options:
   --json                                Print the machine-readable ReviewResult JSON
 
 Model review options:
-  --review-provider codex|claude        Optional CLI backend for model-backed review
+  --review-provider codex|claude        Required CLI backend for model-backed review
   --review-model <model>                Optional backend model override
   --allow-model-content-transfer        Required with --review-provider; sends repo content to the backend
 
@@ -196,6 +192,7 @@ Examples:
   open-maintainer review . --base-ref main --head-ref HEAD
   open-maintainer review . --base-ref origin/main --head-ref HEAD --output-path .open-maintainer/review.md
   open-maintainer review . --base-ref main --head-ref HEAD --json
+  open-maintainer review . --base-ref main --head-ref HEAD --review-provider codex --allow-model-content-transfer
 `,
   pr: `open-maintainer pr <repo> --create
 
@@ -337,22 +334,25 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
   const profile = await createProfileFromFiles(repoRoot, files);
   const targets = resolveTargets(options);
-  if (!options.model && !options.deterministic) {
+  if (!options.model) {
     throw new Error(
-      "generate requires --model codex or --model claude for repo-specific artifact content. Use --deterministic only for offline smoke tests.",
+      "generate requires --model codex or --model claude for LLM-backed artifact content.",
     );
   }
-  const modelArtifacts = options.deterministic
-    ? undefined
-    : await generateModelArtifacts({ repoRoot, profile, files, options });
+  const modelArtifacts = await generateModelArtifacts({
+    repoRoot,
+    profile,
+    files,
+    options,
+  });
   const artifacts = createContextArtifacts({
     repoId: "local",
     profile,
-    output: modelArtifacts?.output ?? deterministicContextOutput(profile),
-    ...(modelArtifacts ? { modelArtifacts: modelArtifacts.content } : {}),
-    ...(modelArtifacts?.skills ? { modelSkills: modelArtifacts.skills } : {}),
-    modelProvider: modelArtifacts?.provider ?? null,
-    model: modelArtifacts?.model ?? null,
+    output: modelArtifacts.output,
+    modelArtifacts: modelArtifacts.content,
+    ...(modelArtifacts.skills ? { modelSkills: modelArtifacts.skills } : {}),
+    modelProvider: modelArtifacts.provider,
+    model: modelArtifacts.model,
     nextVersion: 1,
     targets,
   });
@@ -396,15 +396,10 @@ async function doctor(
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
   const filesByPath = new Map(files.map((file) => [file.path, file]));
   const paths = new Set(filesByPath.keys());
-  const required = createContextArtifacts({
-    repoId: "local",
+  const required = expectedArtifactTypes({
     profile,
-    output: deterministicContextOutput(profile),
-    modelProvider: null,
-    model: null,
-    nextVersion: 1,
     targets: defaultArtifactTargets,
-  }).map((artifact) => artifact.type);
+  });
   const missing = required.filter(
     (artifactPath) => !requiredArtifactPresent(artifactPath, paths),
   );
@@ -416,6 +411,15 @@ async function doctor(
         current: profile,
       })
     : [];
+  const parsedStoredProfile = storedProfile
+    ? (parseRepoProfileJson(storedProfile.content) ?? null)
+    : null;
+  const storedContextHashes = new Map(
+    parsedStoredProfile?.contextArtifactHashes.map((item) => [
+      item.path,
+      item.hash,
+    ]) ?? [],
+  );
   const stale = required.filter((artifactPath) => {
     const file = filesByPath.get(artifactPath);
     if (!file) {
@@ -423,6 +427,10 @@ async function doctor(
     }
     if (artifactPath === ".open-maintainer/profile.json") {
       return !file.content.includes(currentProfileHash);
+    }
+    const storedHash = storedContextHashes.get(artifactPath);
+    if (storedHash) {
+      return contentHash(file.content) !== storedHash;
     }
     return (
       file.content.includes("generated by open-maintainer") &&
@@ -601,7 +609,8 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
     profile,
     input: reviewInput,
     rules: profile.reviewRuleCandidates,
-    ...(providerReview ? providerReview : {}),
+    providerConfig: providerReview.providerConfig,
+    provider: providerReview.provider,
     ...(Object.keys(promptContext).length > 0 ? { promptContext } : {}),
   });
   if (options.outputPath) {
@@ -626,12 +635,9 @@ function buildReviewProvider(input: {
   allowModelContentTransfer: boolean;
 }) {
   if (!input.provider) {
-    if (input.model || input.allowModelContentTransfer) {
-      throw new Error(
-        "--review-model and --allow-model-content-transfer require --review-provider codex|claude.",
-      );
-    }
-    return null;
+    throw new Error(
+      "review requires --review-provider codex or --review-provider claude because PR reviews are LLM-backed only.",
+    );
   }
   if (!input.allowModelContentTransfer) {
     throw new Error(
@@ -897,17 +903,9 @@ async function generateModelSkills(input: {
   ) => Promise<{ text: string }>;
   prompt: ReturnType<typeof buildSkillSynthesisPrompt>;
 }) {
-  try {
-    console.log(`${input.label}: generating workflow skills`);
-    const completion = await input.complete(input.prompt);
-    return parseModelSkillContent(completion.text);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown error";
-    console.warn(
-      `${input.label}: skill generation fell back to deterministic skills (${message})`,
-    );
-    return undefined;
-  }
+  console.log(`${input.label}: generating workflow skills`);
+  const completion = await input.complete(input.prompt);
+  return parseModelSkillContent(completion.text);
 }
 
 function parseOptions(rawOptions: string[]): CliOptions {
@@ -922,7 +920,6 @@ function parseOptions(rawOptions: string[]): CliOptions {
     model: null,
     context: null,
     skills: null,
-    deterministic: false,
     allowWrite: false,
     llmModel: null,
     baseRef: null,
@@ -982,8 +979,6 @@ function parseOptions(rawOptions: string[]): CliOptions {
     } else if (option === "--llm-model") {
       options.llmModel = requireOptionValue(rawOptions, index, option);
       index += 1;
-    } else if (option === "--deterministic") {
-      options.deterministic = true;
     } else if (option === "--allow-write") {
       options.allowWrite = true;
     } else if (option === "--base-ref") {
