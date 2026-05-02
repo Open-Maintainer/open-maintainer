@@ -544,6 +544,11 @@ export function buildApp() {
       externalId: null,
     });
     try {
+      const promptContext = await reviewPromptContextForRepository({
+        repoId,
+        profile,
+        worktreeRoot: prepared.worktreeRoot,
+      });
       const review = await generateReview({
         profile,
         input: reviewInput,
@@ -552,6 +557,7 @@ export function buildApp() {
         provider: buildProvider(provider, {
           ...(prepared.worktreeRoot ? { cwd: prepared.worktreeRoot } : {}),
         }),
+        ...(Object.keys(promptContext).length > 0 ? { promptContext } : {}),
       });
       store.reviews.set(review.id, review);
       store.updateRun(run.id, {
@@ -1441,6 +1447,92 @@ async function localPullRequestMetadata(input: {
     url: parsed.url ?? null,
     author: parsed.author?.login ?? null,
   };
+}
+
+async function reviewPromptContextForRepository(input: {
+  repoId: string;
+  profile: RepoProfile;
+  worktreeRoot: string | null;
+}) {
+  const artifact = latestArtifactLookup(input.repoId);
+  const readContext = async (repoPath: string, artifactFallback?: string) =>
+    (input.worktreeRoot
+      ? await readOptionalWorktreeFile(input.worktreeRoot, repoPath)
+      : undefined) ??
+    artifact(repoPath) ??
+    (artifactFallback ? artifact(artifactFallback) : undefined);
+  const skillPath = (name: string) =>
+    `.agents/skills/${input.profile.name}-${name}/SKILL.md`;
+  const generatedContext = [
+    artifact(".open-maintainer/report.md"),
+    artifact("CLAUDE.md"),
+    artifact(".github/copilot-instructions.md"),
+    artifact(".cursor/rules/open-maintainer.md"),
+  ]
+    .filter(Boolean)
+    .join("\n\n---\n\n");
+
+  return {
+    ...optionalContext(
+      "openMaintainerConfig",
+      await readContext(".open-maintainer.yml"),
+    ),
+    ...optionalContext("agentsMd", await readContext("AGENTS.md")),
+    ...optionalContext(
+      "repoPrReviewSkill",
+      await readContext(
+        skillPath("pr-review"),
+        ".agents/skills/pr-review/SKILL.md",
+      ),
+    ),
+    ...optionalContext(
+      "repoTestingWorkflowSkill",
+      await readContext(
+        skillPath("testing-workflow"),
+        ".agents/skills/testing-workflow/SKILL.md",
+      ),
+    ),
+    ...optionalContext(
+      "repoOverviewSkill",
+      await readContext(
+        skillPath("start-task"),
+        ".agents/skills/repo-overview/SKILL.md",
+      ),
+    ),
+    ...optionalContext(
+      "copilotInstructions",
+      await readContext(".github/copilot-instructions.md"),
+    ),
+    ...optionalContext(
+      "cursorRule",
+      await readContext(".cursor/rules/open-maintainer.md"),
+    ),
+    ...optionalContext("generatedContext", generatedContext || undefined),
+  };
+}
+
+function latestArtifactLookup(repoId: string) {
+  const artifacts = [...(store.artifacts.get(repoId) ?? [])].reverse();
+  return (artifactType: string) =>
+    artifacts.find((artifact) => artifact.type === artifactType)?.content ??
+    artifacts.find(
+      (artifact) =>
+        typeof artifact.type === "string" &&
+        artifact.type.endsWith(`/${artifactType}`),
+    )?.content;
+}
+
+async function readOptionalWorktreeFile(
+  worktreeRoot: string,
+  repoPath: string,
+): Promise<string | undefined> {
+  return readFile(path.join(worktreeRoot, repoPath), "utf8").catch(
+    () => undefined,
+  );
+}
+
+function optionalContext(key: string, value: string | undefined) {
+  return value ? { [key]: value } : {};
 }
 
 function githubAuthForInstallation(

@@ -32,14 +32,24 @@ let output;
 
 if (schema.required.includes("findings")) {
   output = {
-    summary: "Model-backed review summary for " + repoName + ".",
+    summary: {
+      overview: "Model-backed review summary for " + repoName + ".",
+      changedSurfaces: ["offline-test"],
+      riskLevel: "low",
+      validationSummary: "Fake provider observed no failing checks.",
+      docsSummary: "Fake provider observed no required docs changes."
+    },
     findings: [],
     mergeReadiness: {
       status: "ready",
       reason: "Fake provider found no cited findings.",
-      evidence: []
+      requiredActions: []
     },
-    residualRisk: ["Fake provider output is used only for offline tests."]
+    residualRisk: [{
+      risk: "Fake provider output is synthetic.",
+      reason: "The fake CLI is used only for offline tests.",
+      suggestedFollowUp: "Run a real provider review before relying on review quality."
+    }]
   };
 } else if (schema.required.includes("summary")) {
   output = {

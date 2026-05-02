@@ -489,6 +489,148 @@ describe("MVP API", () => {
     }
   });
 
+  it("passes repo context files into dashboard PR review prompts", async () => {
+    const repoRoot = await createLocalPullRequestRepo();
+    const repoName = path.basename(repoRoot);
+    await mkdir(path.join(repoRoot, ".open-maintainer"), { recursive: true });
+    await mkdir(
+      path.join(repoRoot, ".agents/skills", `${repoName}-pr-review`),
+      {
+        recursive: true,
+      },
+    );
+    await mkdir(
+      path.join(repoRoot, ".agents/skills", `${repoName}-testing-workflow`),
+      { recursive: true },
+    );
+    await writeFile(
+      path.join(repoRoot, "AGENTS.md"),
+      "# AGENTS marker\n\nUse repo-specific review context.\n",
+    );
+    await writeFile(
+      path.join(repoRoot, ".open-maintainer.yml"),
+      "qualityRules:\n  - open-maintainer config marker\n",
+    );
+    await writeFile(
+      path.join(
+        repoRoot,
+        ".agents/skills",
+        `${repoName}-pr-review`,
+        "SKILL.md",
+      ),
+      "---\nname: pr-review\n---\n\nPR review skill marker.\n",
+    );
+    await writeFile(
+      path.join(
+        repoRoot,
+        ".agents/skills",
+        `${repoName}-testing-workflow`,
+        "SKILL.md",
+      ),
+      "---\nname: testing-workflow\n---\n\nTesting skill marker.\n",
+    );
+    const capturedUsers: string[] = [];
+    const server = createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        const payload = JSON.parse(body) as {
+          messages?: Array<{ role: string; content: string }>;
+        };
+        const userMessage = payload.messages?.find(
+          (message) => message.role === "user",
+        );
+        if (userMessage) {
+          capturedUsers.push(userMessage.content);
+        }
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    summary: {
+                      overview: "Prompt context was received.",
+                      changedSurfaces: ["api"],
+                      riskLevel: "low",
+                      validationSummary: "No validation gaps.",
+                      docsSummary: "No docs gaps.",
+                    },
+                    findings: [],
+                    mergeReadiness: {
+                      status: "ready",
+                      reason: "No findings.",
+                      requiredActions: [],
+                    },
+                    residualRisk: [],
+                  }),
+                },
+              },
+            ],
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected provider test server port");
+    }
+    try {
+      const registered = await app.inject({
+        method: "POST",
+        url: "/repos/local",
+        payload: { repoRoot },
+      });
+      expect(registered.statusCode).toBe(200);
+      const repoId = registered.json().repo.id;
+
+      const provider = await app.inject({
+        method: "POST",
+        url: "/model-providers",
+        payload: {
+          kind: "local-openai-compatible",
+          displayName: "Local prompt capture",
+          baseUrl: `http://127.0.0.1:${address.port}/v1`,
+          model: "prompt-capture",
+          apiKey: "dev",
+          repoContentConsent: true,
+        },
+      });
+      expect(provider.statusCode).toBe(200);
+
+      const created = await app.inject({
+        method: "POST",
+        url: `/repos/${repoId}/reviews`,
+        payload: {
+          baseRef: "main",
+          headRef: "HEAD",
+          providerId: provider.json().provider.id,
+        },
+      });
+      expect(created.statusCode).toBe(200);
+
+      const promptPayload = JSON.parse(capturedUsers[0] ?? "{}") as {
+        context?: Record<string, string>;
+      };
+      expect(promptPayload.context?.agentsMd).toContain("AGENTS marker");
+      expect(promptPayload.context?.openMaintainerConfig).toContain(
+        "open-maintainer config marker",
+      );
+      expect(promptPayload.context?.repoPrReviewSkill).toContain(
+        "PR review skill marker",
+      );
+      expect(promptPayload.context?.repoTestingWorkflowSkill).toContain(
+        "Testing skill marker",
+      );
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("generates dashboard context and opens local PRs through authenticated gh", async () => {
     const directory = await mkdtemp(path.join(tmpdir(), "api-codex-gen-test-"));
     const command = path.join(directory, "fake-codex.js");

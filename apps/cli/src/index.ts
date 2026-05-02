@@ -590,20 +590,37 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
     model: options.reviewModel,
     allowModelContentTransfer: options.allowModelContentTransfer,
   });
-  const [openMaintainerConfig, generatedContext, repoSkill] = await Promise.all(
-    [
-      readOptionalRepoFile(repoRoot, ".open-maintainer.yml"),
-      readOptionalRepoFile(repoRoot, "AGENTS.md"),
-      readOptionalRepoFile(
-        repoRoot,
-        `.agents/skills/${profile.name}-pr-review/SKILL.md`,
-      ),
-    ],
-  );
+  const [
+    openMaintainerConfig,
+    agentsMd,
+    repoPrReviewSkill,
+    repoTestingWorkflowSkill,
+    repoOverviewSkill,
+    generatedReport,
+  ] = await Promise.all([
+    readOptionalRepoFile(repoRoot, ".open-maintainer.yml"),
+    readOptionalRepoFile(repoRoot, "AGENTS.md"),
+    readOptionalRepoFile(
+      repoRoot,
+      `.agents/skills/${profile.name}-pr-review/SKILL.md`,
+    ),
+    readOptionalRepoFile(
+      repoRoot,
+      `.agents/skills/${profile.name}-testing-workflow/SKILL.md`,
+    ),
+    readOptionalRepoFile(
+      repoRoot,
+      `.agents/skills/${profile.name}-start-task/SKILL.md`,
+    ),
+    readOptionalRepoFile(repoRoot, ".open-maintainer/report.md"),
+  ]);
   const promptContext = {
     ...(openMaintainerConfig ? { openMaintainerConfig } : {}),
-    ...(generatedContext ? { generatedContext } : {}),
-    ...(repoSkill ? { repoSkill } : {}),
+    ...(agentsMd ? { agentsMd } : {}),
+    ...(generatedReport ? { generatedContext: generatedReport } : {}),
+    ...(repoPrReviewSkill ? { repoPrReviewSkill } : {}),
+    ...(repoTestingWorkflowSkill ? { repoTestingWorkflowSkill } : {}),
+    ...(repoOverviewSkill ? { repoOverviewSkill } : {}),
   };
   const result = await generateReview({
     profile,
