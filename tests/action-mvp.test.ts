@@ -26,6 +26,12 @@ describe("GitHub Action MVP", () => {
     );
     expect(action.inputs["generation-provider"].default).toBe("deterministic");
     expect(action.inputs["allow-model-content-transfer"].default).toBe("false");
+    expect(action.inputs["review-provider"].default).toBe("deterministic");
+    expect(action.inputs["allow-review-content-transfer"].default).toBe(
+      "false",
+    );
+    expect(action.inputs["review-comment-on-pr"].default).toBe("false");
+    expect(action.inputs["review-inline-comments"].default).toBe("false");
 
     expect(steps).toContainEqual(
       expect.objectContaining({
@@ -105,10 +111,16 @@ describe("GitHub Action MVP", () => {
     const validateStep = steps.find(
       (step: { name?: string }) => step.name === "Validate inputs",
     );
-    expect(validateStep.run).toContain("audit|refresh");
+    expect(validateStep.run).toContain("audit|refresh|review");
     expect(validateStep.run).toContain("Unsupported mode");
     expect(validateStep.run).toContain(
       "Model-backed refresh requires allow-model-content-transfer",
+    );
+    expect(validateStep.run).toContain(
+      "Model-backed review requires allow-review-content-transfer",
+    );
+    expect(validateStep.run).toContain(
+      "Review GitHub posting is not implemented yet",
     );
 
     const refreshStep = steps.find(
@@ -125,6 +137,47 @@ describe("GitHub Action MVP", () => {
     expect(prStep.run).toContain("git push --force-with-lease");
     expect(prStep.run).toContain("gh pr create");
     expect(prStep.run).not.toContain("git push origin main");
+  });
+
+  it("runs review mode through the CLI and writes only to the step summary", async () => {
+    const action = await readYaml("action.yml");
+    const steps = action.runs.steps;
+
+    expect(action.inputs.mode.default).toBe("audit");
+    const reviewStep = steps.find(
+      (step: { name?: string }) => step.name === "Run pull request review",
+    );
+    expect(reviewStep.if).toBe(
+      "${{ inputs.mode == 'review' && github.event_name == 'pull_request' }}",
+    );
+    expect(reviewStep.run).toContain(
+      'bun run --cwd "$GITHUB_ACTION_PATH" cli "${args[@]}"',
+    );
+    expect(reviewStep.run).toContain('"review"');
+    expect(reviewStep.run).toContain("--base-ref");
+    expect(reviewStep.run).toContain(
+      "${{ github.event.pull_request.base.sha }}",
+    );
+    expect(reviewStep.run).toContain("--head-ref");
+    expect(reviewStep.run).toContain(
+      "${{ github.event.pull_request.head.sha }}",
+    );
+    expect(reviewStep.run).toContain("--pr-number");
+    expect(reviewStep.run).toContain("--output-path");
+    expect(reviewStep.run).toContain("$GITHUB_STEP_SUMMARY");
+    expect(reviewStep.run).toContain("--allow-model-content-transfer");
+    expect(reviewStep.run).not.toContain("gh pr comment");
+    expect(reviewStep.run).not.toContain("github.rest.issues.createComment");
+
+    const skipStep = steps.find(
+      (step: { name?: string }) => step.name === "Skip pull request review",
+    );
+    expect(skipStep.if).toBe(
+      "${{ inputs.mode == 'review' && github.event_name != 'pull_request' }}",
+    );
+    expect(skipStep.run).toContain(
+      "Review mode needs a pull_request event with base and head refs.",
+    );
   });
 
   it("dogfoods the public workflow shape", async () => {

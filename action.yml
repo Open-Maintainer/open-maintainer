@@ -1,8 +1,8 @@
 name: Open Maintainer
-description: Run Open Maintainer audit checks and optional context refresh PRs.
+description: Run Open Maintainer audit checks, rule-grounded PR reviews, and optional context refresh PRs.
 inputs:
   mode:
-    description: Action mode. Use audit for non-mutating checks or refresh to open/update a context refresh PR.
+    description: Action mode. Use audit for non-mutating checks, review for PR review summaries, or refresh to open/update a context refresh PR.
     required: false
     default: audit
   fail-on-score-below:
@@ -37,6 +37,30 @@ inputs:
     description: Explicit consent for model-backed refresh generation to send repository content to the selected provider CLI.
     required: false
     default: "false"
+  review-provider:
+    description: Review provider. Use deterministic for offline CI, or codex/claude with allow-review-content-transfer set to true.
+    required: false
+    default: deterministic
+  review-model:
+    description: Optional model override passed to the selected model-backed review provider.
+    required: false
+    default: ""
+  allow-review-content-transfer:
+    description: Explicit consent for model-backed PR review to send repository content to the selected provider CLI.
+    required: false
+    default: "false"
+  review-comment-on-pr:
+    description: Reserved for opt-in review summary comments. Disabled and not implemented in this release.
+    required: false
+    default: "false"
+  review-inline-comments:
+    description: Reserved for opt-in capped inline review comments. Disabled and not implemented in this release.
+    required: false
+    default: "false"
+  review-inline-cap:
+    description: Maximum inline review comments when review-inline-comments is implemented.
+    required: false
+    default: "5"
   context-target:
     description: Context instruction files to generate during refresh. One of codex, claude, or both.
     required: false
@@ -74,9 +98,9 @@ runs:
       shell: bash
       run: |
         case "${{ inputs.mode }}" in
-          audit|refresh) ;;
+          audit|refresh|review) ;;
           *)
-            echo "::error title=Open Maintainer::Unsupported mode '${{ inputs.mode }}'. Use 'audit' or 'refresh'."
+            echo "::error title=Open Maintainer::Unsupported mode '${{ inputs.mode }}'. Use 'audit', 'refresh', or 'review'."
             exit 2
             ;;
         esac
@@ -84,6 +108,13 @@ runs:
           deterministic|codex|claude) ;;
           *)
             echo "::error title=Open Maintainer::Unsupported generation-provider '${{ inputs.generation-provider }}'. Use 'deterministic', 'codex', or 'claude'."
+            exit 2
+            ;;
+        esac
+        case "${{ inputs.review-provider }}" in
+          deterministic|codex|claude) ;;
+          *)
+            echo "::error title=Open Maintainer::Unsupported review-provider '${{ inputs.review-provider }}'. Use 'deterministic', 'codex', or 'claude'."
             exit 2
             ;;
         esac
@@ -105,6 +136,17 @@ runs:
           [ "${{ inputs.generation-provider }}" != "deterministic" ] &&
           [ "${{ inputs.allow-model-content-transfer }}" != "true" ]; then
           echo "::error title=Open Maintainer::Model-backed refresh requires allow-model-content-transfer: 'true'."
+          exit 2
+        fi
+        if [ "${{ inputs.mode }}" = "review" ] &&
+          [ "${{ inputs.review-provider }}" != "deterministic" ] &&
+          [ "${{ inputs.allow-review-content-transfer }}" != "true" ]; then
+          echo "::error title=Open Maintainer::Model-backed review requires allow-review-content-transfer: 'true'."
+          exit 2
+        fi
+        if [ "${{ inputs.review-comment-on-pr }}" = "true" ] ||
+          [ "${{ inputs.review-inline-comments }}" = "true" ]; then
+          echo "::error title=Open Maintainer::Review GitHub posting is not implemented yet."
           exit 2
         fi
     - name: Set up Bun
@@ -297,6 +339,54 @@ runs:
         NODE
         cat "$summary_path" >> "$GITHUB_STEP_SUMMARY"
         echo "summary-path=$summary_path" >> "$GITHUB_OUTPUT"
+    - name: Run pull request review
+      id: review
+      if: ${{ inputs.mode == 'review' && github.event_name == 'pull_request' }}
+      shell: bash
+      run: |
+        set +e
+        review_output="$RUNNER_TEMP/open-maintainer-review.md"
+        review_log="$RUNNER_TEMP/open-maintainer-review-output.txt"
+        git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}" >/dev/null 2>&1 || true
+        git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.head.sha }}" >/dev/null 2>&1 || true
+        args=(
+          "review"
+          "$GITHUB_WORKSPACE"
+          "--base-ref"
+          "${{ github.event.pull_request.base.sha }}"
+          "--head-ref"
+          "${{ github.event.pull_request.head.sha }}"
+          "--pr-number"
+          "${{ github.event.pull_request.number }}"
+          "--output-path"
+          "$review_output"
+        )
+        if [ "${{ inputs.review-provider }}" != "deterministic" ]; then
+          args+=("--review-provider" "${{ inputs.review-provider }}" "--allow-model-content-transfer")
+          if [ -n "${{ inputs.review-model }}" ]; then
+            args+=("--review-model" "${{ inputs.review-model }}")
+          fi
+        fi
+        bun run --cwd "$GITHUB_ACTION_PATH" cli "${args[@]}" >"$review_log" 2>&1
+        review_status=$?
+        cat "$review_log"
+        if [ -f "$review_output" ]; then
+          cat "$review_output" >> "$GITHUB_STEP_SUMMARY"
+        fi
+        echo "exit-code=$review_status" >> "$GITHUB_OUTPUT"
+        echo "output-path=$review_output" >> "$GITHUB_OUTPUT"
+        echo "log-path=$review_log" >> "$GITHUB_OUTPUT"
+        exit "$review_status"
+    - name: Skip pull request review
+      if: ${{ inputs.mode == 'review' && github.event_name != 'pull_request' }}
+      shell: bash
+      run: |
+        {
+          echo "## Open Maintainer PR Review"
+          echo
+          echo "Review mode needs a pull_request event with base and head refs."
+          echo "Current event: ${{ github.event_name }}"
+        } >> "$GITHUB_STEP_SUMMARY"
     - name: Comment on pull request
       if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
       uses: actions/github-script@v8
