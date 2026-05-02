@@ -340,8 +340,10 @@ runs:
         set +e
         review_output="$RUNNER_TEMP/open-maintainer-review.md"
         review_log="$RUNNER_TEMP/open-maintainer-review-output.txt"
-        git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}" >/dev/null 2>&1 || true
-        git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.head.sha }}" >/dev/null 2>&1 || true
+        git fetch --no-tags --prune --unshallow origin >/dev/null 2>&1 ||
+          git fetch --no-tags --prune origin >/dev/null 2>&1 ||
+          true
+        git fetch --no-tags origin "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}" >/dev/null 2>&1 || true
         args=(
           "review"
           "$GITHUB_WORKSPACE"

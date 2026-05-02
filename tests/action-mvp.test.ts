@@ -169,6 +169,10 @@ describe("GitHub Action MVP", () => {
     expect(reviewStep.run).toContain("--review-provider");
     expect(reviewStep.run).toContain("$GITHUB_STEP_SUMMARY");
     expect(reviewStep.run).toContain("--allow-model-content-transfer");
+    expect(reviewStep.run).toContain(
+      "git fetch --no-tags --prune --unshallow origin",
+    );
+    expect(reviewStep.run).toContain("git fetch --no-tags origin");
     expect(reviewStep.run).not.toContain("gh pr comment");
     expect(reviewStep.run).not.toContain("github.rest.issues.createComment");
 
