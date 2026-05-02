@@ -1,8 +1,12 @@
+import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { analyzeRepo, scanRepository } from "../src";
+
+const execFileAsync = promisify(execFile);
 
 describe("analyzeRepo", () => {
   it("emits a deterministic profile with evidence and commands", () => {
@@ -151,6 +155,28 @@ describe("analyzeRepo", () => {
       "README.md",
       "package.json",
       "src/index.ts",
+    ]);
+  });
+
+  it("uses Git excludes when scanning a worktree", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "open-maintainer-git-"));
+    const excludesPath = path.join(root, "global-ignore");
+    await mkdir(path.join(root, "local-docs"), { recursive: true });
+    await writeFile(path.join(root, "README.md"), "# Fixture");
+    await writeFile(path.join(root, "visible.md"), "# Visible");
+    await writeFile(path.join(root, "local-docs/ignored.md"), "# Local notes");
+    await writeFile(excludesPath, "local-docs/\n");
+    await execFileAsync("git", ["init"], { cwd: root });
+    await execFileAsync("git", ["config", "core.excludesFile", excludesPath], {
+      cwd: root,
+    });
+    await execFileAsync("git", ["add", "README.md"], { cwd: root });
+
+    const files = await scanRepository(root);
+
+    expect(files.map((file) => file.path).sort()).toEqual([
+      "README.md",
+      "visible.md",
     ]);
   });
 });

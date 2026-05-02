@@ -1,6 +1,8 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile, readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import type {
   DetectedCommand,
   EvidenceReference,
@@ -31,6 +33,8 @@ const defaultScanOptions = {
   maxFiles: 400,
   maxBytesPerFile: 128_000,
 };
+
+const execFileAsync = promisify(execFile);
 
 const ignoredPathParts = new Set([
   ".git",
@@ -116,6 +120,29 @@ export async function scanRepository(
   const maxBytesPerFile =
     options.maxBytesPerFile ?? defaultScanOptions.maxBytesPerFile;
   const files: AnalyzerFile[] = [];
+  const gitVisibleFiles = await listGitVisibleFiles(absoluteRoot);
+
+  if (gitVisibleFiles) {
+    for (const relativePath of gitVisibleFiles) {
+      if (files.length >= maxFiles) {
+        break;
+      }
+      if (shouldSkipRepoPath(relativePath) || !shouldReadFile(relativePath)) {
+        continue;
+      }
+      const absolutePath = path.join(absoluteRoot, relativePath);
+      const fileStat = await stat(absolutePath).catch(() => null);
+      if (!fileStat?.isFile() || fileStat.size > maxBytesPerFile) {
+        continue;
+      }
+      const content = await readFile(absolutePath, "utf8").catch(() => null);
+      if (content === null) {
+        continue;
+      }
+      files.push({ path: relativePath, content });
+    }
+    return files;
+  }
 
   async function visit(directory: string): Promise<void> {
     if (files.length >= maxFiles) {
@@ -160,6 +187,31 @@ export async function scanRepository(
 
   await visit(absoluteRoot);
   return files;
+}
+
+async function listGitVisibleFiles(repoRoot: string): Promise<string[] | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      "git",
+      [
+        "-C",
+        repoRoot,
+        "ls-files",
+        "-z",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+      ],
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+    return stdout
+      .split("\0")
+      .filter(Boolean)
+      .map(normalizeRepoPath)
+      .sort((left, right) => left.localeCompare(right));
+  } catch {
+    return null;
+  }
 }
 
 export function shouldSkipRepoPath(repoPath: string): boolean {

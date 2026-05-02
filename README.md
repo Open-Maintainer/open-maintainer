@@ -73,6 +73,8 @@ bun run cli generate "$TARGET_REPO" --model codex --context both --skills both -
 - `.open-maintainer/profile.json`
 - `.open-maintainer/report.md`
 
+Repository scans use Git's visible file set when the target is a Git worktree, so ignored files are excluded by default, including files ignored through global Git excludes.
+
 When the score is below 100, `audit` also prints a `Next steps` block with
 concrete missing files or commands that would improve the readiness score.
 
