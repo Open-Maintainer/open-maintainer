@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_19027e4b-4c8d-4d09-afde-1ca450def671",
+  "id": "repo_profile_5b81f542-9d43-43ce-9989-4844f4f856fb",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -324,6 +324,7 @@
     "tests/cli-audit.test.ts",
     "tests/cli-doctor.test.ts",
     "tests/cli-help.test.ts",
+    "tests/cli-review.test.ts",
     "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
     "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-start-task/SKILL.md",
     "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-testing-workflow/SKILL.md",
@@ -744,6 +745,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "tests/cli-review.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
       "reason": "detected repository context"
     },
@@ -899,15 +904,15 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "1e1441db67609ad6"
+      "hash": "4feec4f6fbe5fd8d"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "44dd22d79c3783bd"
+      "hash": "fedb721add39ca65"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "0a776569a13cdbf4"
+      "hash": "b4712457ee60a450"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
@@ -967,19 +972,19 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "336cbc463521849f"
+      "hash": "0eda2c24f33b5c9f"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "b27de0936b1a9b61"
+      "hash": "435704c153d569b2"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "b7159f217460c457"
+      "hash": "14e8f62c2de384f8"
     },
     {
       "path": "AGENTS.md",
-      "hash": "1a6c9caa009bf22c"
+      "hash": "5a42cc09e99b3b63"
     },
     {
       "path": "apps/api/package.json",
@@ -995,11 +1000,11 @@
     },
     {
       "path": "apps/cli/package.json",
-      "hash": "86b6589f3a574a9a"
+      "hash": "c4c535853428131b"
     },
     {
       "path": "apps/cli/tsconfig.json",
-      "hash": "633e6c835c05107b"
+      "hash": "8c9bcdcd376e91bd"
     },
     {
       "path": "apps/web/next-env.d.ts",
@@ -1027,7 +1032,7 @@
     },
     {
       "path": "bun.lock",
-      "hash": "8fb8f178c4cd9f9e"
+      "hash": "ca3ec69b813b43a6"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -1183,7 +1188,11 @@
     },
     {
       "path": "tests/cli-help.test.ts",
-      "hash": "1614fd5e1f0a5973"
+      "hash": "9e129513f77e1b59"
+    },
+    {
+      "path": "tests/cli-review.test.ts",
+      "hash": "24896a8c794a6df7"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1357,26 +1366,26 @@
   "contextArtifactHashes": [
     {
       "path": "AGENTS.md",
-      "hash": "5a42cc09e99b3b63"
+      "hash": "6b8b5106961105ac"
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "0eda2c24f33b5c9f"
+      "hash": "4d771f3cfd81ded9"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "fedb721add39ca65"
+      "hash": "c994db6631974bff"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "b4712457ee60a450"
+      "hash": "2848abd2c0fe7d06"
     },
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "4feec4f6fbe5fd8d"
+      "hash": "7bcb24176765ff77"
     }
   ],
-  "createdAt": "2026-05-02T02:46:56.216Z",
+  "createdAt": "2026-05-02T02:53:43.279Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1779,6 +1788,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "tests/cli-review.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
             "reason": "detected repository context"
           },
@@ -2072,6 +2085,10 @@
           },
           {
             "path": "tests/cli-help.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/cli-review.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2534,7 +2551,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T02:46:56.217Z"
+    "generatedAt": "2026-05-02T02:53:43.279Z"
   },
-  "openMaintainerProfileHash": "e24a220595409568"
+  "openMaintainerProfileHash": "c04019532ab9f033"
 }

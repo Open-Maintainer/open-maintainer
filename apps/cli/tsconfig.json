@@ -11,6 +11,7 @@
     { "path": "../../packages/ai" },
     { "path": "../../packages/config" },
     { "path": "../../packages/analyzer" },
-    { "path": "../../packages/context" }
+    { "path": "../../packages/context" },
+    { "path": "../../packages/review" }
   ]
 }

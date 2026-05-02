@@ -34,7 +34,14 @@ describe("CLI help", () => {
   });
 
   it("prints command help before resolving repository paths", async () => {
-    for (const command of ["audit", "generate", "init", "doctor", "pr"]) {
+    for (const command of [
+      "audit",
+      "generate",
+      "init",
+      "doctor",
+      "review",
+      "pr",
+    ]) {
       for (const helpToken of ["--help", "-h", "help"]) {
         const result = await runCli([command, helpToken]);
 
@@ -56,6 +63,18 @@ describe("CLI help", () => {
     expect(result.stdout).toContain("--skills codex|claude|both");
     expect(result.stdout).toContain("--allow-write");
     expect(result.stdout).toContain("--refresh-generated");
+  });
+
+  it("documents review safety defaults", async () => {
+    const result = await runCli(["help", "review"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("open-maintainer review <repo>");
+    expect(result.stdout).toContain("--base-ref <ref>");
+    expect(result.stdout).toContain("--json");
+    expect(result.stdout).toContain("--allow-model-content-transfer");
+    expect(result.stdout).toContain("never posts to GitHub");
   });
 
   it("rejects missing and invalid option values", async () => {

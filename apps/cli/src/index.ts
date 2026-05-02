@@ -30,6 +30,12 @@ import {
   structuredContextOutputFromRepoFacts,
   structuredRepoFactsJsonSchema,
 } from "@open-maintainer/context";
+import {
+  assembleLocalReviewInput,
+  generateReview,
+  renderReviewMarkdown,
+} from "@open-maintainer/review";
+import type { ModelProviderConfig } from "@open-maintainer/shared";
 
 type CliOptions = {
   force: boolean;
@@ -45,6 +51,17 @@ type CliOptions = {
   deterministic: boolean;
   allowWrite: boolean;
   llmModel: string | null;
+  baseRef: string | null;
+  headRef: string | null;
+  prNumber: number | null;
+  outputPath: string | null;
+  json: boolean;
+  reviewProvider: ArtifactModel | null;
+  reviewModel: string | null;
+  allowModelContentTransfer: boolean;
+  reviewPostSummary: boolean;
+  reviewInlineComments: boolean;
+  reviewInlineCap: number | null;
 };
 
 type ArtifactSelection = "codex" | "claude" | "both";
@@ -59,6 +76,7 @@ Commands:
                                        Generate context artifacts safely
   init <repo>                           Run audit, then generate missing artifacts
   doctor <repo>                         Report missing or stale generated context
+  review <repo>                         Produce a non-mutating rule-grounded PR review
   pr <repo> --create                    Print a dry-run PR summary for generated artifacts
 
 Help:
@@ -150,6 +168,34 @@ Examples:
   open-maintainer doctor .
   open-maintainer doctor ./repo
 `,
+  review: `open-maintainer review <repo>
+
+Produce a local rule-grounded PR review from git base/head refs. Review mode is non-mutating by default and never posts to GitHub in this release.
+
+Diff options:
+  --base-ref <ref>                      Base ref or SHA for the review diff
+  --head-ref <ref>                      Head ref or SHA for the review diff (default: HEAD)
+  --pr-number <number>                  Optional PR number metadata
+
+Output options:
+  --output-path <path>                  Write markdown review output to a file
+  --json                                Print the machine-readable ReviewResult JSON
+
+Model review options:
+  --review-provider codex|claude        Optional CLI backend for model-backed review
+  --review-model <model>                Optional backend model override
+  --allow-model-content-transfer        Required with --review-provider; sends repo content to the backend
+
+Posting placeholders:
+  --review-post-summary                 Reserved for v0.4 posting slices; currently fails without writing
+  --review-inline-comments              Reserved for v0.4 posting slices; currently fails without writing
+  --review-inline-cap <number>          Reserved inline comment cap metadata
+
+Examples:
+  open-maintainer review . --base-ref main --head-ref HEAD
+  open-maintainer review . --base-ref origin/main --head-ref HEAD --output-path .open-maintainer/review.md
+  open-maintainer review . --base-ref main --head-ref HEAD --json
+`,
   pr: `open-maintainer pr <repo> --create
 
 Print a dry-run context PR summary for generated artifacts.
@@ -233,6 +279,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         }
         return result.ok ? 0 : 1;
       }
+      case "review":
+        await review(repoRoot, options);
+        return 0;
       case "pr":
         await pr(repoRoot, options);
         return 0;
@@ -490,6 +539,149 @@ async function pr(repoRoot: string, options: CliOptions): Promise<void> {
   );
 }
 
+async function review(repoRoot: string, options: CliOptions): Promise<void> {
+  if (options.reviewPostSummary || options.reviewInlineComments) {
+    throw new Error(
+      "Review posting is not implemented yet. This command only writes local markdown or JSON.",
+    );
+  }
+  if (options.reviewInlineCap !== null && !options.reviewInlineComments) {
+    throw new Error(
+      "--review-inline-cap is reserved for --review-inline-comments and does not publish comments in this release.",
+    );
+  }
+  const files = await scanRepository(repoRoot, { maxFiles: 800 });
+  const profile = await createProfileFromFiles(repoRoot, files);
+  const baseRef =
+    options.baseRef ??
+    (await detectDefaultBranch(repoRoot)) ??
+    profile.defaultBranch ??
+    "main";
+  const headRef = options.headRef ?? "HEAD";
+  const input = await assembleLocalReviewInput({
+    repoRoot,
+    repoId: profile.repoId,
+    baseRef,
+    headRef,
+  }).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Unable to assemble review diff for ${baseRef}...${headRef}. Verify --base-ref and --head-ref. ${message}`,
+    );
+  });
+  const reviewInput = {
+    ...input,
+    prNumber: options.prNumber,
+    owner: profile.owner,
+    repo: profile.name,
+  };
+  const providerReview = buildReviewProvider({
+    repoRoot,
+    provider: options.reviewProvider,
+    model: options.reviewModel,
+    allowModelContentTransfer: options.allowModelContentTransfer,
+  });
+  const [openMaintainerConfig, generatedContext, repoSkill] = await Promise.all(
+    [
+      readOptionalRepoFile(repoRoot, ".open-maintainer.yml"),
+      readOptionalRepoFile(repoRoot, "AGENTS.md"),
+      readOptionalRepoFile(
+        repoRoot,
+        `.agents/skills/${profile.name}-pr-review/SKILL.md`,
+      ),
+    ],
+  );
+  const promptContext = {
+    ...(openMaintainerConfig ? { openMaintainerConfig } : {}),
+    ...(generatedContext ? { generatedContext } : {}),
+    ...(repoSkill ? { repoSkill } : {}),
+  };
+  const result = await generateReview({
+    profile,
+    input: reviewInput,
+    rules: profile.reviewRuleCandidates,
+    ...(providerReview ? providerReview : {}),
+    ...(Object.keys(promptContext).length > 0 ? { promptContext } : {}),
+  });
+  if (options.outputPath) {
+    const outputPath = path.resolve(repoRoot, options.outputPath);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, renderReviewMarkdown(result));
+    if (!options.json) {
+      console.log(`Review: ${path.relative(repoRoot, outputPath)}`);
+    }
+  }
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else if (!options.outputPath) {
+    console.log(renderReviewMarkdown(result));
+  }
+}
+
+function buildReviewProvider(input: {
+  repoRoot: string;
+  provider: ArtifactModel | null;
+  model: string | null;
+  allowModelContentTransfer: boolean;
+}) {
+  if (!input.provider) {
+    if (input.model || input.allowModelContentTransfer) {
+      throw new Error(
+        "--review-model and --allow-model-content-transfer require --review-provider codex|claude.",
+      );
+    }
+    return null;
+  }
+  if (!input.allowModelContentTransfer) {
+    throw new Error(
+      "--review-provider requires --allow-model-content-transfer because PR review sends repository content to the selected CLI backend.",
+    );
+  }
+  const createdAt = new Date(0).toISOString();
+  const providerConfig: ModelProviderConfig =
+    input.provider === "codex"
+      ? {
+          id: "model_provider_cli_review_codex",
+          kind: "codex-cli",
+          displayName: "Codex CLI",
+          baseUrl: "http://localhost",
+          model: input.model ?? "codex-cli",
+          encryptedApiKey: "local-cli",
+          repoContentConsent: true,
+          createdAt,
+          updatedAt: createdAt,
+        }
+      : {
+          id: "model_provider_cli_review_claude",
+          kind: "claude-cli",
+          displayName: "Claude CLI",
+          baseUrl: "http://localhost",
+          model: input.model ?? "claude-cli",
+          encryptedApiKey: "local-cli",
+          repoContentConsent: true,
+          createdAt,
+          updatedAt: createdAt,
+        };
+  const provider =
+    input.provider === "codex"
+      ? buildCodexCliProvider({
+          cwd: input.repoRoot,
+          ...(input.model ? { model: input.model } : {}),
+        })
+      : buildClaudeCliProvider({
+          cwd: input.repoRoot,
+          ...(input.model ? { model: input.model } : {}),
+        });
+  return { providerConfig, provider };
+}
+
+async function readOptionalRepoFile(
+  repoRoot: string,
+  repoPath: string,
+): Promise<string | undefined> {
+  return readFile(path.join(repoRoot, repoPath), "utf8").catch(() => undefined);
+}
+
 async function createProfile(repoRoot: string) {
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
   return createProfileFromFiles(repoRoot, files);
@@ -728,6 +920,17 @@ function parseOptions(rawOptions: string[]): CliOptions {
     deterministic: false,
     allowWrite: false,
     llmModel: null,
+    baseRef: null,
+    headRef: null,
+    prNumber: null,
+    outputPath: null,
+    json: false,
+    reviewProvider: null,
+    reviewModel: null,
+    allowModelContentTransfer: false,
+    reviewPostSummary: false,
+    reviewInlineComments: false,
+    reviewInlineCap: null,
   };
   for (let index = 0; index < rawOptions.length; index += 1) {
     const option = rawOptions[index];
@@ -778,6 +981,51 @@ function parseOptions(rawOptions: string[]): CliOptions {
       options.deterministic = true;
     } else if (option === "--allow-write") {
       options.allowWrite = true;
+    } else if (option === "--base-ref") {
+      options.baseRef = requireOptionValue(rawOptions, index, option);
+      index += 1;
+    } else if (option === "--head-ref") {
+      options.headRef = requireOptionValue(rawOptions, index, option);
+      index += 1;
+    } else if (option === "--pr-number") {
+      const value = requireOptionValue(rawOptions, index, option);
+      const prNumber = Number(value);
+      if (!Number.isInteger(prNumber) || prNumber <= 0) {
+        throw new Error(
+          "Invalid value for --pr-number. Expected a positive integer.",
+        );
+      }
+      options.prNumber = prNumber;
+      index += 1;
+    } else if (option === "--output-path") {
+      options.outputPath = requireOptionValue(rawOptions, index, option);
+      index += 1;
+    } else if (option === "--json") {
+      options.json = true;
+    } else if (option === "--review-provider") {
+      options.reviewProvider = parseArtifactModel(
+        requireOptionValue(rawOptions, index, option),
+      );
+      index += 1;
+    } else if (option === "--review-model") {
+      options.reviewModel = requireOptionValue(rawOptions, index, option);
+      index += 1;
+    } else if (option === "--allow-model-content-transfer") {
+      options.allowModelContentTransfer = true;
+    } else if (option === "--review-post-summary") {
+      options.reviewPostSummary = true;
+    } else if (option === "--review-inline-comments") {
+      options.reviewInlineComments = true;
+    } else if (option === "--review-inline-cap") {
+      const value = requireOptionValue(rawOptions, index, option);
+      const cap = Number(value);
+      if (!Number.isInteger(cap) || cap < 0) {
+        throw new Error(
+          "Invalid value for --review-inline-cap. Expected a non-negative integer.",
+        );
+      }
+      options.reviewInlineCap = cap;
+      index += 1;
     } else {
       throw new Error(`Unknown option: ${option}`);
     }
@@ -807,6 +1055,7 @@ function isCommandName(value: string | undefined): value is CommandName {
     value === "generate" ||
     value === "init" ||
     value === "doctor" ||
+    value === "review" ||
     value === "pr"
   );
 }
