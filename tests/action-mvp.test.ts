@@ -234,7 +234,9 @@ describe("GitHub Action MVP", () => {
     const workflow = await readYaml(
       ".github/workflows/open-maintainer-audit.yml",
     );
-    const steps = workflow.jobs.audit.steps;
+    const auditSteps = workflow.jobs.audit.steps;
+    const reviewJob = workflow.jobs.review;
+    const reviewSteps = reviewJob.steps;
 
     expect(workflow.on).toEqual({
       pull_request: null,
@@ -242,8 +244,8 @@ describe("GitHub Action MVP", () => {
       workflow_dispatch: null,
     });
     expect(workflow.permissions).toEqual({ contents: "read" });
-    expect(steps).toContainEqual({ uses: "actions/checkout@v6" });
-    expect(steps).toContainEqual(
+    expect(auditSteps).toContainEqual({ uses: "actions/checkout@v6" });
+    expect(auditSteps).toContainEqual(
       expect.objectContaining({
         uses: "./",
         with: {
@@ -253,8 +255,50 @@ describe("GitHub Action MVP", () => {
         },
       }),
     );
-    expect(steps).not.toContainEqual(
+    expect(auditSteps).not.toContainEqual(
       expect.objectContaining({ uses: "oven-sh/setup-bun@v2" }),
+    );
+
+    expect(reviewJob.if).toBe(
+      "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.OPEN_MAINTAINER_REVIEW_ENABLED == 'true' }}",
+    );
+    expect(reviewJob.permissions).toEqual({
+      contents: "read",
+      issues: "write",
+      "pull-requests": "write",
+    });
+    expect(reviewSteps).toContainEqual({
+      uses: "actions/checkout@v6",
+      with: { "fetch-depth": 0 },
+    });
+    expect(reviewSteps).toContainEqual(
+      expect.objectContaining({
+        name: "Require review provider credentials",
+      }),
+    );
+    expect(
+      reviewSteps.find(
+        (step: { name?: string }) =>
+          step.name === "Require review provider credentials",
+      ).run,
+    ).toContain("OPENAI_API_KEY is required");
+    expect(reviewSteps).toContainEqual(
+      expect.objectContaining({
+        name: "Install Codex CLI",
+        run: 'npm install -g "@openai/codex@0.128.0"',
+      }),
+    );
+    expect(reviewSteps).toContainEqual(
+      expect.objectContaining({
+        uses: "./",
+        with: expect.objectContaining({
+          mode: "review",
+          "review-provider": "codex",
+          "allow-review-content-transfer": "true",
+          "review-comment-on-pr": "true",
+          "review-inline-comments": "true",
+        }),
+      }),
     );
   });
 });

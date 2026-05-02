@@ -24,3 +24,38 @@ jobs:
           mode: audit
           fail-on-drift: "true"
           fail-on-score-below: "60"
+
+  review:
+    name: Rule-grounded PR review
+    if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.OPEN_MAINTAINER_REVIEW_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Require review provider credentials
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if [ -z "$OPENAI_API_KEY" ]; then
+            echo "::error title=Open Maintainer::OPENAI_API_KEY is required when OPEN_MAINTAINER_REVIEW_ENABLED is true."
+            exit 1
+          fi
+      - name: Install Codex CLI
+        run: npm install -g "@openai/codex@0.128.0"
+      - uses: ./
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        with:
+          mode: review
+          review-provider: codex
+          review-model: ${{ vars.OPEN_MAINTAINER_REVIEW_MODEL || 'gpt-5.5' }}
+          allow-review-content-transfer: "true"
+          review-comment-on-pr: "true"
+          review-inline-comments: "true"
+          review-inline-cap: ${{ vars.OPEN_MAINTAINER_REVIEW_INLINE_CAP || '5' }}
