@@ -12,6 +12,8 @@ import type {
   ReviewExistingComment,
   ReviewInput,
   ReviewIssueContext,
+  ReviewResult,
+  ReviewSeverity,
   ReviewSkippedFile,
 } from "@open-maintainer/shared";
 import { newId, nowIso } from "@open-maintainer/shared";
@@ -209,6 +211,19 @@ export type GitHubRepositoryClient = {
       per_page?: number;
       page?: number;
     }): Promise<{ data: GitHubReviewComment[] }>;
+    createReview?(input: {
+      owner: string;
+      repo: string;
+      pull_number: number;
+      event: "COMMENT";
+      body?: string;
+      comments: Array<{
+        path: string;
+        line: number;
+        side: "RIGHT";
+        body: string;
+      }>;
+    }): Promise<{ data: { id: number; html_url?: string | null } }>;
   };
   issues?: {
     get?(input: {
@@ -290,6 +305,32 @@ export type ReviewSummaryCommentPlan =
 
 export type ReviewSummaryCommentResult = ReviewSummaryCommentPlan & {
   commentId: number;
+  url: string | null;
+};
+
+export type ReviewInlineCommentPlan = {
+  comments: Array<{
+    findingId: string;
+    severity: ReviewSeverity;
+    path: string;
+    line: number;
+    body: string;
+    fingerprint: string;
+  }>;
+  skipped: Array<{
+    findingId: string;
+    reason:
+      | "missing_path"
+      | "missing_line"
+      | "unchanged_path"
+      | "missing_patch"
+      | "duplicate"
+      | "cap_reached";
+  }>;
+};
+
+export type ReviewInlineCommentResult = ReviewInlineCommentPlan & {
+  reviewId: number | null;
   url: string | null;
 };
 
@@ -1089,6 +1130,186 @@ export async function upsertReviewSummaryComment(input: {
     commentId: response.data.id,
     url: response.data.html_url ?? null,
   };
+}
+
+export function planInlineReviewComments(input: {
+  review: ReviewResult;
+  existingComments: Array<{
+    body?: string | null;
+    path?: string | null;
+    line?: number | null;
+  }>;
+  cap: number;
+}): ReviewInlineCommentPlan {
+  const cap = Math.max(0, input.cap);
+  const changedFiles = new Map(
+    input.review.changedFiles.map((file) => [file.path, file]),
+  );
+  const existingFingerprints = new Set(
+    input.existingComments.flatMap((comment) => {
+      const explicit = extractInlineFingerprint(comment.body ?? "");
+      if (explicit) {
+        return [explicit];
+      }
+      return comment.path && comment.line
+        ? [`legacy:${comment.path}:${comment.line}`]
+        : [];
+    }),
+  );
+  const plan: ReviewInlineCommentPlan = { comments: [], skipped: [] };
+  const orderedFindings = [...input.review.findings].sort((a, b) => {
+    const severityDelta =
+      reviewSeverityRank(a.severity) - reviewSeverityRank(b.severity);
+    return severityDelta === 0 ? a.id.localeCompare(b.id) : severityDelta;
+  });
+
+  for (const finding of orderedFindings) {
+    if (!finding.path) {
+      plan.skipped.push({ findingId: finding.id, reason: "missing_path" });
+      continue;
+    }
+    if (!finding.line) {
+      plan.skipped.push({ findingId: finding.id, reason: "missing_line" });
+      continue;
+    }
+    const changedFile = changedFiles.get(finding.path);
+    if (!changedFile) {
+      plan.skipped.push({ findingId: finding.id, reason: "unchanged_path" });
+      continue;
+    }
+    if (!changedFile.patch) {
+      plan.skipped.push({ findingId: finding.id, reason: "missing_patch" });
+      continue;
+    }
+    const fingerprint = inlineCommentFingerprint({
+      findingId: finding.id,
+      path: finding.path,
+      line: finding.line,
+    });
+    if (
+      existingFingerprints.has(fingerprint) ||
+      existingFingerprints.has(`legacy:${finding.path}:${finding.line}`)
+    ) {
+      plan.skipped.push({ findingId: finding.id, reason: "duplicate" });
+      continue;
+    }
+    if (plan.comments.length >= cap) {
+      plan.skipped.push({ findingId: finding.id, reason: "cap_reached" });
+      continue;
+    }
+    plan.comments.push({
+      findingId: finding.id,
+      severity: finding.severity,
+      path: finding.path,
+      line: finding.line,
+      fingerprint,
+      body: renderInlineCommentBody({
+        title: finding.title,
+        severity: finding.severity,
+        body: finding.body,
+        fingerprint,
+      }),
+    });
+  }
+
+  return plan;
+}
+
+export async function publishInlineReviewComments(input: {
+  owner: string;
+  repo: string;
+  pullNumber: number;
+  review: ReviewResult;
+  cap: number;
+  client: GitHubRepositoryClient;
+}): Promise<ReviewInlineCommentResult> {
+  const listReviewComments = input.client.pulls.listReviewComments;
+  const createReview = input.client.pulls.createReview;
+  if (!listReviewComments || !createReview) {
+    throw new Error(
+      "Inline review posting requires GitHub pull request review comment permissions.",
+    );
+  }
+  const existingComments = await listPaginated((page) =>
+    listReviewComments({
+      owner: input.owner,
+      repo: input.repo,
+      pull_number: input.pullNumber,
+      per_page: 100,
+      page,
+    }),
+  );
+  const plan = planInlineReviewComments({
+    review: input.review,
+    existingComments,
+    cap: input.cap,
+  });
+  if (plan.comments.length === 0) {
+    return { ...plan, reviewId: null, url: null };
+  }
+  const response = await createReview({
+    owner: input.owner,
+    repo: input.repo,
+    pull_number: input.pullNumber,
+    event: "COMMENT",
+    body: "Open Maintainer inline review comments.",
+    comments: plan.comments.map((comment) => ({
+      path: comment.path,
+      line: comment.line,
+      side: "RIGHT",
+      body: comment.body,
+    })),
+  });
+  return {
+    ...plan,
+    reviewId: response.data.id,
+    url: response.data.html_url ?? null,
+  };
+}
+
+function inlineCommentFingerprint(input: {
+  findingId: string;
+  path: string;
+  line: number;
+}): string {
+  return `${input.findingId}:${input.path}:${input.line}`;
+}
+
+function extractInlineFingerprint(body: string): string | null {
+  return (
+    body.match(/open-maintainer-review-inline fingerprint="([^"]+)"/)?.[1] ??
+    null
+  );
+}
+
+function renderInlineCommentBody(input: {
+  title: string;
+  severity: ReviewSeverity;
+  body: string;
+  fingerprint: string;
+}): string {
+  return [
+    `${OPEN_MAINTAINER_REVIEW_INLINE_MARKER.replace("-->", ` fingerprint="${input.fingerprint}" -->`)}`,
+    `**${formatReviewSeverity(input.severity)}: ${input.title}**`,
+    "",
+    input.body,
+  ].join("\n");
+}
+
+function formatReviewSeverity(severity: ReviewSeverity): string {
+  return severity
+    .split("_")
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function reviewSeverityRank(severity: ReviewSeverity): number {
+  return {
+    blocker: 0,
+    major: 1,
+    minor: 2,
+    note: 3,
+  }[severity];
 }
 
 function contextArtifactPath(type: ArtifactType): string | null {

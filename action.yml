@@ -144,10 +144,6 @@ runs:
           echo "::error title=Open Maintainer::Model-backed review requires allow-review-content-transfer: 'true'."
           exit 2
         fi
-        if [ "${{ inputs.review-inline-comments }}" = "true" ]; then
-          echo "::error title=Open Maintainer::Review inline comments are not implemented yet."
-          exit 2
-        fi
     - name: Set up Bun
       uses: oven-sh/setup-bun@v2
     - name: Install dependencies
@@ -359,6 +355,7 @@ runs:
           "${{ github.event.pull_request.number }}"
           "--output-path"
           "$review_output"
+          "--json"
         )
         if [ "${{ inputs.review-provider }}" != "deterministic" ]; then
           args+=("--review-provider" "${{ inputs.review-provider }}" "--allow-model-content-transfer")
@@ -427,6 +424,73 @@ runs:
             }
           } catch (error) {
             core.setFailed(`Open Maintainer review was generated, but summary comment posting failed: ${error.message}`);
+          }
+    - name: Comment inline findings on pull request
+      if: ${{ inputs.mode == 'review' && inputs.review-inline-comments == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/github-script@v8
+      env:
+        REVIEW_JSON_PATH: ${{ steps.review.outputs.log-path }}
+        REVIEW_INLINE_CAP: ${{ inputs.review-inline-cap }}
+      with:
+        github-token: ${{ inputs.github-token || github.token }}
+        script: |
+          const fs = require("node:fs");
+          const marker = "<!-- open-maintainer-review-inline";
+          const review = JSON.parse(fs.readFileSync(process.env.REVIEW_JSON_PATH, "utf8"));
+          const severityRank = { blocker: 0, major: 1, minor: 2, note: 3 };
+          const cap = Math.max(0, Number(process.env.REVIEW_INLINE_CAP || "0"));
+          const changedFiles = new Map(review.changedFiles.map((file) => [file.path, file]));
+          const { owner, repo } = context.repo;
+          const pull_number = context.payload.pull_request.number;
+          try {
+            const existing = await github.rest.pulls.listReviewComments({
+              owner,
+              repo,
+              pull_number,
+              per_page: 100,
+            });
+            const existingFingerprints = new Set(existing.data.flatMap((comment) => {
+              const match = comment.body?.match(/open-maintainer-review-inline fingerprint="([^"]+)"/);
+              if (match?.[1]) return [match[1]];
+              return comment.path && comment.line ? [`legacy:${comment.path}:${comment.line}`] : [];
+            }));
+            const comments = [];
+            for (const finding of [...review.findings].sort((a, b) => {
+              const severityDelta = severityRank[a.severity] - severityRank[b.severity];
+              return severityDelta === 0 ? a.id.localeCompare(b.id) : severityDelta;
+            })) {
+              if (comments.length >= cap) break;
+              if (!finding.path || !finding.line) continue;
+              const changedFile = changedFiles.get(finding.path);
+              if (!changedFile?.patch) continue;
+              const fingerprint = `${finding.id}:${finding.path}:${finding.line}`;
+              if (existingFingerprints.has(fingerprint) || existingFingerprints.has(`legacy:${finding.path}:${finding.line}`)) continue;
+              comments.push({
+                path: finding.path,
+                line: finding.line,
+                side: "RIGHT",
+                body: [
+                  `<!-- open-maintainer-review-inline fingerprint="${fingerprint}" -->`,
+                  `**${finding.severity}: ${finding.title}**`,
+                  "",
+                  finding.body,
+                ].join("\n"),
+              });
+            }
+            if (comments.length === 0) {
+              core.notice("Open Maintainer found no eligible inline review comments to publish.");
+              return;
+            }
+            await github.rest.pulls.createReview({
+              owner,
+              repo,
+              pull_number,
+              event: "COMMENT",
+              body: "Open Maintainer inline review comments.",
+              comments,
+            });
+          } catch (error) {
+            core.setFailed(`Open Maintainer review was generated, but inline comment posting failed: ${error.message}`);
           }
     - name: Comment on pull request
       if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}

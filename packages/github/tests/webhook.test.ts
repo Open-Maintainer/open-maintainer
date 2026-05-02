@@ -1,5 +1,5 @@
 import { createHmac } from "node:crypto";
-import type { GeneratedArtifact } from "@open-maintainer/shared";
+import type { GeneratedArtifact, ReviewResult } from "@open-maintainer/shared";
 import { describe, expect, it } from "vitest";
 import {
   type GitHubRepositoryClient,
@@ -11,7 +11,9 @@ import {
   fetchRepositoryContents,
   isOpenMaintainerReviewComment,
   mapInstallationEvent,
+  planInlineReviewComments,
   planReviewSummaryComment,
+  publishInlineReviewComments,
   renderContextPrBody,
   renderMarkedReviewSummaryComment,
   shouldSkipRepositoryPath,
@@ -38,6 +40,95 @@ function artifact(
     modelProvider: "local",
     model: "llama",
     createdAt: "2026-04-30T00:00:00.000Z",
+  };
+}
+
+function reviewResult(): ReviewResult {
+  return {
+    id: "review_1",
+    repoId: "repo_1",
+    prNumber: 7,
+    baseRef: "main",
+    headRef: "feature",
+    baseSha: "base-sha",
+    headSha: "head-sha",
+    summary: "Review summary.",
+    walkthrough: ["modified src/a.ts (+2/-1)"],
+    changedSurface: ["package:review"],
+    riskAnalysis: ["No deterministic risk path was detected."],
+    expectedValidation: [],
+    validationEvidence: [],
+    docsImpact: [],
+    findings: [
+      {
+        id: "minor-finding",
+        title: "Minor issue",
+        severity: "minor",
+        body: "Minor body.",
+        path: "src/a.ts",
+        line: 12,
+        citations: [
+          {
+            source: "changed_file",
+            path: "src/a.ts",
+            excerpt: "@@",
+            reason: "Changed file.",
+          },
+        ],
+      },
+      {
+        id: "blocker-finding",
+        title: "Blocker issue",
+        severity: "blocker",
+        body: "Blocker body.",
+        path: "src/a.ts",
+        line: 10,
+        citations: [
+          {
+            source: "changed_file",
+            path: "src/a.ts",
+            excerpt: "@@",
+            reason: "Changed file.",
+          },
+        ],
+      },
+      {
+        id: "missing-line",
+        title: "Missing line",
+        severity: "major",
+        body: "No line.",
+        path: "src/a.ts",
+        line: null,
+        citations: [
+          {
+            source: "changed_file",
+            path: "src/a.ts",
+            excerpt: "@@",
+            reason: "Changed file.",
+          },
+        ],
+      },
+    ],
+    mergeReadiness: {
+      status: "needs_attention",
+      reason: "Findings need attention.",
+      evidence: [],
+    },
+    residualRisk: [],
+    changedFiles: [
+      {
+        path: "src/a.ts",
+        status: "modified",
+        additions: 2,
+        deletions: 1,
+        patch: "@@ -1 +1",
+        previousPath: null,
+      },
+    ],
+    feedback: [],
+    modelProvider: null,
+    model: null,
+    createdAt: "2026-05-02T00:00:00.000Z",
   };
 }
 
@@ -706,5 +797,129 @@ describe("github helpers", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]).toContain("create:");
     expect(calls[1]).toContain("update:11:");
+  });
+
+  it("plans capped inline review comments by severity and skip reason", () => {
+    const plan = planInlineReviewComments({
+      review: reviewResult(),
+      existingComments: [],
+      cap: 1,
+    });
+
+    expect(plan.comments).toEqual([
+      expect.objectContaining({
+        findingId: "blocker-finding",
+        severity: "blocker",
+        path: "src/a.ts",
+        line: 10,
+      }),
+    ]);
+    expect(plan.comments[0]?.body).toContain(
+      "<!-- open-maintainer-review-inline",
+    );
+    expect(plan.comments[0]?.body).toContain("Blocker issue");
+    expect(plan.skipped).toEqual(
+      expect.arrayContaining([
+        { findingId: "missing-line", reason: "missing_line" },
+        { findingId: "minor-finding", reason: "cap_reached" },
+      ]),
+    );
+  });
+
+  it("skips duplicate and invalid inline review comments", () => {
+    const review = reviewResult();
+    const plan = planInlineReviewComments({
+      review: {
+        ...review,
+        findings: [
+          ...review.findings,
+          {
+            id: "unknown-path",
+            title: "Unknown path",
+            severity: "major",
+            body: "Unknown path body.",
+            path: "src/other.ts",
+            line: 1,
+            citations: [
+              {
+                source: "changed_file",
+                path: "src/other.ts",
+                excerpt: null,
+                reason: "Changed file.",
+              },
+            ],
+          },
+        ],
+      },
+      existingComments: [
+        {
+          body: '<!-- open-maintainer-review-inline fingerprint="blocker-finding:src/a.ts:10" -->',
+          path: "src/a.ts",
+          line: 10,
+        },
+      ],
+      cap: 5,
+    });
+
+    expect(plan.comments.map((comment) => comment.findingId)).toEqual([
+      "minor-finding",
+    ]);
+    expect(plan.skipped).toEqual(
+      expect.arrayContaining([
+        { findingId: "blocker-finding", reason: "duplicate" },
+        { findingId: "missing-line", reason: "missing_line" },
+        { findingId: "unknown-path", reason: "unchanged_path" },
+      ]),
+    );
+  });
+
+  it("publishes inline review comments through one review call", async () => {
+    const calls: unknown[] = [];
+    const client = {
+      pulls: {
+        async listReviewComments() {
+          return { data: [] };
+        },
+        async createReview(input: unknown) {
+          calls.push(input);
+          return {
+            data: {
+              id: 77,
+              html_url:
+                "https://github.com/acme/tool/pull/7#pullrequestreview-77",
+            },
+          };
+        },
+      },
+    };
+
+    const result = await publishInlineReviewComments({
+      owner: "acme",
+      repo: "tool",
+      pullNumber: 7,
+      review: reviewResult(),
+      cap: 2,
+      client,
+    });
+
+    expect(result.reviewId).toBe(77);
+    expect(result.comments.map((comment) => comment.findingId)).toEqual([
+      "blocker-finding",
+      "minor-finding",
+    ]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toEqual(
+      expect.objectContaining({
+        pull_number: 7,
+        event: "COMMENT",
+        comments: expect.arrayContaining([
+          expect.objectContaining({
+            path: "src/a.ts",
+            line: 10,
+            side: "RIGHT",
+          }),
+        ]),
+      }),
+    );
   });
 });

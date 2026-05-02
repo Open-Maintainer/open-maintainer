@@ -119,7 +119,7 @@ describe("GitHub Action MVP", () => {
     expect(validateStep.run).toContain(
       "Model-backed review requires allow-review-content-transfer",
     );
-    expect(validateStep.run).toContain(
+    expect(validateStep.run).not.toContain(
       "Review inline comments are not implemented yet",
     );
 
@@ -164,6 +164,7 @@ describe("GitHub Action MVP", () => {
     );
     expect(reviewStep.run).toContain("--pr-number");
     expect(reviewStep.run).toContain("--output-path");
+    expect(reviewStep.run).toContain("--json");
     expect(reviewStep.run).toContain("$GITHUB_STEP_SUMMARY");
     expect(reviewStep.run).toContain("--allow-model-content-transfer");
     expect(reviewStep.run).not.toContain("gh pr comment");
@@ -195,6 +196,26 @@ describe("GitHub Action MVP", () => {
     expect(reviewCommentStep.with.script).toContain(
       "summary comment posting failed",
     );
+
+    const inlineStep = steps.find(
+      (step: { name?: string }) =>
+        step.name === "Comment inline findings on pull request",
+    );
+    expect(inlineStep.if).toBe(
+      "${{ inputs.mode == 'review' && inputs.review-inline-comments == 'true' && github.event_name == 'pull_request' }}",
+    );
+    expect(inlineStep.uses).toBe("actions/github-script@v8");
+    expect(inlineStep.env.REVIEW_JSON_PATH).toBe(
+      "${{ steps.review.outputs.log-path }}",
+    );
+    expect(inlineStep.with.script).toContain(
+      "<!-- open-maintainer-review-inline",
+    );
+    expect(inlineStep.with.script).toContain(
+      "github.rest.pulls.listReviewComments",
+    );
+    expect(inlineStep.with.script).toContain("github.rest.pulls.createReview");
+    expect(inlineStep.with.script).toContain("inline comment posting failed");
 
     const skipStep = steps.find(
       (step: { name?: string }) => step.name === "Skip pull request review",
