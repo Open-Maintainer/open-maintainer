@@ -1,5 +1,8 @@
 name: CI
 
+# Mock PR fixture: this branch intentionally touches CI wiring so
+# contribution triage can exercise the not-agent-ready / high-risk path.
+
 on:
   push:
     branches:
