@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_9ddb5fe2-948d-4f0b-b72a-672d47855b95",
+  "id": "repo_profile_f728376a-f874-4cdd-bbd2-59d3401326f2",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -199,10 +199,12 @@
     "CONTRIBUTING.md",
     "docs/DEMO_RUNBOOK.md",
     "docs/MVP_RELEASE_REVIEW.md",
+    "docs/PRODUCT_PRD.md",
     "docs/ROADMAP.md",
     "docs/V0_3_RELEASE_REVIEW.md",
     "docs/V0_4_RELEASE_REVIEW.md",
-    "local-docs/PRODUCT_PRD.md",
+    "docs/V0_4_X_RELEASE_REVIEW.md",
+    "local-docs/V4_V5_ADDITIONS.md",
     "README.md"
   ],
   "repoTemplates": [],
@@ -519,6 +521,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "docs/PRODUCT_PRD.md",
+      "reason": "detected repository context"
+    },
+    {
       "path": "docs/ROADMAP.md",
       "reason": "detected repository context"
     },
@@ -531,7 +537,11 @@
       "reason": "detected repository context"
     },
     {
-      "path": "local-docs/PRODUCT_PRD.md",
+      "path": "docs/V0_4_X_RELEASE_REVIEW.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "local-docs/V4_V5_ADDITIONS.md",
       "reason": "detected repository context"
     },
     {
@@ -986,11 +996,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "63921b1f39834a48"
+      "hash": "eadba1daac0b9f3e"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "2c68c454a4bd14ce"
+      "hash": "8ada714e1f6d787a"
     },
     {
       "path": "AGENTS.md",
@@ -1002,7 +1012,7 @@
     },
     {
       "path": "apps/api/tests/api.test.ts",
-      "hash": "2d99dbc756f84285"
+      "hash": "51a9c5295eb5277d"
     },
     {
       "path": "apps/api/tsconfig.json",
@@ -1061,8 +1071,12 @@
       "hash": "b1237b7639c78c71"
     },
     {
+      "path": "docs/PRODUCT_PRD.md",
+      "hash": "ca22471762dcd1f9"
+    },
+    {
       "path": "docs/ROADMAP.md",
-      "hash": "91d923a61a89cb50"
+      "hash": "b3cd63e1825a80fa"
     },
     {
       "path": "docs/V0_3_RELEASE_REVIEW.md",
@@ -1073,8 +1087,12 @@
       "hash": "5d2ca9e331883892"
     },
     {
-      "path": "local-docs/PRODUCT_PRD.md",
-      "hash": "89d1e1ded88f3ef9"
+      "path": "docs/V0_4_X_RELEASE_REVIEW.md",
+      "hash": "fe94dce74ac96f0d"
+    },
+    {
+      "path": "local-docs/V4_V5_ADDITIONS.md",
+      "hash": "c17075df7ffe0dad"
     },
     {
       "path": "package.json",
@@ -1122,7 +1140,7 @@
     },
     {
       "path": "packages/context/tests/render.test.ts",
-      "hash": "93b523efc91be5f1"
+      "hash": "22c7d0bd4b3abd06"
     },
     {
       "path": "packages/context/tsconfig.json",
@@ -1158,15 +1176,15 @@
     },
     {
       "path": "packages/review/tests/model.test.ts",
-      "hash": "130fef20e69a181f"
+      "hash": "2d2f2b5dc78c9ce1"
     },
     {
       "path": "packages/review/tests/precheck.test.ts",
-      "hash": "1baf2f4457f4c881"
+      "hash": "b55b6615ae701253"
     },
     {
       "path": "packages/review/tests/render.test.ts",
-      "hash": "acb9548f8e159290"
+      "hash": "ac2618c58d17aa08"
     },
     {
       "path": "packages/review/tsconfig.json",
@@ -1178,7 +1196,7 @@
     },
     {
       "path": "packages/shared/tests/schemas.test.ts",
-      "hash": "a35623087db5e8ea"
+      "hash": "045578d59ceb0359"
     },
     {
       "path": "packages/shared/tsconfig.json",
@@ -1186,7 +1204,7 @@
     },
     {
       "path": "README.md",
-      "hash": "a09b4cfdfe82105c"
+      "hash": "d49cb0318da78da0"
     },
     {
       "path": "tests/action-mvp.test.ts",
@@ -1206,7 +1224,7 @@
     },
     {
       "path": "tests/cli-review.test.ts",
-      "hash": "b4edd8cf4ae18897"
+      "hash": "41f22ebbb62256f2"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1350,7 +1368,7 @@
     },
     {
       "path": "tests/helpers/fake-model-cli.ts",
-      "hash": "8301461df4da7f8b"
+      "hash": "aac25ad956fdd71e"
     },
     {
       "path": "tests/mvp-golden.test.ts",
@@ -1386,7 +1404,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-02T10:13:29.783Z",
+  "createdAt": "2026-05-02T21:38:17.471Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1493,6 +1511,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "docs/PRODUCT_PRD.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": "docs/ROADMAP.md",
             "reason": "detected repository context"
           },
@@ -1505,7 +1527,11 @@
             "reason": "detected repository context"
           },
           {
-            "path": "local-docs/PRODUCT_PRD.md",
+            "path": "docs/V0_4_X_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "local-docs/V4_V5_ADDITIONS.md",
             "reason": "detected repository context"
           },
           {
@@ -1633,6 +1659,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "docs/PRODUCT_PRD.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": "docs/ROADMAP.md",
             "reason": "detected repository context"
           },
@@ -1642,6 +1672,10 @@
           },
           {
             "path": "docs/V0_4_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/V0_4_X_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
           {
@@ -2373,6 +2407,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "docs/PRODUCT_PRD.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": "docs/ROADMAP.md",
             "reason": "detected repository context"
           },
@@ -2385,7 +2423,11 @@
             "reason": "detected repository context"
           },
           {
-            "path": "local-docs/PRODUCT_PRD.md",
+            "path": "docs/V0_4_X_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "local-docs/V4_V5_ADDITIONS.md",
             "reason": "detected repository context"
           },
           {
@@ -2413,6 +2455,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "docs/PRODUCT_PRD.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": "docs/ROADMAP.md",
             "reason": "detected repository context"
           },
@@ -2425,7 +2471,11 @@
             "reason": "detected repository context"
           },
           {
-            "path": "local-docs/PRODUCT_PRD.md",
+            "path": "docs/V0_4_X_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "local-docs/V4_V5_ADDITIONS.md",
             "reason": "detected repository context"
           },
           {
@@ -2580,7 +2630,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T10:13:29.784Z"
+    "generatedAt": "2026-05-02T21:38:17.472Z"
   },
-  "openMaintainerProfileHash": "bf874e6958dcfdbd"
+  "openMaintainerProfileHash": "7c69e19eb59d4f37"
 }
