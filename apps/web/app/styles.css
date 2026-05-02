@@ -340,11 +340,17 @@ pre {
   margin-top: 8px;
 }
 
+.triage-panel {
+  display: grid;
+  gap: 10px;
+}
+
 .finding-detail p {
   margin: 0;
 }
 
-.finding-detail summary {
+.finding-detail summary,
+.triage-panel summary {
   cursor: pointer;
   color: #174d3f;
   font-weight: 700;

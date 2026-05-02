@@ -602,6 +602,8 @@ function ReviewPreview({ review }: { review: ReviewResult }) {
           </div>
         </dl>
         <ReviewSummary review={review} />
+        <h3>Contribution triage</h3>
+        <ReviewContributionTriage review={review} />
         <h3>Walkthrough</h3>
         <ReviewWalkthrough review={review} />
         <h3>Findings</h3>
@@ -697,6 +699,84 @@ function ReviewPreview({ review }: { review: ReviewResult }) {
           ))}
         </ul>
       </div>
+    </div>
+  );
+}
+
+function ReviewContributionTriage({ review }: { review: ReviewResult }) {
+  const triage = review.contributionTriage;
+  if (triage.status === "not_evaluated") {
+    return (
+      <div className="triage-panel">
+        <div className="row compact">
+          <strong>Not evaluated</strong>
+          <span className="badge warn">preview</span>
+        </div>
+        <p>{triage.recommendation}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="triage-panel">
+      <dl className="run-meta">
+        <div>
+          <dt>Category</dt>
+          <dd>{formatSnakeCase(triage.category ?? "not_evaluated")}</dd>
+        </div>
+        <div>
+          <dt>Maintainer action</dt>
+          <dd>{triage.recommendation}</dd>
+        </div>
+        <div>
+          <dt>Evidence</dt>
+          <dd>{triage.evidence.length}</dd>
+        </div>
+      </dl>
+      <TriageList
+        fallback="No missing contribution information recorded."
+        items={triage.missingInformation}
+        title="Missing information"
+      />
+      <TriageList
+        fallback="No author action required by contribution triage."
+        items={triage.requiredActions}
+        title="Required author actions"
+      />
+      <details>
+        <summary>Evidence</summary>
+        <ul className="plain-list">
+          {triage.evidence.map((citation, index) => (
+            <li key={`${citation.source}-${citation.path ?? index}`}>
+              {citation.source}
+              {citation.path ? ` ${citation.path}` : ""}: {citation.reason}
+              {citation.excerpt ? `: ${citation.excerpt}` : ""}
+            </li>
+          ))}
+        </ul>
+      </details>
+    </div>
+  );
+}
+
+function TriageList({
+  fallback,
+  items,
+  title,
+}: {
+  fallback: string;
+  items: string[];
+  title: string;
+}) {
+  return (
+    <div>
+      <strong>{title}</strong>
+      <ul className="plain-list">
+        {items.length ? (
+          items.map((item) => <li key={item}>{item}</li>)
+        ) : (
+          <li>{fallback}</li>
+        )}
+      </ul>
     </div>
   );
 }
@@ -841,6 +921,13 @@ function inferRiskLevel(review: ReviewResult) {
     return "medium";
   }
   return "low";
+}
+
+function formatSnakeCase(value: string) {
+  return value
+    .split("_")
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }
 
 function walkthroughRows(review: ReviewResult) {

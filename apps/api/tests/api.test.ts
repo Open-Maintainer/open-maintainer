@@ -625,6 +625,18 @@ describe("MVP API", () => {
         },
       });
       expect(created.statusCode).toBe(200);
+      expect(created.json().review.contributionTriage.category).toBe(
+        "ready_for_review",
+      );
+
+      const history = await app.inject({
+        method: "GET",
+        url: `/repos/${repoId}/reviews`,
+      });
+      expect(history.statusCode).toBe(200);
+      expect(history.json().reviews[0].contributionTriage.category).toBe(
+        "ready_for_review",
+      );
 
       const promptPayload = JSON.parse(capturedUsers[0] ?? "{}") as {
         context?: Record<string, string>;
