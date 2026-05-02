@@ -334,6 +334,46 @@ pre {
   white-space: pre-wrap;
 }
 
+.finding-detail {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.finding-detail p {
+  margin: 0;
+}
+
+.finding-detail summary {
+  cursor: pointer;
+  color: #174d3f;
+  font-weight: 700;
+}
+
+.table-scroll {
+  overflow-x: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+th,
+td {
+  padding: 8px;
+  border-bottom: 1px solid #e2e6df;
+  text-align: left;
+  vertical-align: top;
+}
+
+th {
+  color: #617066;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
 .pr-link {
   display: block;
   overflow-wrap: anywhere;

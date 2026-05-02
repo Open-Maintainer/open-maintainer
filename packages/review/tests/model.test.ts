@@ -5,8 +5,8 @@ import type {
 } from "@open-maintainer/shared";
 import { describe, expect, it } from "vitest";
 import {
+  buildReviewEvidencePrecheck,
   buildReviewPrompt,
-  generateDeterministicReview,
   generateReview,
   modelReviewOutputJsonSchema,
   parseModelReviewOutput,
@@ -125,8 +125,8 @@ describe("model-backed review", () => {
     expect(invalidPaths).toEqual([]);
   });
 
-  it("builds a prompt from deterministic review, repo context, and PR evidence", () => {
-    const deterministicReview = generateDeterministicReview({
+  it("builds a prompt from precheck evidence, repo context, and PR evidence", () => {
+    const precheck = buildReviewEvidencePrecheck({
       profile,
       input: reviewInput,
       rules: profile.reviewRuleCandidates,
@@ -135,7 +135,7 @@ describe("model-backed review", () => {
     const prompt = buildReviewPrompt({
       profile,
       input: reviewInput,
-      deterministicReview,
+      precheck,
       rules: profile.reviewRuleCandidates,
       promptContext: {
         openMaintainerConfig: "qualityRules:\n  - Run vitest",
@@ -144,10 +144,13 @@ describe("model-backed review", () => {
       },
     });
 
-    expect(prompt.system).toContain("Only produce findings grounded");
+    expect(prompt.system).toContain("expert repository-aware code reviewer");
     expect(prompt.user).toContain("packages/review/src/model.ts");
     expect(prompt.user).toContain("Provider output must cite evidence.");
+    expect(prompt.user).toContain("evidenceItems");
+    expect(prompt.user).toContain("reviewKnowledge");
     expect(prompt.user).toContain("repoPrReviewSkill");
+    expect(prompt.user).toContain("repoTestingWorkflowSkill");
   });
 
   it("rejects malformed provider output before it is used", () => {
@@ -157,15 +160,20 @@ describe("model-backed review", () => {
     ).toThrow();
   });
 
-  it("falls back to deterministic review when no provider is configured", async () => {
-    const review = await generateReview({
+  it("builds review precheck signals without producing final findings", () => {
+    const precheck = buildReviewEvidencePrecheck({
       profile,
       input: reviewInput,
       rules: profile.reviewRuleCandidates,
     });
 
-    expect(review.modelProvider).toBeNull();
-    expect(review.changedSurface).toEqual(["package:review", "risk"]);
+    expect(precheck.changedSurface).toEqual(["package:review", "risk"]);
+    expect(precheck.expectedValidation.map((item) => item.command)).toContain(
+      "vitest run",
+    );
+    expect(precheck.validationEvidence).toContain(
+      "PR body mentions `vitest run`.",
+    );
   });
 
   it("requires repo-content consent before provider review", async () => {
@@ -197,36 +205,50 @@ describe("model-backed review", () => {
           return {
             model: "mock-review-model",
             text: JSON.stringify({
-              summary: "Model-backed review summary.",
+              summary: {
+                overview: "Model-backed review summary.",
+                changedSurfaces: ["package:review"],
+                riskLevel: "medium",
+                validationSummary: "vitest run was reported.",
+                docsSummary: "No docs update required.",
+              },
               findings: [
                 {
-                  title: "Review source needs focused coverage",
                   severity: "minor",
-                  body: "The new review source should stay covered by focused tests.",
-                  path: "packages/review/src/model.ts",
+                  category: "tests",
+                  title: "Review source needs focused coverage",
+                  file: "packages/review/src/model.ts",
                   line: null,
-                  citations: [
+                  evidence: [
                     {
-                      source: "changed_file",
-                      path: "packages/review/src/model.ts",
-                      excerpt: "@@ model",
-                      reason: "Changed review model source.",
+                      id: "patch:1",
+                      kind: "patch",
+                      summary: "Changed review model source.",
                     },
                     {
-                      source: "issue_acceptance_criteria",
-                      path: "#43",
-                      excerpt: "Provider output must cite evidence.",
-                      reason: "Linked issue acceptance criteria.",
+                      id: "issue:43",
+                      kind: "issue_context",
+                      summary: "Linked issue acceptance criteria.",
                     },
                   ],
+                  impact:
+                    "The new review source could regress without focused coverage.",
+                  recommendation:
+                    "Keep focused tests around model-backed review output.",
                 },
               ],
               mergeReadiness: {
-                status: "needs_attention",
+                status: "conditionally_ready",
                 reason: "Model finding needs maintainer review.",
-                evidence: ["#43"],
+                requiredActions: ["Review the focused coverage finding."],
               },
-              residualRisk: ["Provider output is bounded by cited evidence."],
+              residualRisk: [
+                {
+                  risk: "Provider output is bounded by cited evidence.",
+                  reason: "The schema requires evidence IDs.",
+                  suggestedFollowUp: "Keep schema validation enabled.",
+                },
+              ],
             }),
           };
         },
@@ -235,13 +257,16 @@ describe("model-backed review", () => {
 
     expect(review.modelProvider).toBe("Mock Provider");
     expect(review.model).toBe("mock-review-model");
-    expect(review.summary).toBe("Model-backed review summary.");
+    expect(review.summary).toContain("Model-backed review summary.");
     expect(review.findings.some((item) => item.title.includes("focused"))).toBe(
       true,
     );
-    expect(review.residualRisk).toContain(
-      "Provider output is bounded by cited evidence.",
-    );
+    expect(review.findings[0]?.body).toContain("Recommendation:");
+    expect(
+      review.residualRisk.some((risk) =>
+        risk.includes("Provider output is bounded by cited evidence."),
+      ),
+    ).toBe(true);
   });
 
   it("moves findings with unknown citations into residual risk", async () => {
@@ -253,23 +278,36 @@ describe("model-backed review", () => {
         complete: async () => ({
           model: "mock-review-model",
           text: JSON.stringify({
+            summary: {
+              overview: "Model-backed review summary.",
+              changedSurfaces: ["package:review"],
+              riskLevel: "low",
+              validationSummary: "No validation evidence.",
+              docsSummary: "No docs update required.",
+            },
             findings: [
               {
-                title: "Generic concern",
                 severity: "major",
-                body: "This cites a file outside the known review input.",
-                path: null,
+                category: "correctness",
+                title: "Generic concern",
+                file: "apps/api/src/app.ts",
                 line: null,
-                citations: [
+                evidence: [
                   {
-                    source: "changed_file",
-                    path: "apps/api/src/app.ts",
-                    excerpt: null,
-                    reason: "Unknown file.",
+                    id: "patch:999",
+                    kind: "patch",
+                    summary: "Unknown file.",
                   },
                 ],
+                impact: "This cites a file outside the known review input.",
+                recommendation: "Use supplied evidence IDs.",
               },
             ],
+            mergeReadiness: {
+              status: "ready",
+              reason: "No rendered findings.",
+              requiredActions: [],
+            },
             residualRisk: [],
           }),
         }),

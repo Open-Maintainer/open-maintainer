@@ -57,7 +57,53 @@ rules:
     changes that affect build.
   - Run `cd tests/fixtures/with-context && vitest run` before finishing changes
     that affect test.
+  - Read the target file and a related caller, test, type definition, route,
+    command, or config before editing.
+  - Keep diffs bounded and avoid unrelated formatting, broad refactors,
+    dependency churn, or lockfile churn.
+  - Ground PR review findings in file paths, commands, or documented behavior.
+  - Review correctness, security, data loss, auth, generated artifacts, docs,
+    and validation evidence before style.
+  - Separate blockers from non-blocking notes.
+  - Include commands run and skipped checks with reasons in final notes.
+  - Preserve existing context files by default; use force only for intentional
+    overwrite flows.
+  - Check or update README.md, CONTRIBUTING.md, docs/DEMO_RUNBOOK.md,
+    docs/MVP_RELEASE_REVIEW.md, docs/ROADMAP.md, docs/V0_3_RELEASE_REVIEW.md,
+    docs/V0_4_RELEASE_REVIEW.md, and local-docs/PRODUCT_PRD.md when relevant
+    behavior changes.
+  - "Safe edit zone: Package, app, and fixture source/test files may be edited
+    when the task targets that surface and related manifest, tsconfig,
+    caller/test, and docs are read first."
+  - "Safe edit zone: Docs should be updated when user-facing behavior, setup,
+    validation, smoke gates, or workflow behavior changes."
+  - "Use caution: Generated context artifacts and Open Maintainer metadata
+    require care because existing context files are preserved by default and
+    force is required for overwrites."
+  - "Use caution: Lockfiles require care; generated skills explicitly warn
+    against bun.lock or fixture lockfile churn unless dependency work is
+    requested."
+  - "Use caution: Docker Compose services, ports, environment values, volumes,
+    and service dependencies require care and smoke validation when changed."
+  - "Use caution: GitHub Action workflows and action.yml are security and CI
+    gate surfaces requiring careful syntax and behavior review."
+  - "Use caution: API webhook, GitHub App credentials, repository-content
+    transfer, context PR writes, and local repository scanning/upload are
+    high-risk surfaces."
+  - "Use caution: Web local filesystem paths, uploaded repository files,
+    provider forms, and API connectivity are sensitive dashboard surfaces."
+  - "Do not edit without explicit instruction: Do not edit
+    apps/web/next-env.d.ts without explicit instruction."
+  - "Do not edit without explicit instruction: Do not send repository content to
+    model-backed generation without explicit consent such as --allow-write."
+  - "Do not edit without explicit instruction: Do not send repository content to
+    model-backed PR review without explicit repository-content transfer
+    consent."
+  - "Do not edit without explicit instruction: Do not add secrets or credentials
+    to the repository."
+  - "Do not edit without explicit instruction: Do not add new Docker Compose
+    services or deployment flows without explicit instruction and evidence."
 generated:
   by: open-maintainer
   artifactVersion: 2
-  generatedAt: 2026-05-02T05:01:53.521Z
+  generatedAt: 2026-05-02T07:26:05.722Z

@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { execFile } from "node:child_process";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -16,9 +16,10 @@ import {
   buildRepoFactsSynthesisPrompt,
   buildSkillSynthesisPrompt,
   compareProfileDrift,
+  contentHash,
   createContextArtifacts,
   defaultArtifactTargets,
-  deterministicContextOutput,
+  expectedArtifactTypes,
   modelArtifactContentJsonSchema,
   modelSkillContentJsonSchema,
   parseModelArtifactContent,
@@ -41,6 +42,7 @@ import type { ModelProviderConfig } from "@open-maintainer/shared";
 type CliOptions = {
   force: boolean;
   refreshGenerated: boolean;
+  doctorFix: boolean;
   dryRun: boolean;
   createPr: boolean;
   failOnScoreBelow: number | null;
@@ -49,7 +51,6 @@ type CliOptions = {
   model: ArtifactModel | null;
   context: ArtifactSelection | null;
   skills: ArtifactSelection | null;
-  deterministic: boolean;
   allowWrite: boolean;
   llmModel: string | null;
   baseRef: string | null;
@@ -119,7 +120,6 @@ Model options:
   --model codex|claude                  LLM CLI backend used to generate artifact bodies
   --llm-model <model>                   Optional backend model override
   --allow-write                         Required with --model; permits model-backed artifact writes
-  --deterministic                       Use template-only artifact generation for offline smoke tests
 
 Write options:
   --force                               Overwrite existing generated artifact files
@@ -130,7 +130,6 @@ Examples:
   open-maintainer generate ./repo --model codex --context codex --skills codex --allow-write
   open-maintainer generate ./repo --model claude --context claude --skills claude --allow-write
   open-maintainer generate ./repo --model codex --context both --skills both --allow-write
-  open-maintainer generate ./repo --deterministic --context codex --skills codex
 `,
   init: `open-maintainer init <repo>
 
@@ -147,18 +146,19 @@ Generate options:
   --skills codex|claude|both            Generate .agents skills, .claude skills, or both
   --llm-model <model>                   Optional backend model override
   --allow-write                         Required with --model; permits model-backed artifact writes
-  --deterministic                       Use template-only artifact generation for offline smoke tests
   --force                               Overwrite existing generated artifact files
   --refresh-generated                   Overwrite only existing Open Maintainer generated files
   --dry-run                             Print planned writes without writing files
 
 Examples:
   open-maintainer init ./repo --model codex --context codex --skills codex --allow-write
-  open-maintainer init ./repo --deterministic --context codex --skills codex
 `,
   doctor: `open-maintainer doctor <repo>
 
 Check that required generated context artifacts are present and that the stored profile is not stale.
+
+Options:
+  --fix                                Remove obsolete generated context artifacts
 
 Outputs:
   Agent readiness score
@@ -167,6 +167,7 @@ Outputs:
 
 Examples:
   open-maintainer doctor .
+  open-maintainer doctor . --fix
   open-maintainer doctor ./repo
 `,
   review: `open-maintainer review <repo>
@@ -183,7 +184,7 @@ Output options:
   --json                                Print the machine-readable ReviewResult JSON
 
 Model review options:
-  --review-provider codex|claude        Optional CLI backend for model-backed review
+  --review-provider codex|claude        Required CLI backend for model-backed review
   --review-model <model>                Optional backend model override
   --allow-model-content-transfer        Required with --review-provider; sends repo content to the backend
 
@@ -196,6 +197,7 @@ Examples:
   open-maintainer review . --base-ref main --head-ref HEAD
   open-maintainer review . --base-ref origin/main --head-ref HEAD --output-path .open-maintainer/review.md
   open-maintainer review . --base-ref main --head-ref HEAD --json
+  open-maintainer review . --base-ref main --head-ref HEAD --review-provider codex --allow-model-content-transfer
 `,
   pr: `open-maintainer pr <repo> --create
 
@@ -274,9 +276,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return thresholdExit(profile.agentReadiness.score, options);
       }
       case "doctor": {
-        const result = await doctor(repoRoot);
+        let result = await doctor(repoRoot, repoArg);
         for (const line of result.messages) {
           console.log(line);
+        }
+        if (!result.ok && options.doctorFix) {
+          if (result.fixablePaths.length > 0) {
+            await removeDoctorFixableArtifacts(repoRoot, result.fixablePaths);
+          }
+          if (result.profileNeedsRefresh) {
+            await audit(repoRoot, {
+              ...options,
+              noProfileWrite: false,
+              reportPath: null,
+            });
+            console.log(
+              "fix: refreshed .open-maintainer/profile.json and .open-maintainer/report.md",
+            );
+          }
+          result = await doctor(repoRoot, repoArg);
+          for (const line of result.messages) {
+            console.log(line);
+          }
         }
         return result.ok ? 0 : 1;
       }
@@ -337,22 +358,25 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
   const profile = await createProfileFromFiles(repoRoot, files);
   const targets = resolveTargets(options);
-  if (!options.model && !options.deterministic) {
+  if (!options.model) {
     throw new Error(
-      "generate requires --model codex or --model claude for repo-specific artifact content. Use --deterministic only for offline smoke tests.",
+      "generate requires --model codex or --model claude for LLM-backed artifact content.",
     );
   }
-  const modelArtifacts = options.deterministic
-    ? undefined
-    : await generateModelArtifacts({ repoRoot, profile, files, options });
+  const modelArtifacts = await generateModelArtifacts({
+    repoRoot,
+    profile,
+    files,
+    options,
+  });
   const artifacts = createContextArtifacts({
     repoId: "local",
     profile,
-    output: modelArtifacts?.output ?? deterministicContextOutput(profile),
-    ...(modelArtifacts ? { modelArtifacts: modelArtifacts.content } : {}),
-    ...(modelArtifacts?.skills ? { modelSkills: modelArtifacts.skills } : {}),
-    modelProvider: modelArtifacts?.provider ?? null,
-    model: modelArtifacts?.model ?? null,
+    output: modelArtifacts.output,
+    modelArtifacts: modelArtifacts.content,
+    ...(modelArtifacts.skills ? { modelSkills: modelArtifacts.skills } : {}),
+    modelProvider: modelArtifacts.provider,
+    model: modelArtifacts.model,
     nextVersion: 1,
     targets,
   });
@@ -368,6 +392,20 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
     ...(options.refreshGenerated ? { existingGeneratedPaths } : {}),
     force: options.force,
   });
+  const artifactPaths = new Set(artifacts.map((artifact) => artifact.type));
+  const obsoleteGeneratedPaths = options.force
+    ? obsoleteGeneratedArtifactPaths({
+        generatedPaths: existingGeneratedPaths,
+        artifactPaths,
+        targets,
+      })
+    : [];
+  for (const item of obsoleteGeneratedPaths) {
+    console.log(`remove: ${item} (obsolete generated artifact)`);
+    if (!options.dryRun) {
+      await rm(path.join(repoRoot, item), { force: true });
+    }
+  }
   for (const item of plan) {
     console.log(`${item.action}: ${item.path} (${item.reason})`);
     if (options.dryRun || item.action === "skip") {
@@ -377,6 +415,29 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, item.artifact.content);
   }
+}
+
+function obsoleteGeneratedArtifactPaths(input: {
+  generatedPaths: Set<string>;
+  artifactPaths: Set<string>;
+  targets: ContextArtifactTarget[];
+}): string[] {
+  const targetRoots = new Set<string>();
+  if (input.targets.includes("skills")) {
+    targetRoots.add(".agents/skills/");
+  }
+  if (input.targets.includes("claude-skills")) {
+    targetRoots.add(".claude/skills/");
+  }
+  if (targetRoots.size === 0) {
+    return [];
+  }
+  return [...input.generatedPaths]
+    .filter((generatedPath) =>
+      [...targetRoots].some((root) => generatedPath.startsWith(root)),
+    )
+    .filter((generatedPath) => !input.artifactPaths.has(generatedPath))
+    .sort();
 }
 
 function isOpenMaintainerGeneratedFile(content: string): boolean {
@@ -391,23 +452,17 @@ function isOpenMaintainerGeneratedFile(content: string): boolean {
 
 async function doctor(
   repoRoot: string,
-): Promise<{ ok: boolean; messages: string[] }> {
+  repoDisplayPath = repoRoot,
+): Promise<{
+  ok: boolean;
+  messages: string[];
+  fixablePaths: string[];
+  profileNeedsRefresh: boolean;
+}> {
   const profile = await createProfile(repoRoot);
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
   const filesByPath = new Map(files.map((file) => [file.path, file]));
   const paths = new Set(filesByPath.keys());
-  const required = createContextArtifacts({
-    repoId: "local",
-    profile,
-    output: deterministicContextOutput(profile),
-    modelProvider: null,
-    model: null,
-    nextVersion: 1,
-    targets: defaultArtifactTargets,
-  }).map((artifact) => artifact.type);
-  const missing = required.filter(
-    (artifactPath) => !requiredArtifactPresent(artifactPath, paths),
-  );
   const currentProfileHash = profileFingerprint(profile);
   const storedProfile = filesByPath.get(".open-maintainer/profile.json");
   const driftFindings = storedProfile
@@ -416,6 +471,20 @@ async function doctor(
         current: profile,
       })
     : [];
+  const parsedStoredProfile = storedProfile
+    ? (parseRepoProfileJson(storedProfile.content) ?? null)
+    : null;
+  const storedContextHashes = new Map(
+    parsedStoredProfile?.contextArtifactHashes.map((item) => [
+      item.path,
+      item.hash,
+    ]) ?? [],
+  );
+  const required = doctorRequiredArtifacts(profile, storedContextHashes);
+  const requiredPaths = new Set(required);
+  const missing = required.filter(
+    (artifactPath) => !requiredArtifactPresent(artifactPath, paths),
+  );
   const stale = required.filter((artifactPath) => {
     const file = filesByPath.get(artifactPath);
     if (!file) {
@@ -424,14 +493,35 @@ async function doctor(
     if (artifactPath === ".open-maintainer/profile.json") {
       return !file.content.includes(currentProfileHash);
     }
+    const storedHash = storedContextHashes.get(artifactPath);
+    if (storedHash) {
+      return contentHash(file.content) !== storedHash;
+    }
     return (
       file.content.includes("generated by open-maintainer") &&
       !file.content.includes(`profileHash=${currentProfileHash}`)
     );
   });
+  const obsolete = doctorObsoleteGeneratedArtifacts({
+    files,
+    expectedPaths: requiredPaths,
+    storedContextHashes,
+  });
+  const fixablePaths = obsolete;
+  const profileNeedsRefresh =
+    stale.includes(".open-maintainer/profile.json") || driftFindings.length > 0;
+  const fixCommand =
+    fixablePaths.length > 0 || profileNeedsRefresh
+      ? formatDoctorFixCommand({
+          repoPath: repoDisplayPath,
+        })
+      : null;
   return {
     ok:
-      missing.length === 0 && stale.length === 0 && driftFindings.length === 0,
+      missing.length === 0 &&
+      stale.length === 0 &&
+      obsolete.length === 0 &&
+      driftFindings.length === 0,
     messages: [
       `Agent Readiness: ${profile.agentReadiness.score}/100`,
       ...(missing.length > 0
@@ -442,8 +532,87 @@ async function doctor(
         (item) =>
           `drift: ${item} was generated from a different repository profile`,
       ),
+      ...obsolete.map(
+        (item) =>
+          `obsolete: ${item} is a generated context artifact no longer tracked by .open-maintainer/profile.json`,
+      ),
+      ...(fixCommand ? [`fix: ${fixCommand}`] : []),
     ],
+    fixablePaths,
+    profileNeedsRefresh,
   };
+}
+
+function doctorRequiredArtifacts(
+  profile: ReturnType<typeof analyzeRepo>,
+  storedContextHashes: Map<string, string>,
+): string[] {
+  if (storedContextHashes.size === 0) {
+    return expectedArtifactTypes({
+      profile,
+      targets: defaultArtifactTargets,
+    });
+  }
+  return [
+    ...storedContextHashes.keys(),
+    ".open-maintainer/profile.json",
+    ".open-maintainer/report.md",
+  ];
+}
+
+function doctorObsoleteGeneratedArtifacts(input: {
+  files: Awaited<ReturnType<typeof scanRepository>>;
+  expectedPaths: Set<string>;
+  storedContextHashes: Map<string, string>;
+}): string[] {
+  if (input.storedContextHashes.size === 0) {
+    return [];
+  }
+  return input.files
+    .filter((file) => isGeneratedContextArtifactPath(file.path))
+    .filter((file) => isOpenMaintainerGeneratedFile(file.content))
+    .map((file) => file.path)
+    .filter((filePath) => !input.expectedPaths.has(filePath))
+    .sort();
+}
+
+function isGeneratedContextArtifactPath(repoPath: string): boolean {
+  return (
+    repoPath === "AGENTS.md" ||
+    repoPath === "CLAUDE.md" ||
+    repoPath === ".open-maintainer.yml" ||
+    repoPath === ".github/copilot-instructions.md" ||
+    repoPath === ".cursor/rules/open-maintainer.md" ||
+    repoPath.startsWith(".agents/skills/") ||
+    repoPath.startsWith(".claude/skills/")
+  );
+}
+
+async function removeDoctorFixableArtifacts(
+  repoRoot: string,
+  fixablePaths: string[],
+): Promise<void> {
+  if (fixablePaths.length === 0) {
+    console.log(
+      "fix: no obsolete generated artifacts can be removed automatically",
+    );
+    return;
+  }
+  for (const item of fixablePaths) {
+    console.log(`remove: ${item} (obsolete generated artifact)`);
+    await rm(path.join(repoRoot, item), { force: true });
+  }
+}
+
+function formatDoctorFixCommand({ repoPath }: { repoPath: string }): string {
+  return ["bun run cli doctor", shellQuote(repoPath), "--fix"].join(" ");
+}
+
+function shellQuote(value: string): string {
+  if (/^[A-Za-z0-9_./:@%+=,-]+$/.test(value)) {
+    return value;
+  }
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function formatDriftFinding(
@@ -582,26 +751,44 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
     model: options.reviewModel,
     allowModelContentTransfer: options.allowModelContentTransfer,
   });
-  const [openMaintainerConfig, generatedContext, repoSkill] = await Promise.all(
-    [
-      readOptionalRepoFile(repoRoot, ".open-maintainer.yml"),
-      readOptionalRepoFile(repoRoot, "AGENTS.md"),
-      readOptionalRepoFile(
-        repoRoot,
-        `.agents/skills/${profile.name}-pr-review/SKILL.md`,
-      ),
-    ],
-  );
+  const [
+    openMaintainerConfig,
+    agentsMd,
+    repoPrReviewSkill,
+    repoTestingWorkflowSkill,
+    repoOverviewSkill,
+    generatedReport,
+  ] = await Promise.all([
+    readOptionalRepoFile(repoRoot, ".open-maintainer.yml"),
+    readOptionalRepoFile(repoRoot, "AGENTS.md"),
+    readOptionalRepoFile(
+      repoRoot,
+      `.agents/skills/${profile.name}-pr-review/SKILL.md`,
+    ),
+    readOptionalRepoFile(
+      repoRoot,
+      `.agents/skills/${profile.name}-testing-workflow/SKILL.md`,
+    ),
+    readOptionalRepoFile(
+      repoRoot,
+      `.agents/skills/${profile.name}-start-task/SKILL.md`,
+    ),
+    readOptionalRepoFile(repoRoot, ".open-maintainer/report.md"),
+  ]);
   const promptContext = {
     ...(openMaintainerConfig ? { openMaintainerConfig } : {}),
-    ...(generatedContext ? { generatedContext } : {}),
-    ...(repoSkill ? { repoSkill } : {}),
+    ...(agentsMd ? { agentsMd } : {}),
+    ...(generatedReport ? { generatedContext: generatedReport } : {}),
+    ...(repoPrReviewSkill ? { repoPrReviewSkill } : {}),
+    ...(repoTestingWorkflowSkill ? { repoTestingWorkflowSkill } : {}),
+    ...(repoOverviewSkill ? { repoOverviewSkill } : {}),
   };
   const result = await generateReview({
     profile,
     input: reviewInput,
     rules: profile.reviewRuleCandidates,
-    ...(providerReview ? providerReview : {}),
+    providerConfig: providerReview.providerConfig,
+    provider: providerReview.provider,
     ...(Object.keys(promptContext).length > 0 ? { promptContext } : {}),
   });
   if (options.outputPath) {
@@ -626,12 +813,9 @@ function buildReviewProvider(input: {
   allowModelContentTransfer: boolean;
 }) {
   if (!input.provider) {
-    if (input.model || input.allowModelContentTransfer) {
-      throw new Error(
-        "--review-model and --allow-model-content-transfer require --review-provider codex|claude.",
-      );
-    }
-    return null;
+    throw new Error(
+      "review requires --review-provider codex or --review-provider claude because PR reviews are LLM-backed only.",
+    );
   }
   if (!input.allowModelContentTransfer) {
     throw new Error(
@@ -897,23 +1081,16 @@ async function generateModelSkills(input: {
   ) => Promise<{ text: string }>;
   prompt: ReturnType<typeof buildSkillSynthesisPrompt>;
 }) {
-  try {
-    console.log(`${input.label}: generating workflow skills`);
-    const completion = await input.complete(input.prompt);
-    return parseModelSkillContent(completion.text);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "unknown error";
-    console.warn(
-      `${input.label}: skill generation fell back to deterministic skills (${message})`,
-    );
-    return undefined;
-  }
+  console.log(`${input.label}: generating workflow skills`);
+  const completion = await input.complete(input.prompt);
+  return parseModelSkillContent(completion.text);
 }
 
 function parseOptions(rawOptions: string[]): CliOptions {
   const options: CliOptions = {
     force: false,
     refreshGenerated: false,
+    doctorFix: false,
     dryRun: false,
     createPr: false,
     failOnScoreBelow: null,
@@ -922,7 +1099,6 @@ function parseOptions(rawOptions: string[]): CliOptions {
     model: null,
     context: null,
     skills: null,
-    deterministic: false,
     allowWrite: false,
     llmModel: null,
     baseRef: null,
@@ -941,6 +1117,8 @@ function parseOptions(rawOptions: string[]): CliOptions {
     const option = rawOptions[index];
     if (option === "--force") {
       options.force = true;
+    } else if (option === "--fix") {
+      options.doctorFix = true;
     } else if (option === "--refresh-generated") {
       options.refreshGenerated = true;
     } else if (option === "--dry-run") {
@@ -982,8 +1160,6 @@ function parseOptions(rawOptions: string[]): CliOptions {
     } else if (option === "--llm-model") {
       options.llmModel = requireOptionValue(rawOptions, index, option);
       index += 1;
-    } else if (option === "--deterministic") {
-      options.deterministic = true;
     } else if (option === "--allow-write") {
       options.allowWrite = true;
     } else if (option === "--base-ref") {

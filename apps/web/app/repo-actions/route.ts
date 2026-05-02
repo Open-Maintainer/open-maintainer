@@ -29,6 +29,11 @@ export async function POST(request: NextRequest) {
 
   if (!repoId || !actionPath) {
     actionError = "invalid-action";
+  } else if (
+    (actionType === "generateContext" || actionType === "createReview") &&
+    !providerId
+  ) {
+    actionError = "missing-provider";
   } else {
     try {
       const response = await fetch(
@@ -37,9 +42,9 @@ export async function POST(request: NextRequest) {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(
-            actionType === "generateContext" && providerId
+            actionType === "generateContext"
               ? {
-                  providerId,
+                  ...(providerId ? { providerId } : {}),
                   async: true,
                   ...(context ? { context } : {}),
                   ...(skills ? { skills } : {}),

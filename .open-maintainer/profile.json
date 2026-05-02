@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_d6009e30-16e9-4913-a0c3-63e8f5a5a28a",
+  "id": "repo_profile_a21a5fe7-b944-41b7-a38e-cf6b50d9c0b7",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -232,14 +232,13 @@
     ".open-maintainer.yml"
   ],
   "generatedFilePaths": [
-    ".agents/skills/open-maintainer-pr-review/SKILL.md",
     ".agents/skills/open-maintainer-start-task/SKILL.md",
-    ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
     ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
     "AGENTS.md",
     "CONTRIBUTING.md",
     "apps/web/next-env.d.ts",
-    "packages/analyzer/tests/analyzer.test.ts"
+    "packages/analyzer/tests/analyzer.test.ts",
+    "tests/cli-doctor.test.ts"
   ],
   "existingContextFiles": [
     ".agents/skills/open-maintainer-pr-review/SKILL.md",
@@ -250,7 +249,6 @@
     ".agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md",
     ".agents/skills/open-maintainer-update-github-action-audit/SKILL.md",
     ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
-    ".agents/skills/open-maintainer-validation-testing/SKILL.md",
     ".open-maintainer.yml",
     ".open-maintainer/profile.json",
     ".open-maintainer/report.md",
@@ -266,6 +264,7 @@
   "environmentVariables": [
     "API_BASE_URL",
     "API_PORT",
+    "APP_ENV",
     "AUDIT_EXIT_CODE",
     "AUDIT_OUTPUT_PATH",
     "BASE_READINESS_SCORE",
@@ -320,9 +319,9 @@
     "packages/config/tests/config.test.ts",
     "packages/context/tests/render.test.ts",
     "packages/github/tests/webhook.test.ts",
-    "packages/review/tests/deterministic.test.ts",
     "packages/review/tests/local-git.test.ts",
     "packages/review/tests/model.test.ts",
+    "packages/review/tests/precheck.test.ts",
     "packages/review/tests/render.test.ts",
     "packages/shared/tests/schemas.test.ts",
     "tests/action-mvp.test.ts",
@@ -365,6 +364,7 @@
     "tests/fixtures/with-context/AGENTS.md",
     "tests/fixtures/with-context/README.md",
     "tests/fixtures/with-context/package.json",
+    "tests/helpers/fake-model-cli.ts",
     "tests/mvp-golden.test.ts",
     "tests/smoke/compose-smoke.ts",
     "tests/smoke/local-health.ts",
@@ -571,10 +571,6 @@
       "reason": "detected repository context"
     },
     {
-      "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
-      "reason": "detected repository context"
-    },
-    {
       "path": ".open-maintainer.yml",
       "reason": "detected repository context"
     },
@@ -683,6 +679,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "tests/cli-doctor.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": ".dockerignore",
       "reason": "detected repository context"
     },
@@ -719,15 +719,15 @@
       "reason": "detected repository context"
     },
     {
-      "path": "packages/review/tests/deterministic.test.ts",
-      "reason": "detected repository context"
-    },
-    {
       "path": "packages/review/tests/local-git.test.ts",
       "reason": "detected repository context"
     },
     {
       "path": "packages/review/tests/model.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "packages/review/tests/precheck.test.ts",
       "reason": "detected repository context"
     },
     {
@@ -744,10 +744,6 @@
     },
     {
       "path": "tests/cli-audit.test.ts",
-      "reason": "detected repository context"
-    },
-    {
-      "path": "tests/cli-doctor.test.ts",
       "reason": "detected repository context"
     },
     {
@@ -863,6 +859,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "tests/helpers/fake-model-cli.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "tests/mvp-golden.test.ts",
       "reason": "detected repository context"
     },
@@ -918,39 +918,35 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "54bbcaceba9e42a0"
+      "hash": "ea9559bc7315c4a8"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "61793b2fbf479aef"
+      "hash": "4957bb41d71d7bc8"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "da5c42c58019d1c9"
+      "hash": "4b59bb0801834475"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
-      "hash": "3edbcc475149b325"
+      "hash": "ab8cd08ca5995586"
     },
     {
       "path": ".agents/skills/open-maintainer-update-cli-generation/SKILL.md",
-      "hash": "87860c1603685851"
+      "hash": "6482bb068f03c708"
     },
     {
       "path": ".agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md",
-      "hash": "d3e84870804d724a"
+      "hash": "6779e07ec2cffc37"
     },
     {
       "path": ".agents/skills/open-maintainer-update-github-action-audit/SKILL.md",
-      "hash": "8bf24156093b1b90"
+      "hash": "83531ba1da700b06"
     },
     {
       "path": ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
-      "hash": "62aaf2f914efec48"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
-      "hash": "9bb07aca53cf035c"
+      "hash": "7d22fc6a07d58b06"
     },
     {
       "path": ".dockerignore",
@@ -986,19 +982,19 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "c49376f6272ae81b"
+      "hash": "1724ad54bf757182"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "58e2a16d6af381b9"
+      "hash": "6cc02f65ca7d431f"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "b2805e1b2868c17e"
+      "hash": "2c68c454a4bd14ce"
     },
     {
       "path": "AGENTS.md",
-      "hash": "ac8f866a3fcb143b"
+      "hash": "b7405ff51fb7397b"
     },
     {
       "path": "apps/api/package.json",
@@ -1006,7 +1002,7 @@
     },
     {
       "path": "apps/api/tests/api.test.ts",
-      "hash": "34cdcf9d9a2b35d9"
+      "hash": "2d99dbc756f84285"
     },
     {
       "path": "apps/api/tsconfig.json",
@@ -1058,23 +1054,23 @@
     },
     {
       "path": "docs/DEMO_RUNBOOK.md",
-      "hash": "2f75bbd99aca632d"
+      "hash": "b98e2d081da14d3e"
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
-      "hash": "c4ee7484292ced7d"
+      "hash": "b1237b7639c78c71"
     },
     {
       "path": "docs/ROADMAP.md",
-      "hash": "464ce4894dc51677"
+      "hash": "14cdb1d0f15c479a"
     },
     {
       "path": "docs/V0_3_RELEASE_REVIEW.md",
-      "hash": "86aec926e4d7046f"
+      "hash": "d3dee7529c477ef7"
     },
     {
       "path": "docs/V0_4_RELEASE_REVIEW.md",
-      "hash": "cbf144f6418dd9ed"
+      "hash": "1a8f483b270884c5"
     },
     {
       "path": "local-docs/PRODUCT_PRD.md",
@@ -1102,7 +1098,7 @@
     },
     {
       "path": "packages/analyzer/tests/analyzer.test.ts",
-      "hash": "2903238cdee8aec9"
+      "hash": "79a38d95dba38f59"
     },
     {
       "path": "packages/analyzer/tsconfig.json",
@@ -1126,7 +1122,7 @@
     },
     {
       "path": "packages/context/tests/render.test.ts",
-      "hash": "82178ea4de6fc605"
+      "hash": "93b523efc91be5f1"
     },
     {
       "path": "packages/context/tsconfig.json",
@@ -1146,7 +1142,7 @@
     },
     {
       "path": "packages/github/tests/webhook.test.ts",
-      "hash": "203350ffba735dc8"
+      "hash": "191d9f0b55a1cc6c"
     },
     {
       "path": "packages/github/tsconfig.json",
@@ -1157,20 +1153,20 @@
       "hash": "90f9182c4a646083"
     },
     {
-      "path": "packages/review/tests/deterministic.test.ts",
-      "hash": "74bdf07b95febfe3"
-    },
-    {
       "path": "packages/review/tests/local-git.test.ts",
       "hash": "1a4a0489946e176e"
     },
     {
       "path": "packages/review/tests/model.test.ts",
-      "hash": "805812d0888c7da6"
+      "hash": "130fef20e69a181f"
+    },
+    {
+      "path": "packages/review/tests/precheck.test.ts",
+      "hash": "1baf2f4457f4c881"
     },
     {
       "path": "packages/review/tests/render.test.ts",
-      "hash": "cd83648f76295b8d"
+      "hash": "acb9548f8e159290"
     },
     {
       "path": "packages/review/tsconfig.json",
@@ -1190,19 +1186,19 @@
     },
     {
       "path": "README.md",
-      "hash": "2c35403f114ba8df"
+      "hash": "db52fb6c6b4ecf43"
     },
     {
       "path": "tests/action-mvp.test.ts",
-      "hash": "cf19a8d17d71d014"
+      "hash": "54b9cd6a0db80a04"
     },
     {
       "path": "tests/cli-audit.test.ts",
-      "hash": "4749fac03f972832"
+      "hash": "387bbed63c33f7c6"
     },
     {
       "path": "tests/cli-doctor.test.ts",
-      "hash": "5e4a021501da28ca"
+      "hash": "e24a5bdaff16ac4b"
     },
     {
       "path": "tests/cli-help.test.ts",
@@ -1210,7 +1206,7 @@
     },
     {
       "path": "tests/cli-review.test.ts",
-      "hash": "24896a8c794a6df7"
+      "hash": "7f5f7a6d357e6acf"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1353,8 +1349,12 @@
       "hash": "f2118cdfc17ea6b1"
     },
     {
+      "path": "tests/helpers/fake-model-cli.ts",
+      "hash": "1aceadf15cc2e308"
+    },
+    {
       "path": "tests/mvp-golden.test.ts",
-      "hash": "6b36d28467e4fd6f"
+      "hash": "4f86c4e2949b861d"
     },
     {
       "path": "tests/smoke/compose-smoke.ts",
@@ -1366,7 +1366,7 @@
     },
     {
       "path": "tests/smoke/mvp-demo.ts",
-      "hash": "c7bc8d803f9ecad5"
+      "hash": "4448dd35e560ff6d"
     },
     {
       "path": "tests/v02-readiness.test.ts",
@@ -1385,29 +1385,8 @@
       "hash": "6b20deced71879d8"
     }
   ],
-  "contextArtifactHashes": [
-    {
-      "path": "AGENTS.md",
-      "hash": "68f625a51298b4ad"
-    },
-    {
-      "path": ".open-maintainer.yml",
-      "hash": "d76768d5a09a1aaf"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "5dd17a7a292bdc76"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "b8e1cd600687042c"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "968482f7a53fa197"
-    }
-  ],
-  "createdAt": "2026-05-02T05:01:53.519Z",
+  "contextArtifactHashes": [],
+  "createdAt": "2026-05-02T07:56:43.292Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1754,6 +1733,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "tests/cli-doctor.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/fixtures/high-readiness-ts/.gitignore",
             "reason": "detected repository context"
           },
@@ -1782,15 +1765,15 @@
             "reason": "detected repository context"
           },
           {
-            "path": "packages/review/tests/deterministic.test.ts",
-            "reason": "detected repository context"
-          },
-          {
             "path": "packages/review/tests/local-git.test.ts",
             "reason": "detected repository context"
           },
           {
             "path": "packages/review/tests/model.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/review/tests/precheck.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -1807,10 +1790,6 @@
           },
           {
             "path": "tests/cli-audit.test.ts",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "tests/cli-doctor.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -1923,6 +1902,10 @@
           },
           {
             "path": "tests/fixtures/with-context/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/helpers/fake-model-cli.ts",
             "reason": "detected repository context"
           },
           {
@@ -2058,6 +2041,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "tests/cli-doctor.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/fixtures/high-readiness-ts/.gitignore",
             "reason": "detected repository context"
           },
@@ -2086,15 +2073,15 @@
             "reason": "detected repository context"
           },
           {
-            "path": "packages/review/tests/deterministic.test.ts",
-            "reason": "detected repository context"
-          },
-          {
             "path": "packages/review/tests/local-git.test.ts",
             "reason": "detected repository context"
           },
           {
             "path": "packages/review/tests/model.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/review/tests/precheck.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2111,10 +2098,6 @@
           },
           {
             "path": "tests/cli-audit.test.ts",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "tests/cli-doctor.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2227,6 +2210,10 @@
           },
           {
             "path": "tests/fixtures/with-context/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/helpers/fake-model-cli.ts",
             "reason": "detected repository context"
           },
           {
@@ -2490,10 +2477,6 @@
             "reason": "detected repository context"
           },
           {
-            "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
-            "reason": "detected repository context"
-          },
-          {
             "path": ".open-maintainer.yml",
             "reason": "detected repository context"
           },
@@ -2515,6 +2498,10 @@
           },
           {
             "path": "packages/analyzer/tests/analyzer.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/cli-doctor.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2574,10 +2561,6 @@
             "reason": "detected repository context"
           },
           {
-            "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
-            "reason": "detected repository context"
-          },
-          {
             "path": ".open-maintainer.yml",
             "reason": "detected repository context"
           },
@@ -2597,7 +2580,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T05:01:53.520Z"
+    "generatedAt": "2026-05-02T07:56:43.293Z"
   },
-  "openMaintainerProfileHash": "2336a17dd8df263c"
+  "openMaintainerProfileHash": "e903d87a9a483ae7"
 }

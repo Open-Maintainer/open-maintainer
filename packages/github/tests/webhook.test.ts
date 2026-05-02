@@ -55,7 +55,7 @@ function reviewResult(): ReviewResult {
     summary: "Review summary.",
     walkthrough: ["modified src/a.ts (+2/-1)"],
     changedSurface: ["package:review"],
-    riskAnalysis: ["No deterministic risk path was detected."],
+    riskAnalysis: ["No risk path was detected."],
     expectedValidation: [],
     validationEvidence: [],
     docsImpact: [],

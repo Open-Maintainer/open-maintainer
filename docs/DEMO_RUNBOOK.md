@@ -4,14 +4,14 @@ This runbook is the hands-on validation guide for the features implemented
 through `v0.4.0`. It is written so you can copy commands from the repository
 root and evaluate release readiness yourself.
 
-Most commands below are offline and deterministic. The optional LLM-backed
-generation and GitHub PR paths require explicit credentials and consent.
+Repository analysis is offline and deterministic. Context generation and PR
+review are LLM-backed only and require explicit credentials and consent.
 
 ## Feature Status
 
 Implemented and testable:
 
-- CLI audit, readiness report, deterministic profile generation, and concrete
+- CLI audit, readiness report, deterministic repository analysis, and concrete
   next actions.
 - v0.2 readiness-quality categories: setup clarity, architecture clarity,
   testing, CI, docs, risk handling, generated-file handling, and agent
@@ -171,13 +171,14 @@ bun run cli audit "$TARGET_REPO" --fail-on-score-below 100
 Expected result: non-zero exit because the low-context fixture is intentionally
 below 100 before context generation.
 
-## Deterministic Context Generation
+## LLM Context Generation
 
-Generate the Codex artifact family without using an LLM:
+Generate the Codex artifact family with explicit model-write consent:
 
 ```sh
 bun run cli generate "$TARGET_REPO" \
-  --deterministic \
+  --model codex \
+  --allow-write \
   --context codex \
   --skills codex
 ```
@@ -240,7 +241,8 @@ INIT_ROOT="$(mktemp -d)"
 cp -R tests/fixtures/low-context-ts "$INIT_ROOT/widget-api"
 
 bun run cli init "$INIT_ROOT/widget-api" \
-  --deterministic \
+  --model codex \
+  --allow-write \
   --context codex \
   --skills codex
 
@@ -270,11 +272,12 @@ bun run cli generate "$CONSENT_ROOT/widget-api" \
 
 Expected result: non-zero exit with an error requiring `--allow-write`.
 
-Deterministic generation preserves existing files by default:
+Model-backed generation preserves existing files by default:
 
 ```sh
 bun run cli generate "$TARGET_REPO" \
-  --deterministic \
+  --model codex \
+  --allow-write \
   --context codex \
   --skills codex
 ```
@@ -285,13 +288,14 @@ Use `--force` only when overwriting generated artifacts is intentional:
 
 ```sh
 bun run cli generate "$TARGET_REPO" \
-  --deterministic \
+  --model codex \
+  --allow-write \
   --context codex \
   --skills codex \
   --force
 ```
 
-## Optional LLM-Backed Generation
+## LLM Provider Selection
 
 Confirm the selected CLI is available:
 
@@ -374,7 +378,8 @@ DRIFT_ROOT="$(mktemp -d)"
 cp -R tests/fixtures/low-context-ts "$DRIFT_ROOT/widget-api"
 
 bun run cli generate "$DRIFT_ROOT/widget-api" \
-  --deterministic \
+  --model codex \
+  --allow-write \
   --context codex \
   --skills codex
 
@@ -489,7 +494,7 @@ steps:
       comment-on-pr: "true"
 ```
 
-Opt-in deterministic refresh PRs require write permissions:
+Opt-in model-backed refresh PRs require write permissions and consent:
 
 ```yaml
 permissions:
@@ -501,7 +506,8 @@ steps:
   - uses: open-maintainer/action@v1
     with:
       mode: refresh
-      generation-provider: deterministic
+      generation-provider: codex
+      allow-model-content-transfer: "true"
       context-target: codex
       skills-target: codex
 ```

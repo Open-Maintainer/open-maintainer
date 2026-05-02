@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createFakeCodexCli } from "../../../tests/helpers/fake-model-cli";
 import { buildApp } from "../src/app";
 
 const execFileAsync = promisify(execFile);
@@ -48,6 +49,78 @@ async function createLocalReviewRepo(): Promise<string> {
     cwd: directory,
   });
   return directory;
+}
+
+async function createLocalPullRequestRepo(): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), "api-pr-test-"));
+  await execFileAsync("git", ["init", "-b", "main"], { cwd: directory });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+    cwd: directory,
+  });
+  await execFileAsync("git", ["config", "user.name", "Test User"], {
+    cwd: directory,
+  });
+  await mkdir(path.join(directory, "src"), { recursive: true });
+  await writeFile(
+    path.join(directory, "package.json"),
+    JSON.stringify({ scripts: { test: "bun test", build: "tsc -b" } }),
+  );
+  await writeFile(
+    path.join(directory, "src/index.ts"),
+    "export const value = 1;\n",
+  );
+  await execFileAsync("git", ["add", "."], { cwd: directory });
+  await execFileAsync("git", ["commit", "-m", "initial"], { cwd: directory });
+  await execFileAsync("git", ["checkout", "-b", "feature"], {
+    cwd: directory,
+  });
+  await writeFile(
+    path.join(directory, "src/index.ts"),
+    "export const value = 2;\n",
+  );
+  await execFileAsync("git", ["add", "."], { cwd: directory });
+  await execFileAsync("git", ["commit", "-m", "change value"], {
+    cwd: directory,
+  });
+  return directory;
+}
+
+async function createFakeGhCli(): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), "api-gh-test-"));
+  const command = path.join(directory, "fake-gh.js");
+  await writeFile(
+    command,
+    `#!/usr/bin/env node
+if (process.argv.slice(2).join(" ") === "pr view 52 --json baseRefName,title,body,url,author") {
+  process.stdout.write(JSON.stringify({
+    baseRefName: "main",
+    title: "Require LLM mode for generation and PR review",
+    body: "Validation: bun test",
+    url: "https://github.com/Open-Maintainer/open-maintainer/pull/52",
+    author: { login: "maintainer" }
+  }));
+  process.exit(0);
+}
+process.stderr.write("unexpected fake gh args: " + process.argv.slice(2).join(" ") + "\\n");
+process.exit(1);
+`,
+  );
+  await chmod(command, 0o755);
+  return command;
+}
+
+async function createFailingGhCli(): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), "api-gh-fail-test-"));
+  const command = path.join(directory, "fake-gh-fail.js");
+  await writeFile(
+    command,
+    `#!/usr/bin/env node
+process.stderr.write("gh is not authenticated\\n");
+process.exit(1);
+`,
+  );
+  await chmod(command, 0o755);
+  return command;
 }
 
 describe("MVP API", () => {
@@ -201,6 +274,9 @@ describe("MVP API", () => {
 
   it("creates dashboard PR review previews and guards posting", async () => {
     const repoRoot = await createLocalReviewRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const previousCodexCommand = process.env.OPEN_MAINTAINER_CODEX_COMMAND;
+    process.env.OPEN_MAINTAINER_CODEX_COMMAND = fakeCodex.command;
     const registered = await app.inject({
       method: "POST",
       url: "/repos/local",
@@ -214,18 +290,41 @@ describe("MVP API", () => {
     });
     expect(analysis.statusCode).toBe(200);
 
+    const provider = await app.inject({
+      method: "POST",
+      url: "/model-providers",
+      payload: {
+        kind: "codex-cli",
+        displayName: "Codex CLI",
+        baseUrl: "http://localhost",
+        model: "codex-cli",
+        apiKey: "local-cli",
+        repoContentConsent: true,
+      },
+    });
+    expect(provider.statusCode).toBe(200);
+
     const created = await app.inject({
       method: "POST",
       url: `/repos/${repoId}/reviews`,
-      payload: { baseRef: "HEAD~1", headRef: "HEAD", prNumber: 48 },
+      payload: {
+        baseRef: "HEAD~1",
+        headRef: "HEAD",
+        prNumber: 48,
+        providerId: provider.json().provider.id,
+      },
     });
+    if (previousCodexCommand === undefined) {
+      Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
+    } else {
+      process.env.OPEN_MAINTAINER_CODEX_COMMAND = previousCodexCommand;
+    }
     expect(created.statusCode).toBe(200);
     expect(created.json().run.type).toBe("review");
     expect(created.json().run.status).toBe("succeeded");
     expect(created.json().review.prNumber).toBe(48);
     expect(created.json().review.changedFiles[0].path).toBe("src/index.ts");
-    const [finding] = created.json().review.findings;
-    expect(finding.id).toBe("missing-validation-evidence");
+    expect(created.json().review.modelProvider).toBe("Codex CLI");
 
     const reviews = await app.inject({
       method: "GET",
@@ -245,35 +344,15 @@ describe("MVP API", () => {
       method: "POST",
       url: `/reviews/${created.json().review.id}/feedback`,
       payload: {
-        findingId: finding.id,
+        findingId: "missing-finding",
         verdict: "false_positive",
         reason: "Validation is covered by the disposable test repo.",
         actor: "maintainer",
       },
     });
-    expect(feedback.statusCode).toBe(200);
-    expect(feedback.json().feedback.verdict).toBe("false_positive");
-    expect(feedback.json().review.feedback).toHaveLength(1);
+    expect(feedback.statusCode).toBe(422);
 
-    const unknownFinding = await app.inject({
-      method: "POST",
-      url: `/reviews/${created.json().review.id}/feedback`,
-      payload: {
-        findingId: "missing-finding",
-        verdict: "false_positive",
-      },
-    });
-    expect(unknownFinding.statusCode).toBe(422);
-    expect(unknownFinding.json().error).toContain("Unknown finding ID");
-
-    const feedbackReadback = await app.inject({
-      method: "GET",
-      url: `/reviews/${created.json().review.id}`,
-    });
-    expect(feedbackReadback.statusCode).toBe(200);
-    expect(feedbackReadback.json().review.feedback[0].findingId).toBe(
-      finding.id,
-    );
+    expect(feedback.json().error).toContain("Unknown finding ID");
 
     const posting = await app.inject({
       method: "POST",
@@ -289,6 +368,267 @@ describe("MVP API", () => {
     expect(
       runs.json().runs.some((run: { type: string }) => run.type === "review"),
     ).toBe(true);
+  });
+
+  it("creates PR-number-only review previews without a preexisting profile", async () => {
+    const repoRoot = await createLocalPullRequestRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+    const previousCodexCommand = process.env.OPEN_MAINTAINER_CODEX_COMMAND;
+    const previousGhCommand = process.env.OPEN_MAINTAINER_GH_COMMAND;
+    try {
+      process.env.OPEN_MAINTAINER_CODEX_COMMAND = fakeCodex.command;
+      process.env.OPEN_MAINTAINER_GH_COMMAND = fakeGh;
+      const registered = await app.inject({
+        method: "POST",
+        url: "/repos/local",
+        payload: { repoRoot },
+      });
+      expect(registered.statusCode).toBe(200);
+      const repoId = registered.json().repo.id;
+
+      const provider = await app.inject({
+        method: "POST",
+        url: "/model-providers",
+        payload: {
+          kind: "codex-cli",
+          displayName: "Codex CLI",
+          baseUrl: "http://localhost",
+          model: "codex-cli",
+          apiKey: "local-cli",
+          repoContentConsent: true,
+        },
+      });
+      expect(provider.statusCode).toBe(200);
+
+      const created = await app.inject({
+        method: "POST",
+        url: `/repos/${repoId}/reviews`,
+        payload: {
+          prNumber: 52,
+          providerId: provider.json().provider.id,
+        },
+      });
+
+      expect(created.statusCode).toBe(200);
+      expect(created.json().review.prNumber).toBe(52);
+      expect(created.json().review.baseRef).toBe("main");
+      expect(created.json().review.headRef).toBe("HEAD");
+      expect(created.json().review.changedFiles[0].path).toBe("src/index.ts");
+      expect(created.json().run.repoProfileVersion).toBe(1);
+    } finally {
+      if (previousCodexCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_CODEX_COMMAND = previousCodexCommand;
+      }
+      if (previousGhCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_GH_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_GH_COMMAND = previousGhCommand;
+      }
+    }
+  });
+
+  it("rejects PR-number-only review previews when PR refs cannot be resolved", async () => {
+    const repoRoot = await createLocalPullRequestRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFailingGhCli();
+    const previousCodexCommand = process.env.OPEN_MAINTAINER_CODEX_COMMAND;
+    const previousGhCommand = process.env.OPEN_MAINTAINER_GH_COMMAND;
+    try {
+      process.env.OPEN_MAINTAINER_CODEX_COMMAND = fakeCodex.command;
+      process.env.OPEN_MAINTAINER_GH_COMMAND = fakeGh;
+      const registered = await app.inject({
+        method: "POST",
+        url: "/repos/local",
+        payload: { repoRoot },
+      });
+      expect(registered.statusCode).toBe(200);
+      const repoId = registered.json().repo.id;
+
+      const provider = await app.inject({
+        method: "POST",
+        url: "/model-providers",
+        payload: {
+          kind: "codex-cli",
+          displayName: "Codex CLI",
+          baseUrl: "http://localhost",
+          model: "codex-cli",
+          apiKey: "local-cli",
+          repoContentConsent: true,
+        },
+      });
+      expect(provider.statusCode).toBe(200);
+
+      const created = await app.inject({
+        method: "POST",
+        url: `/repos/${repoId}/reviews`,
+        payload: {
+          prNumber: 52,
+          providerId: provider.json().provider.id,
+        },
+      });
+
+      expect(created.statusCode).toBe(422);
+      expect(created.json().error).toContain(
+        "Unable to resolve the base ref for PR #52",
+      );
+      expect(created.json().error).toContain("gh is not authenticated");
+    } finally {
+      if (previousCodexCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_CODEX_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_CODEX_COMMAND = previousCodexCommand;
+      }
+      if (previousGhCommand === undefined) {
+        Reflect.deleteProperty(process.env, "OPEN_MAINTAINER_GH_COMMAND");
+      } else {
+        process.env.OPEN_MAINTAINER_GH_COMMAND = previousGhCommand;
+      }
+    }
+  });
+
+  it("passes repo context files into dashboard PR review prompts", async () => {
+    const repoRoot = await createLocalPullRequestRepo();
+    const repoName = path.basename(repoRoot);
+    await mkdir(path.join(repoRoot, ".open-maintainer"), { recursive: true });
+    await mkdir(
+      path.join(repoRoot, ".agents/skills", `${repoName}-pr-review`),
+      {
+        recursive: true,
+      },
+    );
+    await mkdir(
+      path.join(repoRoot, ".agents/skills", `${repoName}-testing-workflow`),
+      { recursive: true },
+    );
+    await writeFile(
+      path.join(repoRoot, "AGENTS.md"),
+      "# AGENTS marker\n\nUse repo-specific review context.\n",
+    );
+    await writeFile(
+      path.join(repoRoot, ".open-maintainer.yml"),
+      "qualityRules:\n  - open-maintainer config marker\n",
+    );
+    await writeFile(
+      path.join(
+        repoRoot,
+        ".agents/skills",
+        `${repoName}-pr-review`,
+        "SKILL.md",
+      ),
+      "---\nname: pr-review\n---\n\nPR review skill marker.\n",
+    );
+    await writeFile(
+      path.join(
+        repoRoot,
+        ".agents/skills",
+        `${repoName}-testing-workflow`,
+        "SKILL.md",
+      ),
+      "---\nname: testing-workflow\n---\n\nTesting skill marker.\n",
+    );
+    const capturedUsers: string[] = [];
+    const server = createServer((request, response) => {
+      let body = "";
+      request.on("data", (chunk) => {
+        body += chunk;
+      });
+      request.on("end", () => {
+        const payload = JSON.parse(body) as {
+          messages?: Array<{ role: string; content: string }>;
+        };
+        const userMessage = payload.messages?.find(
+          (message) => message.role === "user",
+        );
+        if (userMessage) {
+          capturedUsers.push(userMessage.content);
+        }
+        response.writeHead(200, { "content-type": "application/json" });
+        response.end(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    summary: {
+                      overview: "Prompt context was received.",
+                      changedSurfaces: ["api"],
+                      riskLevel: "low",
+                      validationSummary: "No validation gaps.",
+                      docsSummary: "No docs gaps.",
+                    },
+                    findings: [],
+                    mergeReadiness: {
+                      status: "ready",
+                      reason: "No findings.",
+                      requiredActions: [],
+                    },
+                    residualRisk: [],
+                  }),
+                },
+              },
+            ],
+          }),
+        );
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") {
+      throw new Error("Expected provider test server port");
+    }
+    try {
+      const registered = await app.inject({
+        method: "POST",
+        url: "/repos/local",
+        payload: { repoRoot },
+      });
+      expect(registered.statusCode).toBe(200);
+      const repoId = registered.json().repo.id;
+
+      const provider = await app.inject({
+        method: "POST",
+        url: "/model-providers",
+        payload: {
+          kind: "local-openai-compatible",
+          displayName: "Local prompt capture",
+          baseUrl: `http://127.0.0.1:${address.port}/v1`,
+          model: "prompt-capture",
+          apiKey: "dev",
+          repoContentConsent: true,
+        },
+      });
+      expect(provider.statusCode).toBe(200);
+
+      const created = await app.inject({
+        method: "POST",
+        url: `/repos/${repoId}/reviews`,
+        payload: {
+          baseRef: "main",
+          headRef: "HEAD",
+          providerId: provider.json().provider.id,
+        },
+      });
+      expect(created.statusCode).toBe(200);
+
+      const promptPayload = JSON.parse(capturedUsers[0] ?? "{}") as {
+        context?: Record<string, string>;
+      };
+      expect(promptPayload.context?.agentsMd).toContain("AGENTS marker");
+      expect(promptPayload.context?.openMaintainerConfig).toContain(
+        "open-maintainer config marker",
+      );
+      expect(promptPayload.context?.repoPrReviewSkill).toContain(
+        "PR review skill marker",
+      );
+      expect(promptPayload.context?.repoTestingWorkflowSkill).toContain(
+        "Testing skill marker",
+      );
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it("generates dashboard context and opens local PRs through authenticated gh", async () => {

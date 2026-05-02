@@ -7,14 +7,12 @@ import {
   buildSkillSynthesisPrompt,
   compareProfileDrift,
   createContextArtifacts,
+  expectedArtifactTypes,
   parseModelArtifactContent,
   parseModelSkillContent,
   parseStructuredRepoFacts,
   planArtifactWrites,
   profileFingerprint,
-  renderAgentsMd,
-  renderCopilotInstructions,
-  renderCursorRule,
   renderOpenMaintainerYaml,
   structuredContextOutputFromRepoFacts,
 } from "../src";
@@ -199,33 +197,60 @@ const repoFacts = parseStructuredRepoFacts(
   }),
 );
 
+const modelArtifacts = parseModelArtifactContent(
+  JSON.stringify({
+    agentsMd:
+      "# AGENTS.md instructions for acme/tool\n\nUse the real app router, Vitest tests, and Bun workspace scripts before changing code.",
+    claudeMd:
+      "# CLAUDE.md instructions for acme/tool\n\nUse Claude project guidance, Bun scripts, and app-router evidence before changing code.",
+    copilotInstructions:
+      "# Copilot instructions for acme/tool\n\nPrefer Bun commands and keep Next.js app-router code under apps/.",
+    cursorRule:
+      "---\ndescription: acme tool repo rules\nalwaysApply: true\n---\n\nUse Bun scripts and inspect app routes before editing.",
+  }),
+);
+
+const modelSkills = parseModelSkillContent(
+  JSON.stringify({
+    skills: [
+      {
+        path: ".agents/skills/tool-start-task/SKILL.md",
+        name: "tool-start-task",
+        description: "Use before making bounded changes in acme/tool.",
+        markdown:
+          "---\nname: tool-start-task\ndescription: Use before making bounded changes in acme/tool.\n---\n\n# Tool Start Task\n\n## Use when\n- Starting work.\n\n## Do not use when\n- Reviewing PRs.\n\n## Read first\n- README.md\n\n## Workflow\n- Inspect the real app router.\n\n## Validation\n- Run bun test.\n\n## Documentation\n- Check README.md.\n\n## Risk checks\n- Keep changes scoped.\n\n## Done when\n- Evidence is reported.",
+      },
+      {
+        path: ".agents/skills/tool-testing-workflow/SKILL.md",
+        name: "tool-testing-workflow",
+        description: "Use when validating changes in acme/tool.",
+        markdown:
+          "---\nname: tool-testing-workflow\ndescription: Use when validating changes in acme/tool.\n---\n\n# Testing Workflow\n\n## Use when\n- Running validation.\n\n## Do not use when\n- Starting unrelated work.\n\n## Read first\n- package.json\n\n## Workflow\n- Match changed files to commands.\n\n## Validation\n- Run bun test.\n\n## Documentation\n- Check README.md.\n\n## Risk checks\n- Keep tests deterministic.\n\n## Done when\n- Validation evidence is reported.",
+      },
+      {
+        path: ".agents/skills/tool-pr-review/SKILL.md",
+        name: "tool-pr-review",
+        description: "Use when reviewing pull requests in acme/tool.",
+        markdown:
+          "---\nname: tool-pr-review\ndescription: Use when reviewing pull requests in acme/tool.\n---\n\n# PR Review\n\n## Use when\n- Reviewing pull requests.\n\n## Do not use when\n- Implementing the change.\n\n## Read first\n- PR diff\n\n## Workflow\n- Ground findings in evidence.\n\n## Validation\n- Check reported commands.\n\n## Documentation\n- Check README.md.\n\n## Risk checks\n- Avoid uncited findings.\n\n## Done when\n- Findings cite concrete evidence.",
+      },
+    ],
+  }),
+);
+
 describe("context renderers", () => {
-  it("renders AGENTS.md from structured output", () => {
-    const rendered = renderAgentsMd(profile, {
-      summary: "A repo.",
-      qualityRules: ["Use Bun."],
-      commands: ["test: bun test"],
-      notes: [],
-    });
-
-    expect(rendered).toContain("# AGENTS.md instructions for acme/tool");
-    expect(rendered).toContain("- Use Bun.");
-  });
-
-  it("uses structured commands across editor instruction artifacts", () => {
-    const output = {
-      summary: "A repo.",
-      qualityRules: ["Use Bun."],
-      commands: ["verify: bun test && bun lint"],
-      notes: [],
-    };
-
-    expect(renderCopilotInstructions(profile, output)).toContain(
-      "- verify: bun test && bun lint",
-    );
-    expect(renderCursorRule(profile, output)).toContain(
-      "- verify: bun test && bun lint",
-    );
+  it("requires model content for instruction artifacts", () => {
+    expect(() =>
+      createContextArtifacts({
+        repoId: "repo_1",
+        profile,
+        output: structuredContextOutputFromRepoFacts(profile, repoFacts),
+        modelProvider: "local",
+        model: "llama",
+        nextVersion: 1,
+        targets: ["agents"],
+      }),
+    ).toThrow(/model artifact content/);
   });
 
   it("fingerprints profile fields that feed generated artifacts", () => {
@@ -319,6 +344,8 @@ describe("context renderers", () => {
         commands: ["test: bun test"],
         notes: [],
       },
+      modelArtifacts,
+      modelSkills,
       modelProvider: "local",
       model: "llama",
       nextVersion: 1,
@@ -343,6 +370,7 @@ describe("context renderers", () => {
         commands: ["test: bun test"],
         notes: [],
       },
+      modelArtifacts,
       modelProvider: "local",
       model: "llama",
       nextVersion: 1,
@@ -420,8 +448,8 @@ describe("context renderers", () => {
       repoId: "repo_1",
       profile,
       output: {
-        summary: "Deterministic fallback.",
-        qualityRules: ["Fallback rule."],
+        summary: "Model facts.",
+        qualityRules: ["Model rule."],
         commands: ["fallback"],
         notes: [],
       },
@@ -461,25 +489,15 @@ ${JSON.stringify({
   });
 
   it("slugifies repeated separators without regex backtracking", () => {
-    const artifacts = createContextArtifacts({
-      repoId: "repo_1",
+    const types = expectedArtifactTypes({
       profile: {
         ...profile,
         name: `---Open    Maintainer---${"-".repeat(1024)}Agent---`,
       },
-      output: {
-        summary: "A repo.",
-        qualityRules: ["Use Bun."],
-        commands: ["test: bun test"],
-        notes: [],
-      },
-      modelProvider: "local",
-      model: "llama",
-      nextVersion: 1,
       targets: ["skills"],
     });
 
-    expect(artifacts[0]?.type).toBe(
+    expect(types[0]).toBe(
       ".agents/skills/open-maintainer-agent-start-task/SKILL.md",
     );
   });
@@ -501,12 +519,13 @@ ${JSON.stringify({
       repoId: "repo_1",
       profile,
       output: {
-        summary: "Deterministic fallback.",
-        qualityRules: ["Fallback rule."],
+        summary: "Model facts.",
+        qualityRules: ["Model rule."],
         commands: ["fallback"],
         notes: [],
       },
       modelArtifacts,
+      modelSkills,
       modelProvider: "local",
       model: "claude",
       nextVersion: 1,
@@ -530,6 +549,7 @@ ${JSON.stringify({
         commands: ["test: bun test"],
         notes: [],
       },
+      modelSkills,
       modelProvider: "local",
       model: "llama",
       nextVersion: 1,
@@ -616,7 +636,7 @@ ${JSON.stringify({
     expect(prompt.user).toContain('"maxSkills":8');
   });
 
-  it("derives deterministic fallback output from structured repo facts", () => {
+  it("derives structured output from model repo facts", () => {
     const output = structuredContextOutputFromRepoFacts(profile, repoFacts);
 
     expect(output.summary).toContain("acme/tool");

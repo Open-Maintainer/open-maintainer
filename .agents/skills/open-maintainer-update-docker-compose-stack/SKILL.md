@@ -2,40 +2,45 @@
 name: open-maintainer-update-docker-compose-stack
 description: Use when changing Docker Compose services, local self-hosted stack wiring, API/web/worker environment, or compose smoke behavior.
 ---
+
 # Update Docker Compose Stack
 
 ## Use when
 - Editing `docker-compose.yml`.
-- Changing API, worker, web, Postgres, Redis, ports, environment values, volumes, service dependencies, or compose smoke expectations.
-- Changing local self-hosted dashboard setup.
+- Changing local self-hosted stack wiring, service dependencies, ports, volumes, environment variables, API/web/worker connectivity, or compose smoke expectations.
+- Changing `.env.example` values used by the Compose stack.
 
 ## Do not use when
 - The change only affects unit-level code and no service wiring or environment behavior changes.
-- The task is production deployment; deployment behavior is Not detected in provided evidence.
+- The task concerns production deployment; deployment behavior is Not detected.
 
 ## Read first
-- `AGENTS.md` Docker Compose and high-risk rules.
+- `AGENTS.md`.
 - `docker-compose.yml`.
-- `README.md` Dashboard and GitHub App setup sections.
-- `CONTRIBUTING.md` quality gates and safety notes.
+- `.env.example`.
 - `.github/workflows/compose-smoke.yml`.
-- `tests/smoke/compose-smoke.ts` when available.
-- Service entrypoints affected by wiring: `apps/api/src/server.ts`, `apps/worker/src/worker.ts`, `apps/web/app/page.tsx`, `apps/web/app/*/route.ts`.
+- `tests/smoke/compose-smoke.ts` and `tests/smoke/local-health.ts`.
+- Related app entrypoints when changed: `apps/api`, `apps/web`, `apps/worker`.
+- `README.md`, `CONTRIBUTING.md`, and `docs/MVP_RELEASE_REVIEW.md` for setup and acceptance evidence.
 
 ## Workflow
-- Preserve documented services unless the task explicitly changes them: `postgres`, `redis`, `api`, `worker`, and `web`.
-- Keep API on port `4000` and web on port `3000` unless intentionally changing documented URLs.
-- Keep API/worker/web environment values aligned with service names: worker API base points to API service; web has browser and server API bases.
-- Keep `.env` setup aligned with README and CI compose workflow.
-- Do not add new services or deployment flows without explicit user instruction and evidence.
+- Preserve documented/local stack behavior unless the task explicitly changes it.
+- Keep `.env.example` aligned with Compose startup; CI copies `.env.example` to `.env` before `docker compose up --build -d`.
+- Keep API/web/worker environment variables aligned with `.env.example`: `API_PORT`, `WEB_PORT`, `API_BASE_URL`, `NEXT_PUBLIC_API_BASE_URL`, `DATABASE_URL`, `REDIS_URL`.
+- Do not add new services, ports, volumes, or deployment flows without explicit instruction and evidence.
 - Update smoke checks and docs when service wiring or environment expectations change.
+- Do not add secrets or credentials.
 
 ## Validation
-- Start stack: `docker compose up --build`.
-- Compose smoke after stack startup: `bun run tests/smoke/compose-smoke.ts` or `bun run smoke:compose`.
-- Local health after stack startup: `bun run tests/smoke/local-health.ts` or `bun run diagnostics`.
-- Related builds: `bun run --cwd apps/api build`, `bun run --cwd apps/worker build`, `bun run --cwd apps/web build` as applicable.
-- Full service gate when services are available: `bun lint && bun typecheck && bun test && bun run build && bun run smoke:mvp && docker compose up --build && bun run smoke:compose`.
+- Compose CI setup sequence: `cp .env.example .env`.
+- Start stack: `docker compose up --build -d`.
+- Compose smoke after stack startup: `bun run tests/smoke/compose-smoke.ts`.
+- Local health after stack startup: `bun run tests/smoke/local-health.ts`.
+- Stop stack cleanup as used by CI: `docker compose down --volumes --remove-orphans`.
+- Related API build: `cd apps/api && tsc -p tsconfig.json`.
+- Related web build: `cd apps/web && next build`.
+- Related worker build: `cd apps/worker && tsc -p tsconfig.json`.
+- Lint/type/test when source changes: `biome check .`, `tsc -b`, `vitest run`.
 
 ## Documentation
 - Update `README.md` for self-hosted stack setup, URLs, environment variables, or GitHub App setup changes.
@@ -44,12 +49,12 @@ description: Use when changing Docker Compose services, local self-hosted stack 
 
 ## Risk checks
 - Docker Compose service wiring and environment values are high risk.
-- Never add secrets or credentials to the repository.
-- Not detected: production environment configuration beyond local Docker Compose and documented GitHub App values.
-- CI stops stack with `docker compose down --volumes --remove-orphans`; local cleanup policy outside CI is Not detected.
+- Docker/service checks must not be claimed as passed unless run.
+- Secrets in `.env.example` are placeholders only; do not add real credentials.
+- Exact production deployment environment and full service definitions beyond local files: Not detected.
 
 ## Done when
-- Stack wiring matches docs and CI workflow.
-- Compose smoke and health checks ran, or skipped Docker checks include reasons.
+- Stack wiring, `.env.example`, docs, and CI compose workflow agree.
+- Compose smoke and health checks ran, or skipped Docker checks include concrete reasons.
 - Related app builds pass when service entrypoints changed.
-- Documentation matches any changed ports, env vars, services, or setup steps.
+- Changed ports, services, env vars, or setup steps are documented.

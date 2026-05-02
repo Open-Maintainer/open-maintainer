@@ -24,9 +24,9 @@ describe("GitHub Action MVP", () => {
     expect(action.inputs["report-path"].default).toBe(
       "$RUNNER_TEMP/open-maintainer-report.md",
     );
-    expect(action.inputs["generation-provider"].default).toBe("deterministic");
+    expect(action.inputs["generation-provider"].default).toBe("codex");
     expect(action.inputs["allow-model-content-transfer"].default).toBe("false");
-    expect(action.inputs["review-provider"].default).toBe("deterministic");
+    expect(action.inputs["review-provider"].default).toBe("codex");
     expect(action.inputs["allow-review-content-transfer"].default).toBe(
       "false",
     );
@@ -91,7 +91,7 @@ describe("GitHub Action MVP", () => {
     expect(summaryStep.run).toContain("### Missing Validation Evidence");
     expect(summaryStep.run).toContain("### Refresh Recommendation");
     expect(summaryStep.run).toContain(
-      "bun run cli generate . --deterministic --context codex --skills codex --refresh-generated",
+      "bun run cli generate . --model codex --context codex --skills codex --allow-write --refresh-generated",
     );
     expect(summaryStep.run).toContain("bun run cli doctor .");
 
@@ -114,10 +114,10 @@ describe("GitHub Action MVP", () => {
     expect(validateStep.run).toContain("audit|refresh|review");
     expect(validateStep.run).toContain("Unsupported mode");
     expect(validateStep.run).toContain(
-      "Model-backed refresh requires allow-model-content-transfer",
+      "Refresh requires allow-model-content-transfer",
     );
     expect(validateStep.run).toContain(
-      "Model-backed review requires allow-review-content-transfer",
+      "Review requires allow-review-content-transfer",
     );
     expect(validateStep.run).not.toContain(
       "Review inline comments are not implemented yet",
@@ -128,6 +128,7 @@ describe("GitHub Action MVP", () => {
     );
     expect(refreshStep.if).toBe("${{ inputs.mode == 'refresh' }}");
     expect(refreshStep.run).toContain("--refresh-generated");
+    expect(refreshStep.run).toContain("--model");
     expect(refreshStep.run).toContain("--allow-write");
 
     const prStep = steps.find(
@@ -165,6 +166,7 @@ describe("GitHub Action MVP", () => {
     expect(reviewStep.run).toContain("--pr-number");
     expect(reviewStep.run).toContain("--output-path");
     expect(reviewStep.run).toContain("--json");
+    expect(reviewStep.run).toContain("--review-provider");
     expect(reviewStep.run).toContain("$GITHUB_STEP_SUMMARY");
     expect(reviewStep.run).toContain("--allow-model-content-transfer");
     expect(reviewStep.run).not.toContain("gh pr comment");
