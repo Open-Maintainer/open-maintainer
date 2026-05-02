@@ -4,6 +4,7 @@ import type {
   ModelProviderConfig,
   Repo,
   RepoProfile,
+  ReviewResult,
   RunRecord,
 } from "@open-maintainer/shared";
 import { LocalRepoPicker } from "./LocalRepoPicker";
@@ -93,9 +94,14 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
   const runsResponse = repo
     ? await fetchJson<{ runs: RunWithContext[] }>(`/repos/${repo.id}/runs`)
     : null;
+  const reviewsResponse = repo
+    ? await fetchJson<{ reviews: ReviewResult[] }>(`/repos/${repo.id}/reviews`)
+    : null;
   const profile = profileResponse?.profile ?? null;
   const artifacts = artifactsResponse?.artifacts ?? [];
   const runs = runsResponse?.runs ?? [];
+  const reviews = reviewsResponse?.reviews ?? [];
+  const latestReview = reviews.at(-1) ?? null;
   const providers = providersResponse?.providers ?? [];
   const selectedProvider =
     providers.find((provider) => provider.id === requestedProviderId) ??
@@ -419,6 +425,57 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
         <section className="columns" style={{ marginTop: 16 }}>
           <div className="panel">
             <div className="panel-heading">
+              <h2>PR Review</h2>
+              <span className={latestReview ? "badge" : "badge warn"}>
+                {latestReview ? latestReview.mergeReadiness.status : "preview"}
+              </span>
+            </div>
+            {repo ? (
+              <form
+                action="/repo-actions"
+                className="provider-form"
+                method="post"
+              >
+                <input type="hidden" name="repoId" value={repo.id} />
+                <input type="hidden" name="actionType" value="createReview" />
+                {selectedProvider ? (
+                  <input
+                    type="hidden"
+                    name="providerId"
+                    value={selectedProvider.id}
+                  />
+                ) : null}
+                <label htmlFor="baseRef">Base ref</label>
+                <input
+                  id="baseRef"
+                  name="baseRef"
+                  placeholder={repo.defaultBranch}
+                  type="text"
+                />
+                <label htmlFor="headRef">Head ref</label>
+                <input
+                  id="headRef"
+                  name="headRef"
+                  placeholder="HEAD"
+                  type="text"
+                />
+                <label htmlFor="prNumber">PR number</label>
+                <input
+                  id="prNumber"
+                  inputMode="numeric"
+                  name="prNumber"
+                  placeholder="optional"
+                  type="text"
+                />
+                <button type="submit">Preview review</button>
+              </form>
+            ) : (
+              <p className="muted">Select a repository before reviewing.</p>
+            )}
+            {latestReview ? <ReviewPreview review={latestReview} /> : null}
+          </div>
+          <div className="panel">
+            <div className="panel-heading">
               <h2>Context PR</h2>
               <span className={prStatus.url ? "badge" : "badge warn"}>
                 {prStatus.label}
@@ -487,6 +544,87 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
         </section>
       </div>
     </main>
+  );
+}
+
+function ReviewPreview({ review }: { review: ReviewResult }) {
+  const findingsBySeverity = ["blocker", "major", "minor", "note"].map(
+    (severity) => ({
+      severity,
+      findings: review.findings.filter(
+        (finding) => finding.severity === severity,
+      ),
+    }),
+  );
+  return (
+    <div className="artifact-list">
+      <div className="artifact">
+        <div className="row compact">
+          <div>
+            <strong>Review #{review.prNumber ?? "local"}</strong>
+            <p className="muted">
+              {review.baseRef}...{review.headRef}
+            </p>
+          </div>
+          <span className="badge">
+            {review.modelProvider ?? "deterministic"}
+          </span>
+        </div>
+        <p>{review.summary}</p>
+        <h3>Changed surface</h3>
+        <ul className="plain-list">
+          {review.changedSurface.map((surface) => (
+            <li key={surface}>{surface}</li>
+          ))}
+        </ul>
+        <h3>Expected validation</h3>
+        <ul className="plain-list">
+          {review.expectedValidation.length ? (
+            review.expectedValidation.map((item) => (
+              <li key={item.command}>{item.command}</li>
+            ))
+          ) : (
+            <li>No expected validation inferred.</li>
+          )}
+        </ul>
+        <h3>Findings</h3>
+        {findingsBySeverity.map(({ severity, findings }) =>
+          findings.length ? (
+            <div key={severity}>
+              <strong>{severity}</strong>
+              <ul className="plain-list">
+                {findings.map((finding) => (
+                  <li key={finding.id}>
+                    {finding.title}
+                    {finding.path ? ` (${finding.path})` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null,
+        )}
+        <h3>Docs impact</h3>
+        <ul className="plain-list">
+          {review.docsImpact.length ? (
+            review.docsImpact.map((impact) => (
+              <li key={impact.path}>
+                {impact.path}: {impact.reason}
+              </li>
+            ))
+          ) : (
+            <li>No docs impact detected.</li>
+          )}
+        </ul>
+        <h3>Merge readiness</h3>
+        <p>{review.mergeReadiness.reason}</p>
+        <h3>Residual risk</h3>
+        <ul className="plain-list">
+          {review.residualRisk.map((risk) => (
+            <li key={risk}>{risk}</li>
+          ))}
+        </ul>
+      </div>
+    </div>
   );
 }
 

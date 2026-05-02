@@ -9,6 +9,7 @@
     { "path": "../../packages/shared" },
     { "path": "../../packages/db" },
     { "path": "../../packages/github" },
+    { "path": "../../packages/review" },
     { "path": "../../packages/analyzer" },
     { "path": "../../packages/ai" },
     { "path": "../../packages/context" }

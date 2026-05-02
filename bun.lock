@@ -47,6 +47,7 @@
         "@open-maintainer/context": "workspace:*",
         "@open-maintainer/db": "workspace:*",
         "@open-maintainer/github": "workspace:*",
+        "@open-maintainer/review": "workspace:*",
         "@open-maintainer/shared": "workspace:*",
       },
     },

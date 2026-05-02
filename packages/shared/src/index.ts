@@ -134,6 +134,7 @@ export const RunRecordSchema = z.object({
     "ai",
     "webhook",
     "context_pr",
+    "review",
     "worker",
   ]),
   status: RunStatusSchema,

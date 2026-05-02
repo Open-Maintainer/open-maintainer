@@ -5,6 +5,7 @@ import type {
   ModelProviderConfig,
   Repo,
   RepoProfile,
+  ReviewResult,
   RunRecord,
 } from "@open-maintainer/shared";
 import { newId, nowIso } from "@open-maintainer/shared";
@@ -24,6 +25,7 @@ export class MemoryStore {
   profiles = new Map<string, RepoProfile[]>();
   providers = new Map<string, ModelProviderConfig>();
   artifacts = new Map<string, GeneratedArtifact[]>();
+  reviews = new Map<string, ReviewResult>();
   runs = new Map<string, RunRecord>();
   contextPrs = new Map<string, ContextPr>();
   workerHeartbeatAt: string | null = null;
@@ -115,6 +117,12 @@ export class MemoryStore {
   listRuns(repoId: string): RunRecord[] {
     return [...this.runs.values()].filter(
       (run) => run.repoId === repoId || run.repoId === null,
+    );
+  }
+
+  listReviews(repoId: string): ReviewResult[] {
+    return [...this.reviews.values()].filter(
+      (review) => review.repoId === repoId,
     );
   }
 }

@@ -19,6 +19,37 @@ afterAll(async () => {
   await app.close();
 });
 
+async function createLocalReviewRepo(): Promise<string> {
+  const directory = await mkdtemp(path.join(tmpdir(), "api-review-test-"));
+  await execFileAsync("git", ["init", "-b", "main"], { cwd: directory });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+    cwd: directory,
+  });
+  await execFileAsync("git", ["config", "user.name", "Test User"], {
+    cwd: directory,
+  });
+  await mkdir(path.join(directory, "src"), { recursive: true });
+  await writeFile(
+    path.join(directory, "package.json"),
+    JSON.stringify({ scripts: { test: "bun test", build: "tsc -b" } }),
+  );
+  await writeFile(
+    path.join(directory, "src", "index.ts"),
+    "export const value = 1;\n",
+  );
+  await execFileAsync("git", ["add", "."], { cwd: directory });
+  await execFileAsync("git", ["commit", "-m", "initial"], { cwd: directory });
+  await writeFile(
+    path.join(directory, "src", "index.ts"),
+    "export const value = 2;\n",
+  );
+  await execFileAsync("git", ["add", "."], { cwd: directory });
+  await execFileAsync("git", ["commit", "-m", "change value"], {
+    cwd: directory,
+  });
+  return directory;
+}
+
 describe("MVP API", () => {
   it("reports service health and worker heartbeat", async () => {
     const beforeRuns = await app.inject({
@@ -166,6 +197,62 @@ describe("MVP API", () => {
     });
     expect(analysis.statusCode).toBe(200);
     expect(analysis.json().profile.frameworks).toContain("fastify");
+  });
+
+  it("creates dashboard PR review previews and guards posting", async () => {
+    const repoRoot = await createLocalReviewRepo();
+    const registered = await app.inject({
+      method: "POST",
+      url: "/repos/local",
+      payload: { repoRoot },
+    });
+    expect(registered.statusCode).toBe(200);
+    const repoId = registered.json().repo.id;
+    const analysis = await app.inject({
+      method: "POST",
+      url: `/repos/${repoId}/analyze`,
+    });
+    expect(analysis.statusCode).toBe(200);
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/repos/${repoId}/reviews`,
+      payload: { baseRef: "HEAD~1", headRef: "HEAD", prNumber: 48 },
+    });
+    expect(created.statusCode).toBe(200);
+    expect(created.json().run.type).toBe("review");
+    expect(created.json().run.status).toBe("succeeded");
+    expect(created.json().review.prNumber).toBe(48);
+    expect(created.json().review.changedFiles[0].path).toBe("src/index.ts");
+
+    const reviews = await app.inject({
+      method: "GET",
+      url: `/repos/${repoId}/reviews`,
+    });
+    expect(reviews.statusCode).toBe(200);
+    expect(reviews.json().reviews).toHaveLength(1);
+
+    const readback = await app.inject({
+      method: "GET",
+      url: `/reviews/${created.json().review.id}`,
+    });
+    expect(readback.statusCode).toBe(200);
+    expect(readback.json().review.id).toBe(created.json().review.id);
+
+    const posting = await app.inject({
+      method: "POST",
+      url: `/reviews/${created.json().review.id}/post-summary`,
+    });
+    expect(posting.statusCode).toBe(409);
+    expect(posting.json().error).toContain("GitHub credentials");
+
+    const runs = await app.inject({
+      method: "GET",
+      url: `/repos/${repoId}/runs`,
+    });
+    expect(
+      runs.json().runs.some((run: { type: string }) => run.type === "review"),
+    ).toBe(true);
   });
 
   it("generates dashboard context and opens local PRs through authenticated gh", async () => {

@@ -41,6 +41,10 @@ import {
 } from "@open-maintainer/github";
 import type { GitHubAppInstallationAuth } from "@open-maintainer/github";
 import {
+  assembleLocalReviewInput,
+  generateReview,
+} from "@open-maintainer/review";
+import {
   type ArtifactType,
   ArtifactTypeSchema,
   type GeneratedArtifact,
@@ -471,6 +475,136 @@ export function buildApp() {
   app.get("/repos/:repoId/artifacts", async (request) => {
     const { repoId } = z.object({ repoId: z.string() }).parse(request.params);
     return { artifacts: store.artifacts.get(repoId) ?? [] };
+  });
+
+  app.post("/repos/:repoId/reviews", async (request, reply) => {
+    const { repoId } = z.object({ repoId: z.string() }).parse(request.params);
+    const body = z
+      .object({
+        baseRef: z.string().min(1).optional(),
+        headRef: z.string().min(1).optional(),
+        prNumber: z.number().int().positive().optional(),
+        providerId: z.string().optional(),
+      })
+      .parse(request.body ?? {});
+    const repo = store.repos.get(repoId);
+    if (!repo) {
+      return reply.code(404).send({ error: "Unknown repo." });
+    }
+    const profile = store.latestProfile(repoId);
+    if (!profile) {
+      return reply.code(409).send({
+        error: "Run repository analysis before creating a PR review preview.",
+      });
+    }
+    const worktreeRoot = store.repoWorktrees.get(repoId);
+    if (!worktreeRoot) {
+      return reply.code(409).send({
+        error:
+          "Review preview requires a registered local repository worktree in this release.",
+      });
+    }
+    const provider = body.providerId
+      ? (store.providers.get(body.providerId) ?? null)
+      : null;
+    if (body.providerId && !provider) {
+      return reply.code(404).send({ error: "Unknown model provider." });
+    }
+    try {
+      if (provider) {
+        assertProviderConsent(provider);
+      }
+    } catch (error) {
+      return reply.code(403).send({
+        error:
+          error instanceof Error ? error.message : "Review generation blocked.",
+      });
+    }
+    const baseRef = body.baseRef ?? repo.defaultBranch;
+    const headRef = body.headRef ?? "HEAD";
+    const run = store.recordRun({
+      repoId,
+      type: "review",
+      status: "running",
+      inputSummary: `Review ${repo.fullName} ${baseRef}...${headRef}.`,
+      safeMessage: null,
+      artifactVersions: [],
+      repoProfileVersion: profile.version,
+      provider: provider?.displayName ?? null,
+      model: provider?.model ?? null,
+      externalId: null,
+    });
+    try {
+      const reviewInput = await assembleLocalReviewInput({
+        repoRoot: worktreeRoot,
+        repoId,
+        baseRef,
+        headRef,
+      });
+      const review = await generateReview({
+        profile,
+        input: {
+          ...reviewInput,
+          owner: repo.owner,
+          repo: repo.name,
+          prNumber: body.prNumber ?? null,
+        },
+        rules: profile.reviewRuleCandidates,
+        ...(provider
+          ? {
+              providerConfig: provider,
+              provider: buildProvider(provider, { cwd: worktreeRoot }),
+            }
+          : {}),
+      });
+      store.reviews.set(review.id, review);
+      store.updateRun(run.id, {
+        status: "succeeded",
+        safeMessage: `Review preview generated for ${baseRef}...${headRef}.`,
+        externalId: review.id,
+      });
+      return { run: store.runs.get(run.id), review };
+    } catch (error) {
+      const message =
+        error instanceof Error
+          ? error.message
+          : "Unable to generate review preview.";
+      store.updateRun(run.id, { status: "failed", safeMessage: message });
+      return reply.code(422).send({
+        error: message,
+        run: store.runs.get(run.id),
+      });
+    }
+  });
+
+  app.get("/repos/:repoId/reviews", async (request) => {
+    const { repoId } = z.object({ repoId: z.string() }).parse(request.params);
+    return { reviews: store.listReviews(repoId) };
+  });
+
+  app.get("/reviews/:reviewId", async (request, reply) => {
+    const { reviewId } = z
+      .object({ reviewId: z.string() })
+      .parse(request.params);
+    const review = store.reviews.get(reviewId);
+    if (!review) {
+      return reply.code(404).send({ error: "Unknown review." });
+    }
+    return { review };
+  });
+
+  app.post("/reviews/:reviewId/post-summary", async (request, reply) => {
+    const { reviewId } = z
+      .object({ reviewId: z.string() })
+      .parse(request.params);
+    const review = store.reviews.get(reviewId);
+    if (!review) {
+      return reply.code(404).send({ error: "Unknown review." });
+    }
+    return reply.code(409).send({
+      error:
+        "Posting review summaries requires GitHub credentials and pull request permissions.",
+    });
   });
 
   app.register(async (limitedRoutes) => {
