@@ -18,6 +18,7 @@ Agent Readiness: 100/100
 - Evidence: packages/context/package.json (package manifest)
 - Evidence: packages/db/package.json (package manifest)
 - Evidence: packages/github/package.json (package manifest)
+- Evidence: packages/review/package.json (package manifest)
 - Evidence: packages/shared/package.json (package manifest)
 - Evidence: tests/fixtures/high-readiness-ts/package.json (package manifest)
 - Evidence: tests/fixtures/low-context-ts/package.json (package manifest)
@@ -55,6 +56,7 @@ Agent Readiness: 100/100
 - Evidence: packages/context/package.json (package manifest)
 - Evidence: packages/db/package.json (package manifest)
 - Evidence: packages/github/package.json (package manifest)
+- Evidence: packages/review/package.json (package manifest)
 - Evidence: packages/shared/package.json (package manifest)
 - Evidence: tests/fixtures/high-readiness-ts/package.json (package manifest)
 - Evidence: tests/fixtures/low-context-ts/package.json (package manifest)
@@ -79,6 +81,7 @@ Agent Readiness: 100/100
 - Evidence: packages/context/tsconfig.json (detected repository context)
 - Evidence: packages/db/tsconfig.json (detected repository context)
 - Evidence: packages/github/tsconfig.json (detected repository context)
+- Evidence: packages/review/tsconfig.json (detected repository context)
 - Evidence: packages/shared/tsconfig.json (detected repository context)
 - Evidence: tests/fixtures/high-readiness-ts/tsconfig.json (detected repository context)
 - Evidence: tests/fixtures/low-context-ts/tsconfig.json (detected repository context)
@@ -95,6 +98,7 @@ Agent Readiness: 100/100
 - Evidence: packages/config/tests/config.test.ts (detected repository context)
 - Evidence: packages/context/tests/render.test.ts (detected repository context)
 - Evidence: packages/github/tests/webhook.test.ts (detected repository context)
+- Evidence: packages/review/tests/render.test.ts (detected repository context)
 - Evidence: packages/shared/tests/schemas.test.ts (detected repository context)
 - Evidence: tests/action-mvp.test.ts (detected repository context)
 - Evidence: tests/cli-audit.test.ts (detected repository context)
@@ -146,6 +150,7 @@ Agent Readiness: 100/100
 - Evidence: packages/context/package.json (package manifest)
 - Evidence: packages/db/package.json (package manifest)
 - Evidence: packages/github/package.json (package manifest)
+- Evidence: packages/review/package.json (package manifest)
 - Evidence: packages/shared/package.json (package manifest)
 - Evidence: tests/fixtures/high-readiness-ts/package.json (package manifest)
 - Evidence: tests/fixtures/low-context-ts/package.json (package manifest)
@@ -166,6 +171,7 @@ Agent Readiness: 100/100
 - Evidence: packages/config/tests/config.test.ts (detected repository context)
 - Evidence: packages/context/tests/render.test.ts (detected repository context)
 - Evidence: packages/github/tests/webhook.test.ts (detected repository context)
+- Evidence: packages/review/tests/render.test.ts (detected repository context)
 - Evidence: packages/shared/tests/schemas.test.ts (detected repository context)
 - Evidence: tests/action-mvp.test.ts (detected repository context)
 - Evidence: tests/cli-audit.test.ts (detected repository context)
@@ -217,6 +223,7 @@ Agent Readiness: 100/100
 - Evidence: packages/context/package.json (package manifest)
 - Evidence: packages/db/package.json (package manifest)
 - Evidence: packages/github/package.json (package manifest)
+- Evidence: packages/review/package.json (package manifest)
 - Evidence: packages/shared/package.json (package manifest)
 - Evidence: tests/fixtures/high-readiness-ts/package.json (package manifest)
 - Evidence: tests/fixtures/low-context-ts/package.json (package manifest)
@@ -308,7 +315,7 @@ Agent Readiness: 100/100
 - format: biome format --write . (package.json)
 - typecheck: tsc -b (package.json)
 - test: vitest run (package.json)
-- build: bun run --cwd packages/shared build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/ai build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build (package.json)
+- build: bun run --cwd packages/shared build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/ai build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build (package.json)
 - diagnostics: bun run tests/smoke/local-health.ts (package.json)
 - smoke:compose: bun run tests/smoke/compose-smoke.ts (package.json)
 - smoke:mvp: bun run tests/smoke/mvp-demo.ts (package.json)
@@ -318,6 +325,7 @@ Agent Readiness: 100/100
 - build: cd packages/context && tsc -p tsconfig.json (packages/context/package.json)
 - build: cd packages/db && tsc -p tsconfig.json (packages/db/package.json)
 - build: cd packages/github && tsc -p tsconfig.json (packages/github/package.json)
+- build: cd packages/review && tsc -p tsconfig.json (packages/review/package.json)
 - build: cd packages/shared && tsc -p tsconfig.json (packages/shared/package.json)
 - test: cd tests/fixtures/high-readiness-ts && vitest run (tests/fixtures/high-readiness-ts/package.json)
 - lint: cd tests/fixtures/high-readiness-ts && biome check . (tests/fixtures/high-readiness-ts/package.json)
@@ -344,6 +352,7 @@ Agent Readiness: 100/100
 - packages/context
 - packages/db
 - packages/github
+- packages/review
 - packages/shared
 - tests
 

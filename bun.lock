@@ -88,6 +88,12 @@
     "packages/github": {
       "name": "@open-maintainer/github",
     },
+    "packages/review": {
+      "name": "@open-maintainer/review",
+      "dependencies": {
+        "@open-maintainer/shared": "workspace:*",
+      },
+    },
     "packages/shared": {
       "name": "@open-maintainer/shared",
     },
@@ -322,6 +328,8 @@
     "@open-maintainer/db": ["@open-maintainer/db@workspace:packages/db"],
 
     "@open-maintainer/github": ["@open-maintainer/github@workspace:packages/github"],
+
+    "@open-maintainer/review": ["@open-maintainer/review@workspace:packages/review"],
 
     "@open-maintainer/shared": ["@open-maintainer/shared@workspace:packages/shared"],
 

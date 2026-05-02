@@ -206,6 +206,121 @@ export const ContextPrSchema = z.object({
 });
 export type ContextPr = z.infer<typeof ContextPrSchema>;
 
+export const ReviewSeveritySchema = z.enum([
+  "blocker",
+  "major",
+  "minor",
+  "note",
+]);
+export type ReviewSeverity = z.infer<typeof ReviewSeveritySchema>;
+
+export const ReviewEvidenceSourceSchema = z.enum([
+  "repo_profile",
+  "open_maintainer_config",
+  "generated_context",
+  "repo_skill",
+  "changed_file",
+  "ci_status",
+  "issue_acceptance_criteria",
+  "user_input",
+]);
+export type ReviewEvidenceSource = z.infer<typeof ReviewEvidenceSourceSchema>;
+
+export const ReviewEvidenceCitationSchema = z.object({
+  source: ReviewEvidenceSourceSchema,
+  path: z.string().nullable(),
+  excerpt: z.string().nullable(),
+  reason: z.string().min(1),
+});
+export type ReviewEvidenceCitation = z.infer<
+  typeof ReviewEvidenceCitationSchema
+>;
+
+export const ReviewChangedFileSchema = z.object({
+  path: z.string().min(1),
+  status: z.enum(["added", "modified", "removed", "renamed", "copied"]),
+  additions: z.number().int().min(0),
+  deletions: z.number().int().min(0),
+  patch: z.string().nullable(),
+  previousPath: z.string().nullable(),
+});
+export type ReviewChangedFile = z.infer<typeof ReviewChangedFileSchema>;
+
+export const ReviewValidationExpectationSchema = z.object({
+  command: z.string().min(1),
+  reason: z.string().min(1),
+  evidence: z.array(ReviewEvidenceCitationSchema).min(1),
+});
+export type ReviewValidationExpectation = z.infer<
+  typeof ReviewValidationExpectationSchema
+>;
+
+export const ReviewDocsImpactSchema = z.object({
+  path: z.string().min(1),
+  reason: z.string().min(1),
+  required: z.boolean(),
+  evidence: z.array(ReviewEvidenceCitationSchema).min(1),
+});
+export type ReviewDocsImpact = z.infer<typeof ReviewDocsImpactSchema>;
+
+export const ReviewFindingSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().min(1),
+  severity: ReviewSeveritySchema,
+  body: z.string().min(1),
+  path: z.string().nullable(),
+  line: z.number().int().positive().nullable(),
+  citations: z.array(ReviewEvidenceCitationSchema).min(1),
+});
+export type ReviewFinding = z.infer<typeof ReviewFindingSchema>;
+
+export const ReviewMergeReadinessSchema = z.object({
+  status: z.enum(["ready", "needs_attention", "blocked", "unknown"]),
+  reason: z.string().min(1),
+  evidence: z.array(ReviewEvidenceCitationSchema).default([]),
+});
+export type ReviewMergeReadiness = z.infer<typeof ReviewMergeReadinessSchema>;
+
+export const ReviewFeedbackSchema = z.object({
+  findingId: z.string().min(1),
+  verdict: z.enum([
+    "false_positive",
+    "accepted",
+    "needs_more_context",
+    "unclear",
+  ]),
+  reason: z.string().nullable(),
+  actor: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type ReviewFeedback = z.infer<typeof ReviewFeedbackSchema>;
+
+export const ReviewResultSchema = z.object({
+  id: z.string(),
+  repoId: z.string(),
+  prNumber: z.number().int().positive().nullable(),
+  baseRef: z.string().min(1),
+  headRef: z.string().min(1),
+  baseSha: z.string().nullable(),
+  headSha: z.string().nullable(),
+  summary: z.string().min(1),
+  walkthrough: z.array(z.string().min(1)),
+  changedSurface: z.array(z.string().min(1)),
+  riskAnalysis: z.array(z.string().min(1)),
+  expectedValidation: z.array(ReviewValidationExpectationSchema),
+  validationEvidence: z.array(z.string().min(1)),
+  docsImpact: z.array(ReviewDocsImpactSchema),
+  findings: z.array(ReviewFindingSchema),
+  mergeReadiness: ReviewMergeReadinessSchema,
+  residualRisk: z.array(z.string().min(1)),
+  changedFiles: z.array(ReviewChangedFileSchema),
+  feedback: z.array(ReviewFeedbackSchema).default([]),
+  modelProvider: z.string().nullable(),
+  model: z.string().nullable(),
+  createdAt: z.string(),
+});
+export type ReviewResult = z.infer<typeof ReviewResultSchema>;
+
 export const HealthSchema = z.object({
   status: z.enum(["ok", "degraded"]),
   api: z.literal("ok"),

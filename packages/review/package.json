@@ -1,0 +1,15 @@
+{
+  "name": "@open-maintainer/review",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@open-maintainer/shared": "workspace:*"
+  }
+}

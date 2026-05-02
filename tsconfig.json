@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "./packages/shared" },
+    { "path": "./packages/review" },
     { "path": "./packages/db" },
     { "path": "./packages/config" },
     { "path": "./packages/github" },

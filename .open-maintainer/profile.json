@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_f6f0a398-7ef5-4f93-8ddc-a7fa8b8b8c59",
+  "id": "repo_profile_855eb520-4e41-4d5e-94ec-ebfa79324159",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -74,7 +74,7 @@
     },
     {
       "name": "build",
-      "command": "bun run --cwd packages/shared build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/ai build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build",
+      "command": "bun run --cwd packages/shared build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/ai build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build",
       "source": "package.json"
     },
     {
@@ -121,6 +121,11 @@
       "name": "build",
       "command": "cd packages/github && tsc -p tsconfig.json",
       "source": "packages/github/package.json"
+    },
+    {
+      "name": "build",
+      "command": "cd packages/review && tsc -p tsconfig.json",
+      "source": "packages/review/package.json"
     },
     {
       "name": "build",
@@ -212,6 +217,7 @@
     "packages/context",
     "packages/db",
     "packages/github",
+    "packages/review",
     "packages/shared",
     "tests"
   ],
@@ -309,6 +315,7 @@
     "packages/config/tests/config.test.ts",
     "packages/context/tests/render.test.ts",
     "packages/github/tests/webhook.test.ts",
+    "packages/review/tests/render.test.ts",
     "packages/shared/tests/schemas.test.ts",
     "tests/action-mvp.test.ts",
     "tests/cli-audit.test.ts",
@@ -364,13 +371,14 @@
     "Run `biome check .` before finishing changes that affect lint.",
     "Run `tsc -b` before finishing changes that affect typecheck.",
     "Run `vitest run` before finishing changes that affect test.",
-    "Run `bun run --cwd packages/shared build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/ai build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build` before finishing changes that affect build.",
+    "Run `bun run --cwd packages/shared build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/ai build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build` before finishing changes that affect build.",
     "Run `cd packages/ai && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd packages/analyzer && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd packages/config && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd packages/context && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd packages/db && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd packages/github && tsc -p tsconfig.json` before finishing changes that affect build.",
+    "Run `cd packages/review && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd packages/shared && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd tests/fixtures/high-readiness-ts && vitest run` before finishing changes that affect test.",
     "Run `cd tests/fixtures/high-readiness-ts && biome check .` before finishing changes that affect lint.",
@@ -426,6 +434,10 @@
     },
     {
       "path": "packages/github/package.json",
+      "reason": "package manifest"
+    },
+    {
+      "path": "packages/review/package.json",
       "reason": "package manifest"
     },
     {
@@ -613,6 +625,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "packages/review/tsconfig.json",
+      "reason": "detected repository context"
+    },
+    {
       "path": "packages/shared/tsconfig.json",
       "reason": "detected repository context"
     },
@@ -686,6 +702,10 @@
     },
     {
       "path": "packages/github/tests/webhook.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "packages/review/tests/render.test.ts",
       "reason": "detected repository context"
     },
     {
@@ -853,6 +873,7 @@
     "packages/context/tsconfig.json",
     "packages/db/tsconfig.json",
     "packages/github/tsconfig.json",
+    "packages/review/tsconfig.json",
     "packages/shared/tsconfig.json",
     "tests/fixtures/high-readiness-ts/tsconfig.json",
     "tests/fixtures/low-context-ts/tsconfig.json",
@@ -863,15 +884,15 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "417e337efba93a03"
+      "hash": "e08878e63f65ca68"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "af2d6dc009e20fcc"
+      "hash": "278bc2c695dc20b2"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "ea09913d3dd73427"
+      "hash": "0c1aa2c7885668b8"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
@@ -931,19 +952,19 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "7d2788a057d334a7"
+      "hash": "f191f57c4f7f6441"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "68280e207b487f14"
+      "hash": "ec83004dba0944c4"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "9b90b476ce793a7d"
+      "hash": "7a6f2aa8cd3dff2e"
     },
     {
       "path": "AGENTS.md",
-      "hash": "8cc889d931681fe2"
+      "hash": "1fb8aff499f882e7"
     },
     {
       "path": "apps/api/package.json",
@@ -991,7 +1012,7 @@
     },
     {
       "path": "bun.lock",
-      "hash": "86886c1770ac3b5e"
+      "hash": "a56066758bbf3c11"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -1023,7 +1044,7 @@
     },
     {
       "path": "package.json",
-      "hash": "77c001ef46061cbf"
+      "hash": "b26165022b711d5a"
     },
     {
       "path": "packages/ai/package.json",
@@ -1091,6 +1112,18 @@
     },
     {
       "path": "packages/github/tsconfig.json",
+      "hash": "c7b76c9a19c1c830"
+    },
+    {
+      "path": "packages/review/package.json",
+      "hash": "876ec84f5c6aaa31"
+    },
+    {
+      "path": "packages/review/tests/render.test.ts",
+      "hash": "cd83648f76295b8d"
+    },
+    {
+      "path": "packages/review/tsconfig.json",
       "hash": "c7b76c9a19c1c830"
     },
     {
@@ -1291,32 +1324,32 @@
     },
     {
       "path": "tsconfig.json",
-      "hash": "c58604b8106529e0"
+      "hash": "6b20deced71879d8"
     }
   ],
   "contextArtifactHashes": [
     {
       "path": "AGENTS.md",
-      "hash": "3773d8e73df30f1d"
+      "hash": "d4f80501c37e02cf"
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "b174a421b2eb1a3f"
+      "hash": "476981a7e6d8d686"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "e471285f802312ed"
+      "hash": "6f153664ad183cf7"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "2b22671e1ac17057"
+      "hash": "7ca4d57ef61e06d9"
     },
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "9dd4245466b96159"
+      "hash": "d1b3238443a671ea"
     }
   ],
-  "createdAt": "2026-05-02T01:59:10.943Z",
+  "createdAt": "2026-05-02T02:23:38.515Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1368,6 +1401,10 @@
           },
           {
             "path": "packages/github/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "packages/review/package.json",
             "reason": "package manifest"
           },
           {
@@ -1511,6 +1548,10 @@
             "reason": "package manifest"
           },
           {
+            "path": "packages/review/package.json",
+            "reason": "package manifest"
+          },
+          {
             "path": "packages/shared/package.json",
             "reason": "package manifest"
           },
@@ -1607,6 +1648,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "packages/review/tsconfig.json",
+            "reason": "detected repository context"
+          },
+          {
             "path": "packages/shared/tsconfig.json",
             "reason": "detected repository context"
           },
@@ -1668,6 +1713,10 @@
           },
           {
             "path": "packages/github/tests/webhook.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/review/tests/render.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -1867,6 +1916,10 @@
             "reason": "package manifest"
           },
           {
+            "path": "packages/review/package.json",
+            "reason": "package manifest"
+          },
+          {
             "path": "packages/shared/package.json",
             "reason": "package manifest"
           },
@@ -1944,6 +1997,10 @@
           },
           {
             "path": "packages/github/tests/webhook.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/review/tests/render.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2140,6 +2197,10 @@
           },
           {
             "path": "packages/github/package.json",
+            "reason": "package manifest"
+          },
+          {
+            "path": "packages/review/package.json",
             "reason": "package manifest"
           },
           {
@@ -2422,7 +2483,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T01:59:10.943Z"
+    "generatedAt": "2026-05-02T02:23:38.516Z"
   },
-  "openMaintainerProfileHash": "3c5f5b65855e222c"
+  "openMaintainerProfileHash": "5cbc646e05cf6df0"
 }
