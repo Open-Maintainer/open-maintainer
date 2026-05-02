@@ -190,6 +190,8 @@ describe("CLI review", () => {
     expect(result.stdout).toContain("Review: .open-maintainer/review.md");
     const markdown = await readFile(path.join(fixture, outputPath), "utf8");
     expect(markdown).toContain("## OpenMaintainer Review #44");
+    expect(markdown).toContain("### Contribution Triage");
+    expect(markdown).toContain("Category: **Ready For Review**");
     expect(markdown).toContain("### Required Validation For This PR");
     expect(markdown).toContain("src/index.ts");
   });
@@ -220,6 +222,7 @@ describe("CLI review", () => {
     expect(review.changedFiles.map((file) => file.path)).toEqual([
       "src/index.ts",
     ]);
+    expect(review.contributionTriage.category).toBe("ready_for_review");
     expect(review.modelProvider).toBe("Codex CLI");
   });
 

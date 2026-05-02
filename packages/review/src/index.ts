@@ -662,6 +662,10 @@ export function renderReviewMarkdown(input: ReviewResult): string {
     "",
     renderWalkthroughTable(review),
     "",
+    "### Contribution Triage",
+    "",
+    renderContributionTriage(review),
+    "",
     "### Findings",
     "",
     renderFindings(review.findings),
@@ -745,6 +749,35 @@ function renderDocsImpact(items: ReviewResult["docsImpact"]): string {
       ].join("\n");
     })
     .join("\n");
+}
+
+function renderContributionTriage(review: ReviewResult): string {
+  const triage = review.contributionTriage;
+  if (triage.status === "not_evaluated") {
+    return [
+      "Status: **Not evaluated**",
+      "",
+      `Maintainer action: ${triage.recommendation}`,
+    ].join("\n");
+  }
+  return [
+    `Category: **${formatSnakeCase(triage.category ?? "not_evaluated")}**`,
+    "",
+    `Maintainer action: ${triage.recommendation}`,
+    "",
+    "Missing information:",
+    renderListOrFallback(
+      triage.missingInformation,
+      "No missing contribution information recorded.",
+    ),
+    "",
+    "Required author actions:",
+    renderListOrFallback(
+      triage.requiredActions,
+      "No author action required by contribution triage.",
+    ),
+    renderCitationBlock(triage.evidence),
+  ].join("\n");
 }
 
 function parseStructuredSummary(summary: string): {
@@ -1002,6 +1035,10 @@ function formatSeverity(severity: ReviewSeverity): string {
 }
 
 function formatReadiness(status: ReviewResult["mergeReadiness"]["status"]) {
+  return formatSnakeCase(status);
+}
+
+function formatSnakeCase(status: string) {
   return status
     .split("_")
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)

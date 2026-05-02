@@ -109,6 +109,25 @@ const review: ReviewResult = {
   createdAt: "2026-05-02T00:00:00.000Z",
 };
 
+const reviewedWithContributionTriage: ReviewResult = {
+  ...review,
+  contributionTriage: {
+    status: "evaluated",
+    category: "needs_author_input",
+    recommendation: "Ask the author to add validation evidence.",
+    evidence: [
+      {
+        source: "user_input",
+        path: null,
+        excerpt: "No validation listed.",
+        reason: "PR body lacks validation evidence.",
+      },
+    ],
+    missingInformation: ["Validation command output"],
+    requiredActions: ["Add validation evidence to the PR description."],
+  },
+};
+
 describe("review schemas", () => {
   it("accepts a complete rule-grounded review result", () => {
     expect(parseReviewResult(review).findings).toHaveLength(4);
@@ -139,6 +158,8 @@ describe("review renderers", () => {
     expect(rendered).toContain("## OpenMaintainer Review #12");
     expect(rendered).toContain("### Walkthrough");
     expect(rendered).toContain("| Area | What changed | Review focus |");
+    expect(rendered).toContain("### Contribution Triage");
+    expect(rendered).toContain("Status: **Not evaluated**");
     expect(rendered).toContain("### Required Validation For This PR");
     expect(rendered).toContain("### Merge Readiness");
     expect(rendered).toContain("#### Blocker: Missing consent guard");
@@ -147,11 +168,28 @@ describe("review renderers", () => {
     expect(rendered).toContain("open_maintainer_config .open-maintainer.yml");
   });
 
+  it("renders evaluated contribution triage in markdown", () => {
+    const rendered = renderReviewMarkdown(reviewedWithContributionTriage);
+
+    expect(rendered).toContain("### Contribution Triage");
+    expect(rendered).toContain("Category: **Needs Author Input**");
+    expect(rendered).toContain(
+      "Maintainer action: Ask the author to add validation evidence.",
+    );
+    expect(rendered).toContain("- Validation command output");
+    expect(rendered).toContain(
+      "- Add validation evidence to the PR description.",
+    );
+    expect(rendered).toContain("user_input");
+  });
+
   it("renders a marked summary comment without GitHub APIs", () => {
-    const rendered = renderReviewSummaryComment(review);
+    const rendered = renderReviewSummaryComment(reviewedWithContributionTriage);
 
     expect(rendered).toContain("<!-- open-maintainer-review-summary -->");
     expect(rendered).toContain("This PR changes the CLI review flow.");
+    expect(rendered).toContain("### Contribution Triage");
+    expect(rendered).toContain("Category: **Needs Author Input**");
     expect(rendered).toContain("### Merge Readiness");
     expect(rendered).toContain("A blocker finding is present.");
   });
