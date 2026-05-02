@@ -72,9 +72,11 @@ describe("CLI help", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("open-maintainer review <repo>");
     expect(result.stdout).toContain("--base-ref <ref>");
+    expect(result.stdout).toContain("--pr <number>");
     expect(result.stdout).toContain("--json");
+    expect(result.stdout).toContain("--dry-run");
     expect(result.stdout).toContain("--allow-model-content-transfer");
-    expect(result.stdout).toContain("never posts to GitHub");
+    expect(result.stdout).toContain("Local ref review is non-mutating");
   });
 
   it("rejects missing and invalid option values", async () => {

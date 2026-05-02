@@ -31,6 +31,22 @@ const repeated = "Use repository evidence, run the detected validation command, 
 let output;
 
 if (schema.required.includes("findings")) {
+  const findings = process.env.OPEN_MAINTAINER_FAKE_CODEX_FINDING === "1"
+    ? [{
+        severity: "major",
+        category: "correctness",
+        title: "Return value change needs a fix",
+        file: "src/index.ts",
+        line: 2,
+        evidence: [{
+          id: "patch:1",
+          kind: "patch",
+          summary: "The changed function now returns a different value."
+        }],
+        impact: "Callers can observe the changed return value.",
+        recommendation: "Add or adjust tests and confirm the changed value is intended."
+      }]
+    : [];
   output = {
     summary: {
       overview: "Model-backed review summary for " + repoName + ".",
@@ -39,7 +55,7 @@ if (schema.required.includes("findings")) {
       validationSummary: "Fake provider observed no failing checks.",
       docsSummary: "Fake provider observed no required docs changes."
     },
-    findings: [],
+    findings,
     mergeReadiness: {
       status: "ready",
       reason: "Fake provider found no cited findings.",

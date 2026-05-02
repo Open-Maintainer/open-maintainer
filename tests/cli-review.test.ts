@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -62,6 +62,102 @@ async function createReviewRepo(): Promise<string> {
     cwd: directory,
   });
   return directory;
+}
+
+async function attachPullRequestRemote(
+  directory: string,
+  prNumber: number,
+): Promise<{ baseSha: string; headSha: string }> {
+  const remote = await mkdtemp(path.join(tmpdir(), "om-cli-review-remote-"));
+  await execFileAsync("git", ["init", "--bare"], { cwd: remote });
+  await execFileAsync("git", ["remote", "add", "origin", remote], {
+    cwd: directory,
+  });
+  await execFileAsync("git", ["push", "origin", "main"], { cwd: directory });
+  const { stdout: baseSha } = await execFileAsync(
+    "git",
+    ["rev-parse", "HEAD~1"],
+    { cwd: directory },
+  );
+  const { stdout: headSha } = await execFileAsync(
+    "git",
+    ["rev-parse", "HEAD"],
+    { cwd: directory },
+  );
+  await execFileAsync(
+    "git",
+    ["update-ref", `refs/pull/${prNumber}/head`, headSha.trim()],
+    { cwd: remote },
+  );
+  return { baseSha: baseSha.trim(), headSha: headSha.trim() };
+}
+
+async function createFakeGhCli(input: {
+  prNumber: number;
+  baseSha: string;
+  headSha: string;
+}): Promise<{ env: Record<string, string>; callsPath: string }> {
+  const directory = await mkdtemp(path.join(tmpdir(), "om-fake-gh-"));
+  const command = path.join(directory, "gh");
+  const callsPath = path.join(directory, "calls.jsonl");
+  await writeFile(
+    command,
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const args = process.argv.slice(2);
+const callsPath = process.env.OPEN_MAINTAINER_FAKE_GH_CALLS;
+function write(value) {
+  process.stdout.write(JSON.stringify(value));
+}
+function record(kind, endpoint, inputPath) {
+  const input = inputPath ? JSON.parse(fs.readFileSync(inputPath, "utf8")) : null;
+  fs.appendFileSync(callsPath, JSON.stringify({ kind, endpoint, input }) + "\\n");
+}
+if (args[0] === "repo" && args[1] === "view") {
+  write({ owner: { login: "Open-Maintainer" }, name: "cli-review-fixture" });
+  process.exit(0);
+}
+if (args[0] === "pr" && args[1] === "view") {
+  write({
+    number: ${input.prNumber},
+    title: "Review fixture PR",
+    body: "Acceptance criteria: keep the value intentional.",
+    url: "https://github.com/Open-Maintainer/cli-review-fixture/pull/${input.prNumber}",
+    author: { login: "maintainer" },
+    baseRefName: "main",
+    headRefName: "feature",
+    baseRefOid: "${input.baseSha}",
+    headRefOid: "${input.headSha}",
+    comments: [],
+    statusCheckRollup: [{ name: "Tests", status: "COMPLETED", conclusion: "SUCCESS", detailsUrl: "https://example.test/check" }]
+  });
+  process.exit(0);
+}
+if (args[0] === "api") {
+  const endpoint = args[1];
+  const inputIndex = args.indexOf("--input");
+  const methodIndex = args.indexOf("--method");
+  const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+  if (method === "GET") {
+    write([]);
+    process.exit(0);
+  }
+  record(method, endpoint, inputIndex >= 0 ? args[inputIndex + 1] : null);
+  write({ ok: true });
+  process.exit(0);
+}
+console.error("unexpected gh args: " + args.join(" "));
+process.exit(1);
+`,
+  );
+  await chmod(command, 0o755);
+  return {
+    callsPath,
+    env: {
+      OPEN_MAINTAINER_FAKE_GH_CALLS: callsPath,
+      PATH: `${directory}:${process.env.PATH ?? ""}`,
+    },
+  };
 }
 
 describe("CLI review", () => {
@@ -166,7 +262,62 @@ describe("CLI review", () => {
     );
   });
 
-  it("rejects posting placeholders without writing to GitHub", async () => {
+  it("fetches a pull request with gh and posts summary plus inline review comments", async () => {
+    const fixture = await createReviewRepo();
+    const prNumber = 12;
+    const refs = await attachPullRequestRemote(fixture, prNumber);
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli({ prNumber, ...refs });
+
+    const result = await runCli(
+      [
+        "review",
+        fixture,
+        "--pr",
+        String(prNumber),
+        "--review-provider",
+        "codex",
+        "--allow-model-content-transfer",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_FINDING: "1",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Review generated for pull request #12.");
+    expect(result.stdout).toContain(
+      "PR comments posted: summary comment, 1 inline comment.",
+    );
+    expect(result.stdout).not.toContain("## OpenMaintainer Review #12");
+    expect(result.stdout).not.toContain("### Findings");
+
+    const calls = (await readFile(fakeGh.callsPath, "utf8"))
+      .trim()
+      .split(/\r?\n/)
+      .map((line) => JSON.parse(line) as { endpoint: string; input: unknown });
+    expect(calls).toHaveLength(2);
+    expect(calls[0].endpoint).toBe(
+      "repos/Open-Maintainer/cli-review-fixture/issues/12/comments",
+    );
+    expect(JSON.stringify(calls[0].input)).toContain(
+      "open-maintainer-review-summary",
+    );
+    expect(calls[1].endpoint).toBe(
+      "repos/Open-Maintainer/cli-review-fixture/pulls/12/reviews",
+    );
+    expect(JSON.stringify(calls[1].input)).toContain(
+      "open-maintainer-review-inline",
+    );
+    expect(JSON.stringify(calls[1].input)).toContain(
+      "Add or adjust tests and confirm the changed value is intended.",
+    );
+  });
+
+  it("requires a pull request target for posting flags", async () => {
     const fixture = await createReviewRepo();
 
     const result = await runCli([
@@ -180,6 +331,6 @@ describe("CLI review", () => {
     ]);
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("Review posting is not implemented yet");
+    expect(result.stderr).toContain("Review posting requires --pr");
   });
 });

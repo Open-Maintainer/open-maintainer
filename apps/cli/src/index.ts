@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -35,9 +36,16 @@ import {
 import {
   assembleLocalReviewInput,
   generateReview,
+  renderInlineReviewComment,
   renderReviewMarkdown,
+  renderReviewSummaryComment,
 } from "@open-maintainer/review";
-import type { ModelProviderConfig } from "@open-maintainer/shared";
+import type {
+  ModelProviderConfig,
+  ReviewCheckStatus,
+  ReviewExistingComment,
+  ReviewResult,
+} from "@open-maintainer/shared";
 
 type CliOptions = {
   force: boolean;
@@ -53,6 +61,7 @@ type CliOptions = {
   skills: ArtifactSelection | null;
   allowWrite: boolean;
   llmModel: string | null;
+  pr: number | null;
   baseRef: string | null;
   headRef: string | null;
   prNumber: number | null;
@@ -78,7 +87,7 @@ Commands:
                                        Generate context artifacts safely
   init <repo>                           Run audit, then generate missing artifacts
   doctor <repo>                         Report missing or stale generated context
-  review <repo>                         Produce a non-mutating rule-grounded PR review
+  review <repo>                         Produce or post a rule-grounded PR review
   pr <repo> --create                    Print a dry-run PR summary for generated artifacts
 
 Help:
@@ -172,9 +181,10 @@ Examples:
 `,
   review: `open-maintainer review <repo>
 
-Produce a local rule-grounded PR review from git base/head refs. Review mode is non-mutating by default and never posts to GitHub in this release.
+Produce a rule-grounded PR review from local git refs or a GitHub pull request. Local ref review is non-mutating by default. PR review fetches pull request refs with gh and posts marked summary plus capped inline comments unless --dry-run is used.
 
 Diff options:
+  --pr <number>                          Fetch PR metadata/diff with gh and post review comments
   --base-ref <ref>                      Base ref or SHA for the review diff
   --head-ref <ref>                      Head ref or SHA for the review diff (default: HEAD)
   --pr-number <number>                  Optional PR number metadata
@@ -182,22 +192,25 @@ Diff options:
 Output options:
   --output-path <path>                  Write markdown review output to a file
   --json                                Print the machine-readable ReviewResult JSON
+  --dry-run                             With --pr, fetch and review without posting to GitHub
 
 Model review options:
   --review-provider codex|claude        Required CLI backend for model-backed review
   --review-model <model>                Optional backend model override
   --allow-model-content-transfer        Required with --review-provider; sends repo content to the backend
 
-Posting placeholders:
-  --review-post-summary                 Reserved for v0.4 posting slices; currently fails without writing
-  --review-inline-comments              Reserved for v0.4 posting slices; currently fails without writing
-  --review-inline-cap <number>          Reserved inline comment cap metadata
+Posting options:
+  --review-post-summary                 Post or update the marked PR summary comment
+  --review-inline-comments              Post capped inline finding comments
+  --review-inline-cap <number>          Maximum inline comments (default with --pr: 5)
 
 Examples:
   open-maintainer review . --base-ref main --head-ref HEAD
   open-maintainer review . --base-ref origin/main --head-ref HEAD --output-path .open-maintainer/review.md
   open-maintainer review . --base-ref main --head-ref HEAD --json
   open-maintainer review . --base-ref main --head-ref HEAD --review-provider codex --allow-model-content-transfer
+  open-maintainer review . --pr 123 --review-provider codex --allow-model-content-transfer
+  open-maintainer review . --pr 123 --review-provider claude --allow-model-content-transfer --dry-run
 `,
   pr: `open-maintainer pr <repo> --create
 
@@ -710,24 +723,35 @@ async function pr(repoRoot: string, options: CliOptions): Promise<void> {
 }
 
 async function review(repoRoot: string, options: CliOptions): Promise<void> {
-  if (options.reviewPostSummary || options.reviewInlineComments) {
+  if (
+    (options.reviewPostSummary || options.reviewInlineComments) &&
+    options.pr === null
+  ) {
     throw new Error(
-      "Review posting is not implemented yet. This command only writes local markdown or JSON.",
+      "Review posting requires --pr <number> so the CLI can target a GitHub pull request with gh.",
     );
   }
-  if (options.reviewInlineCap !== null && !options.reviewInlineComments) {
+  if (
+    options.reviewInlineCap !== null &&
+    !options.reviewInlineComments &&
+    options.pr === null
+  ) {
     throw new Error(
-      "--review-inline-cap is reserved for --review-inline-comments and does not publish comments in this release.",
+      "--review-inline-cap requires --review-inline-comments or --pr.",
     );
   }
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
   const profile = await createProfileFromFiles(repoRoot, files);
+  const pullRequest = options.pr
+    ? await preparePullRequestReview(repoRoot, options.pr)
+    : null;
   const baseRef =
+    pullRequest?.baseRef ??
     options.baseRef ??
     (await detectDefaultBranch(repoRoot)) ??
     profile.defaultBranch ??
     "main";
-  const headRef = options.headRef ?? "HEAD";
+  const headRef = pullRequest?.headRef ?? options.headRef ?? "HEAD";
   const input = await assembleLocalReviewInput({
     repoRoot,
     repoId: profile.repoId,
@@ -741,9 +765,25 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
   });
   const reviewInput = {
     ...input,
-    prNumber: options.prNumber,
-    owner: profile.owner,
-    repo: profile.name,
+    ...(pullRequest
+      ? {
+          prNumber: pullRequest.number,
+          owner: pullRequest.owner,
+          repo: pullRequest.repo,
+          title: pullRequest.title,
+          body: pullRequest.body,
+          url: pullRequest.url,
+          author: pullRequest.author,
+          baseSha: pullRequest.baseSha,
+          headSha: pullRequest.headSha,
+          checkStatuses: pullRequest.checkStatuses,
+          existingComments: pullRequest.existingComments,
+        }
+      : {
+          prNumber: options.prNumber,
+          owner: profile.owner,
+          repo: profile.name,
+        }),
   };
   const providerReview = buildReviewProvider({
     repoRoot,
@@ -801,9 +841,447 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
   }
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));
-  } else if (!options.outputPath) {
+  } else if (!options.outputPath && !pullRequest) {
     console.log(renderReviewMarkdown(result));
   }
+  if (pullRequest && options.dryRun && !options.json) {
+    console.log(`Review generated for pull request #${pullRequest.number}.`);
+    console.log("Dry run: no PR comments posted.");
+  }
+  if (pullRequest && !options.dryRun) {
+    const explicitPosting =
+      options.reviewPostSummary || options.reviewInlineComments;
+    const posted = await postPullRequestReview(repoRoot, result, {
+      prNumber: pullRequest.number,
+      postSummary: explicitPosting ? options.reviewPostSummary : true,
+      postInline: explicitPosting ? options.reviewInlineComments : true,
+      inlineCap: options.reviewInlineCap ?? 5,
+    });
+    if (!options.json) {
+      console.log(`Review generated for pull request #${pullRequest.number}.`);
+      console.log(formatPullRequestPostStatus(posted));
+    }
+  }
+}
+
+type PullRequestReviewPostResult = {
+  summaryComment: boolean;
+  inlineComments: number;
+};
+
+type PreparedPullRequestReview = {
+  number: number;
+  owner: string;
+  repo: string;
+  title: string | null;
+  body: string;
+  url: string | null;
+  author: string | null;
+  baseRef: string;
+  headRef: string;
+  baseSha: string;
+  headSha: string;
+  checkStatuses: ReviewCheckStatus[];
+  existingComments: ReviewExistingComment[];
+};
+
+type GhPullRequestView = {
+  number?: number;
+  title?: string | null;
+  body?: string | null;
+  url?: string | null;
+  author?: { login?: string | null } | null;
+  baseRefName?: string | null;
+  headRefName?: string | null;
+  baseRefOid?: string | null;
+  headRefOid?: string | null;
+  comments?: Array<{
+    id?: number | string | null;
+    body?: string | null;
+  }> | null;
+  statusCheckRollup?: Array<{
+    name?: string | null;
+    status?: string | null;
+    conclusion?: string | null;
+    detailsUrl?: string | null;
+    url?: string | null;
+  }> | null;
+};
+
+type GhRepositoryView = {
+  name?: string | null;
+  owner?: { login?: string | null } | null;
+};
+
+async function preparePullRequestReview(
+  repoRoot: string,
+  prNumber: number,
+): Promise<PreparedPullRequestReview> {
+  const [repo, pr] = await Promise.all([
+    ghJson<GhRepositoryView>(repoRoot, [
+      "repo",
+      "view",
+      "--json",
+      "owner,name",
+    ]),
+    ghJson<GhPullRequestView>(repoRoot, [
+      "pr",
+      "view",
+      String(prNumber),
+      "--json",
+      [
+        "number",
+        "title",
+        "body",
+        "url",
+        "author",
+        "baseRefName",
+        "headRefName",
+        "baseRefOid",
+        "headRefOid",
+        "comments",
+        "statusCheckRollup",
+      ].join(","),
+    ]),
+  ]);
+  const owner = repo.owner?.login;
+  const repoName = repo.name;
+  const baseSha = pr.baseRefOid;
+  const headSha = pr.headRefOid;
+  if (!owner || !repoName || !baseSha || !headSha) {
+    throw new Error(
+      `Unable to read pull request #${prNumber} metadata from gh.`,
+    );
+  }
+  const headRef = `refs/remotes/open-maintainer/pr-${prNumber}`;
+  await ensureGitObject(repoRoot, baseSha);
+  await gitRequiredOutput(repoRoot, [
+    "fetch",
+    "--force",
+    "--no-tags",
+    "origin",
+    `refs/pull/${prNumber}/head:${headRef}`,
+  ]);
+
+  return {
+    number: pr.number ?? prNumber,
+    owner,
+    repo: repoName,
+    title: pr.title ?? null,
+    body: pr.body ?? "",
+    url: pr.url ?? null,
+    author: pr.author?.login ?? null,
+    baseRef: baseSha,
+    headRef,
+    baseSha,
+    headSha,
+    checkStatuses: parseGhCheckStatuses(pr.statusCheckRollup ?? []),
+    existingComments: parseGhExistingComments(pr.comments ?? []),
+  };
+}
+
+async function postPullRequestReview(
+  repoRoot: string,
+  review: ReviewResult,
+  options: {
+    prNumber: number;
+    postSummary: boolean;
+    postInline: boolean;
+    inlineCap: number;
+  },
+): Promise<PullRequestReviewPostResult> {
+  const repo = await ghJson<GhRepositoryView>(repoRoot, [
+    "repo",
+    "view",
+    "--json",
+    "owner,name",
+  ]);
+  const owner = repo.owner?.login;
+  const repoName = repo.name;
+  if (!owner || !repoName) {
+    throw new Error("Unable to read repository owner/name from gh.");
+  }
+  const posted: PullRequestReviewPostResult = {
+    summaryComment: false,
+    inlineComments: 0,
+  };
+  if (options.postSummary) {
+    await upsertReviewSummaryComment(repoRoot, owner, repoName, review);
+    posted.summaryComment = true;
+  }
+  if (options.postInline && options.inlineCap > 0) {
+    posted.inlineComments = await createInlineReviewComments(
+      repoRoot,
+      owner,
+      repoName,
+      review,
+      {
+        prNumber: options.prNumber,
+        cap: options.inlineCap,
+      },
+    );
+  }
+  return posted;
+}
+
+async function upsertReviewSummaryComment(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+  review: ReviewResult,
+): Promise<void> {
+  const marker = "<!-- open-maintainer-review-summary -->";
+  const body = renderReviewSummaryComment(review);
+  const comments = await ghApiJson<
+    Array<{ id?: number | string | null; body?: string | null }>
+  >(
+    repoRoot,
+    `repos/${owner}/${repo}/issues/${review.prNumber}/comments?per_page=100`,
+  );
+  const existing = comments.find((comment) => comment.body?.includes(marker));
+  if (existing?.id) {
+    await ghApiWithJsonBody(
+      repoRoot,
+      `repos/${owner}/${repo}/issues/comments/${existing.id}`,
+      "PATCH",
+      { body },
+    );
+    return;
+  }
+  await ghApiWithJsonBody(
+    repoRoot,
+    `repos/${owner}/${repo}/issues/${review.prNumber}/comments`,
+    "POST",
+    { body },
+  );
+}
+
+async function createInlineReviewComments(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+  review: ReviewResult,
+  options: { prNumber: number; cap: number },
+): Promise<number> {
+  const marker = "open-maintainer-review-inline";
+  const existing = await ghApiJson<
+    Array<{
+      body?: string | null;
+      path?: string | null;
+      line?: number | null;
+    }>
+  >(
+    repoRoot,
+    `repos/${owner}/${repo}/pulls/${options.prNumber}/comments?per_page=100`,
+  );
+  const existingFingerprints = new Set(
+    existing.flatMap((comment) => {
+      const match = comment.body?.match(
+        /open-maintainer-review-inline fingerprint="([^"]+)"/,
+      );
+      if (match?.[1]) {
+        return [match[1]];
+      }
+      return comment.path && comment.line
+        ? [`legacy:${comment.path}:${comment.line}`]
+        : [];
+    }),
+  );
+  const changedFiles = new Map(
+    review.changedFiles.map((file) => [file.path, file]),
+  );
+  const comments = [];
+  for (const finding of [...review.findings].sort(compareReviewFindings)) {
+    if (comments.length >= options.cap) {
+      break;
+    }
+    if (!finding.path || !finding.line) {
+      continue;
+    }
+    const changedFile = changedFiles.get(finding.path);
+    if (!changedFile?.patch) {
+      continue;
+    }
+    const fingerprint = `${finding.id}:${finding.path}:${finding.line}`;
+    if (
+      existingFingerprints.has(fingerprint) ||
+      existingFingerprints.has(`legacy:${finding.path}:${finding.line}`)
+    ) {
+      continue;
+    }
+    comments.push({
+      path: finding.path,
+      line: finding.line,
+      side: "RIGHT",
+      body: [
+        `<!-- ${marker} fingerprint="${fingerprint}" -->`,
+        renderInlineReviewComment(finding),
+      ].join("\n"),
+    });
+  }
+  if (comments.length === 0) {
+    return 0;
+  }
+  await ghApiWithJsonBody(
+    repoRoot,
+    `repos/${owner}/${repo}/pulls/${options.prNumber}/reviews`,
+    "POST",
+    {
+      event: "COMMENT",
+      body: "Open Maintainer inline review comments.",
+      comments,
+    },
+  );
+  return comments.length;
+}
+
+function formatPullRequestPostStatus(
+  posted: PullRequestReviewPostResult,
+): string {
+  const parts = [];
+  if (posted.summaryComment) {
+    parts.push("summary comment");
+  }
+  if (posted.inlineComments > 0) {
+    parts.push(
+      `${posted.inlineComments} inline ${posted.inlineComments === 1 ? "comment" : "comments"}`,
+    );
+  }
+  if (parts.length === 0) {
+    return "PR comments posted: none.";
+  }
+  return `PR comments posted: ${parts.join(", ")}.`;
+}
+
+async function ghJson<T>(repoRoot: string, args: string[]): Promise<T> {
+  const output = await execGh(repoRoot, args);
+  return JSON.parse(output) as T;
+}
+
+async function ghApiJson<T>(
+  repoRoot: string,
+  endpoint: string,
+  args: string[] = [],
+): Promise<T> {
+  const output = await execGh(repoRoot, ["api", endpoint, ...args]);
+  return JSON.parse(output || "null") as T;
+}
+
+async function ghApiWithJsonBody(
+  repoRoot: string,
+  endpoint: string,
+  method: "PATCH" | "POST",
+  body: unknown,
+): Promise<void> {
+  const directory = await mkdtemp(path.join(tmpdir(), "open-maintainer-gh-"));
+  const inputPath = path.join(directory, "body.json");
+  try {
+    await writeFile(inputPath, JSON.stringify(body));
+    await execGh(repoRoot, [
+      "api",
+      endpoint,
+      "--method",
+      method,
+      "--input",
+      inputPath,
+    ]);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function execGh(repoRoot: string, args: string[]): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("gh", args, {
+      cwd: repoRoot,
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    return stdout;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `GitHub CLI command failed: gh ${args.join(" ")}. ${message}`,
+    );
+  }
+}
+
+async function ensureGitObject(repoRoot: string, sha: string): Promise<void> {
+  const exists = await gitRequiredOutput(repoRoot, [
+    "cat-file",
+    "-e",
+    `${sha}^{commit}`,
+  ])
+    .then(() => true)
+    .catch(() => false);
+  if (!exists) {
+    await gitRequiredOutput(repoRoot, ["fetch", "--no-tags", "origin", sha]);
+  }
+}
+
+async function gitRequiredOutput(
+  repoRoot: string,
+  args: string[],
+): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, {
+    cwd: repoRoot,
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  return stdout;
+}
+
+function parseGhCheckStatuses(
+  statuses: NonNullable<GhPullRequestView["statusCheckRollup"]>,
+): ReviewCheckStatus[] {
+  return statuses.flatMap((status) => {
+    const name = status.name?.trim();
+    const state = status.status?.trim();
+    if (!name || !state) {
+      return [];
+    }
+    return [
+      {
+        name,
+        status: state,
+        conclusion: status.conclusion ?? null,
+        url: status.detailsUrl ?? status.url ?? null,
+      },
+    ];
+  });
+}
+
+function parseGhExistingComments(
+  comments: NonNullable<GhPullRequestView["comments"]>,
+): ReviewExistingComment[] {
+  return comments.flatMap((comment) => {
+    const id =
+      typeof comment.id === "number"
+        ? comment.id
+        : Number.parseInt(String(comment.id ?? ""), 10);
+    if (!Number.isInteger(id) || id <= 0 || !comment.body) {
+      return [];
+    }
+    return [
+      {
+        id,
+        kind: comment.body.includes("open-maintainer-review-summary")
+          ? ("summary" as const)
+          : ("inline" as const),
+        body: comment.body,
+        path: null,
+        line: null,
+      },
+    ];
+  });
+}
+
+function compareReviewFindings(
+  left: ReviewResult["findings"][number],
+  right: ReviewResult["findings"][number],
+) {
+  const severityRank = { blocker: 0, major: 1, minor: 2, note: 3 };
+  const severityDelta =
+    severityRank[left.severity] - severityRank[right.severity];
+  return severityDelta === 0 ? left.id.localeCompare(right.id) : severityDelta;
 }
 
 function buildReviewProvider(input: {
@@ -1101,6 +1579,7 @@ function parseOptions(rawOptions: string[]): CliOptions {
     skills: null,
     allowWrite: false,
     llmModel: null,
+    pr: null,
     baseRef: null,
     headRef: null,
     prNumber: null,
@@ -1162,6 +1641,14 @@ function parseOptions(rawOptions: string[]): CliOptions {
       index += 1;
     } else if (option === "--allow-write") {
       options.allowWrite = true;
+    } else if (option === "--pr") {
+      const value = requireOptionValue(rawOptions, index, option);
+      const pr = Number(value);
+      if (!Number.isInteger(pr) || pr <= 0) {
+        throw new Error("Invalid value for --pr. Expected a positive integer.");
+      }
+      options.pr = pr;
+      index += 1;
     } else if (option === "--base-ref") {
       options.baseRef = requireOptionValue(rawOptions, index, option);
       index += 1;
