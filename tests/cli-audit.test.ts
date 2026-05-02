@@ -83,6 +83,56 @@ describe("CLI audit", () => {
     expect(profile.existingContextFiles).toContain(".open-maintainer.yml");
   });
 
+  it("refreshes generated context while preserving maintainer-owned files", async () => {
+    const workdir = await mkdtemp(
+      path.join(tmpdir(), "open-maintainer-refresh-generated-"),
+    );
+    await cp(fixtureRoot, workdir, { recursive: true });
+
+    const initial = await runCli([
+      "generate",
+      workdir,
+      "--deterministic",
+      "--context",
+      "codex",
+      "--skills",
+      "codex",
+    ]);
+    expect(initial.exitCode).toBe(0);
+
+    const agentsPath = path.join(workdir, "AGENTS.md");
+    await writeFile(agentsPath, "# Maintainer-owned instructions\n");
+    const configPath = path.join(workdir, ".open-maintainer.yml");
+    const staleGeneratedConfig = `${await readFile(configPath, "utf8")}\n# stale generated note\n`;
+    await writeFile(configPath, staleGeneratedConfig);
+
+    const refresh = await runCli([
+      "generate",
+      workdir,
+      "--deterministic",
+      "--context",
+      "codex",
+      "--skills",
+      "codex",
+      "--refresh-generated",
+    ]);
+
+    expect(refresh.exitCode).toBe(0);
+    expect(refresh.stderr).toBe("");
+    expect(refresh.stdout).toContain(
+      "skip: AGENTS.md (existing maintainer-owned file preserved",
+    );
+    expect(refresh.stdout).toContain(
+      "overwrite: .open-maintainer.yml (existing generated file)",
+    );
+    expect(await readFile(agentsPath, "utf8")).toBe(
+      "# Maintainer-owned instructions\n",
+    );
+    expect(await readFile(configPath, "utf8")).not.toContain(
+      "# stale generated note",
+    );
+  });
+
   it("includes drift findings and remediation in the report", async () => {
     const workdir = await mkdtemp(
       path.join(tmpdir(), "open-maintainer-audit-drift-"),

@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_bd688808-3ea2-4995-bbc1-7b3c290f2f35",
+  "id": "repo_profile_55b4cbd0-dd03-4911-89de-8abc2d6195d3",
   "repoId": "local",
   "version": 1,
   "owner": "source",
@@ -195,10 +195,12 @@
     "docs/DEMO_RUNBOOK.md",
     "docs/MVP_RELEASE_REVIEW.md",
     "docs/ROADMAP.md",
+    "docs/V0_3_RELEASE_REVIEW.md",
     "local-docs/MVP_IMPLEMENTATION_PLAN.md",
     "local-docs/PRODUCT_PRD.md",
     "local-docs/SKILLS_GENERATION.md",
     "local-docs/TECH_STACK.md",
+    "local-docs/V0_3_GITHUB_ACTION_RELEASE_PLAN.md",
     "README.md"
   ],
   "repoTemplates": [],
@@ -261,11 +263,14 @@
   "environmentVariables": [
     "API_BASE_URL",
     "API_PORT",
+    "AUDIT_EXIT_CODE",
     "AUDIT_OUTPUT_PATH",
     "BASE_READINESS_SCORE",
     "DATABASE_URL",
+    "DOCTOR_EXIT_CODE",
     "DOCTOR_OUTPUT_PATH",
     "DRIFT_DETECTED",
+    "EVENT_NAME",
     "GH_TOKEN",
     "GITHUB_APP_ID",
     "GITHUB_PRIVATE_KEY_BASE64",
@@ -274,6 +279,7 @@
     "GIT_AUTHOR_EMAIL",
     "GIT_AUTHOR_NAME",
     "HOME",
+    "MODE",
     "NEXT_PUBLIC_API_BASE_URL",
     "OPEN_MAINTAINER_CLAUDE_COMMAND",
     "OPEN_MAINTAINER_CLAUDE_MODEL",
@@ -288,6 +294,9 @@
     "OPEN_MAINTAINER_LOCAL_REPO_CACHE",
     "READINESS_SCORE",
     "REDIS_URL",
+    "REPORT_PATH",
+    "RUNNER_TEMP",
+    "SUMMARY_PATH",
     "WEB_BASE_URL",
     "WEB_PORT"
   ],
@@ -496,6 +505,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "docs/V0_3_RELEASE_REVIEW.md",
+      "reason": "detected repository context"
+    },
+    {
       "path": "local-docs/MVP_IMPLEMENTATION_PLAN.md",
       "reason": "detected repository context"
     },
@@ -509,6 +522,10 @@
     },
     {
       "path": "local-docs/TECH_STACK.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "local-docs/V0_3_GITHUB_ACTION_RELEASE_PLAN.md",
       "reason": "detected repository context"
     },
     {
@@ -866,15 +883,15 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "a7e3f7e091b4ec3e"
+      "hash": "9b288296d45045c1"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "2c46029e336945f1"
+      "hash": "ded59ed2dd0f5921"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "1ceafc9c927e26e4"
+      "hash": "85fa1f51857790cb"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
@@ -926,7 +943,7 @@
     },
     {
       "path": ".github/workflows/open-maintainer-audit.yml",
-      "hash": "9d5dc76eeb744508"
+      "hash": "eb76bdcd4e9bf4dc"
     },
     {
       "path": ".gitignore",
@@ -934,19 +951,19 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "e43acb30e180fd5b"
+      "hash": "cd680210e447a8c4"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "bd5e1bce147b401d"
+      "hash": "3d53451b85bc345e"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "ff991f68306ead10"
+      "hash": "ac59f73b9612374e"
     },
     {
       "path": "AGENTS.md",
-      "hash": "1c337bfcf7db017b"
+      "hash": "a2407492b6fd0d8d"
     },
     {
       "path": "apps/api/package.json",
@@ -1006,7 +1023,7 @@
     },
     {
       "path": "docs/DEMO_RUNBOOK.md",
-      "hash": "884f408e9e23ba81"
+      "hash": "d4b678699b5f2d92"
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
@@ -1017,12 +1034,16 @@
       "hash": "77e46e631e3a8249"
     },
     {
+      "path": "docs/V0_3_RELEASE_REVIEW.md",
+      "hash": "720040305c8c6f03"
+    },
+    {
       "path": "local-docs/MVP_IMPLEMENTATION_PLAN.md",
       "hash": "2ab231e96be8a654"
     },
     {
       "path": "local-docs/PRODUCT_PRD.md",
-      "hash": "b38f862120962fee"
+      "hash": "dec28a039f22f895"
     },
     {
       "path": "local-docs/SKILLS_GENERATION.md",
@@ -1031,6 +1052,10 @@
     {
       "path": "local-docs/TECH_STACK.md",
       "hash": "d3ddebaf24050fa2"
+    },
+    {
+      "path": "local-docs/V0_3_GITHUB_ACTION_RELEASE_PLAN.md",
+      "hash": "76a821189639e003"
     },
     {
       "path": "package.json",
@@ -1078,7 +1103,7 @@
     },
     {
       "path": "packages/context/tests/render.test.ts",
-      "hash": "015a8aaf9df6f490"
+      "hash": "82178ea4de6fc605"
     },
     {
       "path": "packages/context/tsconfig.json",
@@ -1098,7 +1123,7 @@
     },
     {
       "path": "packages/github/tests/webhook.test.ts",
-      "hash": "8c0d5227162a9c81"
+      "hash": "fee2d78f9d16f57c"
     },
     {
       "path": "packages/github/tsconfig.json",
@@ -1118,15 +1143,15 @@
     },
     {
       "path": "README.md",
-      "hash": "299a0e73e8cb071c"
+      "hash": "77b820bd114e6422"
     },
     {
       "path": "tests/action-mvp.test.ts",
-      "hash": "c02189f784cdb7e0"
+      "hash": "f93fa176635b2e01"
     },
     {
       "path": "tests/cli-audit.test.ts",
-      "hash": "ee6e3f871b70aadb"
+      "hash": "1eeb10b60e087534"
     },
     {
       "path": "tests/cli-doctor.test.ts",
@@ -1134,7 +1159,7 @@
     },
     {
       "path": "tests/cli-help.test.ts",
-      "hash": "7416d80284a29338"
+      "hash": "1614fd5e1f0a5973"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1305,8 +1330,29 @@
       "hash": "c58604b8106529e0"
     }
   ],
-  "contextArtifactHashes": [],
-  "createdAt": "2026-05-02T00:12:06.778Z",
+  "contextArtifactHashes": [
+    {
+      "path": "AGENTS.md",
+      "hash": "a2407492b6fd0d8d"
+    },
+    {
+      "path": ".open-maintainer.yml",
+      "hash": "a39bdc0df9babbd2"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
+      "hash": "ded59ed2dd0f5921"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
+      "hash": "85fa1f51857790cb"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
+      "hash": "9b288296d45045c1"
+    }
+  ],
+  "createdAt": "2026-05-02T01:01:13.746Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1413,6 +1459,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "docs/V0_3_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": "local-docs/MVP_IMPLEMENTATION_PLAN.md",
             "reason": "detected repository context"
           },
@@ -1426,6 +1476,10 @@
           },
           {
             "path": "local-docs/TECH_STACK.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "local-docs/V0_3_GITHUB_ACTION_RELEASE_PLAN.md",
             "reason": "detected repository context"
           },
           {
@@ -1550,6 +1604,10 @@
           },
           {
             "path": "docs/ROADMAP.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/V0_3_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
           {
@@ -2217,6 +2275,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "docs/V0_3_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": "local-docs/MVP_IMPLEMENTATION_PLAN.md",
             "reason": "detected repository context"
           },
@@ -2230,6 +2292,10 @@
           },
           {
             "path": "local-docs/TECH_STACK.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "local-docs/V0_3_GITHUB_ACTION_RELEASE_PLAN.md",
             "reason": "detected repository context"
           },
           {
@@ -2261,6 +2327,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "docs/V0_3_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": "local-docs/MVP_IMPLEMENTATION_PLAN.md",
             "reason": "detected repository context"
           },
@@ -2274,6 +2344,10 @@
           },
           {
             "path": "local-docs/TECH_STACK.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "local-docs/V0_3_GITHUB_ACTION_RELEASE_PLAN.md",
             "reason": "detected repository context"
           },
           {
@@ -2432,7 +2506,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T00:12:06.779Z"
+    "generatedAt": "2026-05-02T01:01:13.747Z"
   },
-  "openMaintainerProfileHash": "faddd7aa612a49d7"
+  "openMaintainerProfileHash": "bf3baba0aee6aca3"
 }

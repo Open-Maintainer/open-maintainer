@@ -1,8 +1,8 @@
 name: Open Maintainer
-description: Run Open Maintainer audit and drift checks without mutating repository context files.
+description: Run Open Maintainer audit checks and optional context refresh PRs.
 inputs:
   mode:
-    description: Audit mode to run.
+    description: Action mode. Use audit for non-mutating checks or refresh to open/update a context refresh PR.
     required: false
     default: audit
   fail-on-score-below:
@@ -18,21 +18,93 @@ inputs:
     required: false
     default: "false"
   comment-on-pr:
-    description: Comment on pull requests with readiness score, delta, and drift diagnostics.
+    description: Comment on pull requests with readiness score, delta, drift diagnostics, changed surface, and refresh guidance.
     required: false
     default: "false"
   github-token:
-    description: GitHub token used when comment-on-pr is true.
+    description: GitHub token used when comment-on-pr is true or mode is refresh.
     required: false
     default: ""
+  generation-provider:
+    description: Refresh generation provider. Use deterministic for offline CI, or codex/claude with allow-model-content-transfer set to true.
+    required: false
+    default: deterministic
+  generation-model:
+    description: Optional model override passed to the selected model-backed generation provider.
+    required: false
+    default: ""
+  allow-model-content-transfer:
+    description: Explicit consent for model-backed refresh generation to send repository content to the selected provider CLI.
+    required: false
+    default: "false"
+  context-target:
+    description: Context instruction files to generate during refresh. One of codex, claude, or both.
+    required: false
+    default: codex
+  skills-target:
+    description: Skill families to generate during refresh. One of codex, claude, or both.
+    required: false
+    default: codex
+  refresh-branch:
+    description: Branch used for opt-in context refresh PRs.
+    required: false
+    default: open-maintainer/context-refresh
+  refresh-title:
+    description: Pull request title for opt-in context refresh PRs.
+    required: false
+    default: Update Open Maintainer context
+  force:
+    description: Overwrite maintainer-owned context files during refresh. Defaults to preserving them.
+    required: false
+    default: "false"
+outputs:
+  readiness-score:
+    description: Current agent readiness score.
+    value: ${{ steps.audit.outputs.score }}
+  drift-detected:
+    description: Whether generated context drift was detected.
+    value: ${{ steps.doctor.outputs.drift-detected }}
+  refresh-pr-url:
+    description: Pull request URL created or updated by refresh mode.
+    value: ${{ steps.refresh-pr.outputs.pr-url }}
 runs:
   using: composite
   steps:
-    - name: Validate mode
+    - name: Validate inputs
       shell: bash
       run: |
-        if [ "${{ inputs.mode }}" != "audit" ]; then
-          echo "::error title=Open Maintainer::Unsupported mode '${{ inputs.mode }}'. Only 'audit' is supported by the MVP action."
+        case "${{ inputs.mode }}" in
+          audit|refresh) ;;
+          *)
+            echo "::error title=Open Maintainer::Unsupported mode '${{ inputs.mode }}'. Use 'audit' or 'refresh'."
+            exit 2
+            ;;
+        esac
+        case "${{ inputs.generation-provider }}" in
+          deterministic|codex|claude) ;;
+          *)
+            echo "::error title=Open Maintainer::Unsupported generation-provider '${{ inputs.generation-provider }}'. Use 'deterministic', 'codex', or 'claude'."
+            exit 2
+            ;;
+        esac
+        case "${{ inputs.context-target }}" in
+          codex|claude|both) ;;
+          *)
+            echo "::error title=Open Maintainer::Unsupported context-target '${{ inputs.context-target }}'. Use 'codex', 'claude', or 'both'."
+            exit 2
+            ;;
+        esac
+        case "${{ inputs.skills-target }}" in
+          codex|claude|both) ;;
+          *)
+            echo "::error title=Open Maintainer::Unsupported skills-target '${{ inputs.skills-target }}'. Use 'codex', 'claude', or 'both'."
+            exit 2
+            ;;
+        esac
+        if [ "${{ inputs.mode }}" = "refresh" ] &&
+          [ "${{ inputs.generation-provider }}" != "deterministic" ] &&
+          [ "${{ inputs.allow-model-content-transfer }}" != "true" ]; then
+          echo "::error title=Open Maintainer::Model-backed refresh requires allow-model-content-transfer: 'true'."
           exit 2
         fi
     - name: Set up Bun
@@ -108,63 +180,127 @@ runs:
         echo "score=$base_score" >> "$GITHUB_OUTPUT"
         echo "output-path=$base_output" >> "$GITHUB_OUTPUT"
         exit 0
-    - name: Comment on pull request
-      if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
-      uses: actions/github-script@v7
+    - name: Render action summary
+      id: summary
+      shell: bash
       env:
         AUDIT_OUTPUT_PATH: ${{ steps.audit.outputs.output-path }}
         DOCTOR_OUTPUT_PATH: ${{ steps.doctor.outputs.output-path }}
+        REPORT_PATH: ${{ inputs.report-path }}
         READINESS_SCORE: ${{ steps.audit.outputs.score }}
         BASE_READINESS_SCORE: ${{ steps.base.outputs.score }}
         AUDIT_EXIT_CODE: ${{ steps.audit.outputs.exit-code }}
         DOCTOR_EXIT_CODE: ${{ steps.doctor.outputs.exit-code }}
         DRIFT_DETECTED: ${{ steps.doctor.outputs.drift-detected }}
+        MODE: ${{ inputs.mode }}
+        EVENT_NAME: ${{ github.event_name }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: |
+        summary_path="$RUNNER_TEMP/open-maintainer-action-summary.md"
+        changed_path="$RUNNER_TEMP/open-maintainer-changed-files.txt"
+        if [ -n "$BASE_SHA" ] && git fetch --no-tags --depth=1 origin "$BASE_SHA" >/dev/null 2>&1; then
+          git diff --name-only "$BASE_SHA"...HEAD >"$changed_path" 2>/dev/null || true
+        else
+          : >"$changed_path"
+        fi
+        node <<'NODE' >"$summary_path"
+        const fs = require("node:fs");
+        const read = (path) => (path && fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : "");
+        const listLines = (text, prefix) => text.split(/\r?\n/).filter((line) => line.startsWith(prefix));
+        const auditOutput = read(process.env.AUDIT_OUTPUT_PATH);
+        const doctorOutput = read(process.env.DOCTOR_OUTPUT_PATH);
+        const report = read(process.env.REPORT_PATH);
+        const changedFiles = read(`${process.env.RUNNER_TEMP}/open-maintainer-changed-files.txt`)
+          .split(/\r?\n/)
+          .filter(Boolean);
+        const score = process.env.READINESS_SCORE || "unknown";
+        const baseScore = process.env.BASE_READINESS_SCORE || "";
+        const delta =
+          score !== "unknown" && baseScore
+            ? Number(score) - Number(baseScore)
+            : null;
+        const deltaLine =
+          delta === null || Number.isNaN(delta)
+            ? `Readiness delta: unavailable for ${process.env.EVENT_NAME}`
+            : `Readiness delta: ${delta >= 0 ? "+" : ""}${delta} points`;
+        const missing = listLines(doctorOutput, "missing:");
+        const drift = listLines(doctorOutput, "drift:");
+        const refreshNeeded = missing.length > 0 || drift.length > 0;
+        const changedSurface =
+          changedFiles.length > 0
+            ? changedFiles.map((file) => `- ${file}`).join("\n")
+            : `- No pull request changed files detected for ${process.env.EVENT_NAME}.`;
+        const sections = [
+          "## Open Maintainer",
+          "",
+          `Mode: ${process.env.MODE}`,
+          `Agent Readiness: ${score}/100`,
+          deltaLine,
+          `Generated context drift: ${process.env.DRIFT_DETECTED === "true" ? "detected" : "not detected"}`,
+          "",
+          "### Changed Surface",
+          changedSurface,
+          "",
+          "### Likely Tests",
+          "- Run the repository quality gates listed in generated context or CONTRIBUTING.md.",
+          "- Include focused tests for changed behavior when implementation files changed.",
+          "",
+          "### Docs Impact",
+          "- Review docs when setup, CLI behavior, Action behavior, generated outputs, or dashboard workflows changed.",
+          "",
+          "### Missing Validation Evidence",
+          `- Action audit exit code: ${process.env.AUDIT_EXIT_CODE || "unknown"}`,
+          `- Doctor exit code: ${process.env.DOCTOR_EXIT_CODE || "unknown"}`,
+          "",
+          "### Context Artifacts",
+          ...(missing.length > 0 ? missing.map((line) => `- ${line}`) : ["- No missing required artifacts reported."]),
+          ...(drift.length > 0 ? drift.map((line) => `- ${line}`) : ["- No drift findings reported."]),
+          "",
+          "### Refresh Recommendation",
+          refreshNeeded
+            ? "- Run `mode: refresh` with the required permissions to open or update a context refresh PR."
+            : "- No context refresh is recommended by the current audit.",
+          "",
+          "<details>",
+          "<summary>Readiness report</summary>",
+          "",
+          "```text",
+          report || "No report file was found.",
+          "```",
+          "</details>",
+          "",
+          "<details>",
+          "<summary>Audit output</summary>",
+          "",
+          "```text",
+          auditOutput,
+          "```",
+          "</details>",
+          "",
+          "<details>",
+          "<summary>Context artifact check</summary>",
+          "",
+          "```text",
+          doctorOutput,
+          "```",
+          "</details>",
+        ];
+        console.log(sections.join("\n"));
+        NODE
+        cat "$summary_path" >> "$GITHUB_STEP_SUMMARY"
+        echo "summary-path=$summary_path" >> "$GITHUB_OUTPUT"
+    - name: Comment on pull request
+      if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
+      uses: actions/github-script@v7
+      env:
+        SUMMARY_PATH: ${{ steps.summary.outputs.summary-path }}
       with:
         github-token: ${{ inputs.github-token || github.token }}
         script: |
           const fs = require("node:fs");
           const marker = "<!-- open-maintainer-action-comment -->";
-          const read = (path) => (path && fs.existsSync(path) ? fs.readFileSync(path, "utf8").trim() : "");
-          const auditOutput = read(process.env.AUDIT_OUTPUT_PATH);
-          const doctorOutput = read(process.env.DOCTOR_OUTPUT_PATH);
-          const score = process.env.READINESS_SCORE || "unknown";
-          const baseScore = process.env.BASE_READINESS_SCORE || "";
-          const delta =
-            score !== "unknown" && baseScore
-              ? Number(score) - Number(baseScore)
-              : null;
-          const deltaLine =
-            delta === null || Number.isNaN(delta)
-              ? "Readiness delta: unavailable"
-              : `Readiness delta: ${delta >= 0 ? "+" : ""}${delta} points`;
-          const driftLine =
-            process.env.DRIFT_DETECTED === "true"
-              ? "Generated context drift: detected"
-              : "Generated context drift: not detected";
-          const body = [
-            marker,
-            "## Open Maintainer",
-            "",
-            `Agent Readiness: ${score}/100`,
-            deltaLine,
-            driftLine,
-            "",
-            "<details>",
-            "<summary>Audit output</summary>",
-            "",
-            "```text",
-            auditOutput,
-            "```",
-            "</details>",
-            "",
-            "<details>",
-            "<summary>Context artifact check</summary>",
-            "",
-            "```text",
-            doctorOutput,
-            "```",
-            "</details>",
-          ].join("\n");
+          const summary = fs.readFileSync(process.env.SUMMARY_PATH, "utf8").trim();
+          const body = [marker, summary].join("\n");
           const { owner, repo } = context.repo;
           const issue_number = context.payload.pull_request.number;
           const comments = await github.rest.issues.listComments({
@@ -191,6 +327,90 @@ runs:
               body,
             });
           }
+    - name: Generate refresh artifacts
+      if: ${{ inputs.mode == 'refresh' }}
+      shell: bash
+      run: |
+        args=(
+          "generate"
+          "$GITHUB_WORKSPACE"
+          "--context"
+          "${{ inputs.context-target }}"
+          "--skills"
+          "${{ inputs.skills-target }}"
+        )
+        if [ "${{ inputs.generation-provider }}" = "deterministic" ]; then
+          args+=("--deterministic")
+        else
+          args+=("--model" "${{ inputs.generation-provider }}" "--allow-write")
+          if [ -n "${{ inputs.generation-model }}" ]; then
+            args+=("--llm-model" "${{ inputs.generation-model }}")
+          fi
+        fi
+        if [ "${{ inputs.force }}" = "true" ]; then
+          args+=("--force")
+        else
+          args+=("--refresh-generated")
+        fi
+        bun run --cwd "$GITHUB_ACTION_PATH" cli "${args[@]}"
+    - name: Open refresh pull request
+      id: refresh-pr
+      if: ${{ inputs.mode == 'refresh' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token || github.token }}
+      run: |
+        set -euo pipefail
+        branch_name="${{ inputs.refresh-branch }}"
+        title="${{ inputs.refresh-title }}"
+        base_branch="${{ github.event.repository.default_branch || github.ref_name }}"
+        body_path="$RUNNER_TEMP/open-maintainer-refresh-pr-body.md"
+        git config user.name "open-maintainer"
+        git config user.email "open-maintainer@users.noreply.github.com"
+        git checkout -B "$branch_name"
+        for artifact_path in \
+          AGENTS.md \
+          CLAUDE.md \
+          .github/copilot-instructions.md \
+          .cursor/rules/open-maintainer.mdc \
+          .agents/skills \
+          .claude/skills \
+          .open-maintainer/profile.json \
+          .open-maintainer/report.md \
+          .open-maintainer.yml; do
+          if [ -e "$artifact_path" ]; then
+            git add -- "$artifact_path"
+          fi
+        done
+        if git diff --cached --quiet; then
+          echo "No writable Open Maintainer context artifacts changed."
+          echo "pr-url=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        git commit -m "chore: refresh Open Maintainer context"
+        git push --force-with-lease origin "$branch_name"
+        {
+          echo "## Open Maintainer Context Refresh"
+          echo
+          echo "This pull request refreshes generated Open Maintainer context artifacts."
+          echo
+          echo "- Mode: ${{ inputs.mode }}"
+          echo "- Generation provider: ${{ inputs.generation-provider }}"
+          echo "- Maintainer-owned files preserved by default: ${{ inputs.force != 'true' }}"
+          echo
+          echo "### Audit Summary"
+          echo
+          cat "${{ steps.summary.outputs.summary-path }}"
+        } >"$body_path"
+        existing_url="$(gh pr list --head "$branch_name" --base "$base_branch" --state open --json url --jq '.[0].url // empty')"
+        if [ -n "$existing_url" ]; then
+          gh pr edit "$existing_url" --title "$title" --body-file "$body_path"
+          pr_url="$existing_url"
+        else
+          pr_url="$(gh pr create --base "$base_branch" --head "$branch_name" --title "$title" --body-file "$body_path")"
+        fi
+        echo "pr-url=$pr_url" >> "$GITHUB_OUTPUT"
+        echo "Refresh PR: $pr_url" >> "$GITHUB_STEP_SUMMARY"
     - name: Apply audit result
       shell: bash
       run: |

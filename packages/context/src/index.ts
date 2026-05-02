@@ -1582,10 +1582,14 @@ function compareContextArtifactDrift(
   if (stored.contextArtifactHashes.length === 0) {
     return [];
   }
+  const storedPaths = stored.contextArtifactHashes.map((item) => item.path);
+  const storedPathSet = new Set(storedPaths);
   return comparePathListDrift({
     group: "context",
-    storedPaths: stored.contextArtifactHashes.map((item) => item.path),
-    currentPaths: current.existingContextFiles.filter(isContextArtifactPath),
+    storedPaths,
+    currentPaths: current.existingContextFiles.filter((path) =>
+      storedPathSet.has(path),
+    ),
     storedHashes: stored.contextArtifactHashes,
     currentHashes: current.trackedFileHashes,
   });
@@ -1753,10 +1757,12 @@ function fingerprintableProfile(profile: RepoProfile) {
 export function planArtifactWrites(input: {
   artifacts: GeneratedArtifact[];
   existingPaths: Set<string>;
+  existingGeneratedPaths?: Set<string>;
   force?: boolean;
 }): ArtifactWritePlanItem[] {
   return input.artifacts.map((artifact) => {
     const exists = input.existingPaths.has(artifact.type);
+    const generated = input.existingGeneratedPaths?.has(artifact.type) ?? false;
     if (!exists) {
       return {
         artifact,
@@ -1773,11 +1779,20 @@ export function planArtifactWrites(input: {
         reason: "force enabled",
       };
     }
+    if (generated) {
+      return {
+        artifact,
+        path: artifact.type,
+        action: "overwrite",
+        reason: "existing generated file",
+      };
+    }
     return {
       artifact,
       path: artifact.type,
       action: "skip",
-      reason: "existing file preserved; rerun with --force to overwrite",
+      reason:
+        "existing maintainer-owned file preserved; rerun with --force to overwrite",
     };
   });
 }

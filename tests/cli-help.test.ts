@@ -55,6 +55,7 @@ describe("CLI help", () => {
     expect(result.stdout).toContain("--context codex|claude|both");
     expect(result.stdout).toContain("--skills codex|claude|both");
     expect(result.stdout).toContain("--allow-write");
+    expect(result.stdout).toContain("--refresh-generated");
   });
 
   it("rejects missing and invalid option values", async () => {

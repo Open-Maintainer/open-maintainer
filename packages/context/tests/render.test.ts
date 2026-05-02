@@ -5,10 +5,12 @@ import {
   buildArtifactSynthesisPrompt,
   buildRepoFactsSynthesisPrompt,
   buildSkillSynthesisPrompt,
+  compareProfileDrift,
   createContextArtifacts,
   parseModelArtifactContent,
   parseModelSkillContent,
   parseStructuredRepoFacts,
+  planArtifactWrites,
   profileFingerprint,
   renderAgentsMd,
   renderCopilotInstructions,
@@ -329,6 +331,63 @@ describe("context renderers", () => {
     expect(artifacts.map((artifact) => artifact.type)).toContain(
       ".open-maintainer/report.md",
     );
+  });
+
+  it("plans safe refreshes for generated files without overwriting maintainer-owned files", () => {
+    const [agentsArtifact, configArtifact] = createContextArtifacts({
+      repoId: "repo_1",
+      profile,
+      output: {
+        summary: "A repo.",
+        qualityRules: ["Use Bun."],
+        commands: ["test: bun test"],
+        notes: [],
+      },
+      modelProvider: "local",
+      model: "llama",
+      nextVersion: 1,
+      targets: ["agents", "config"],
+    });
+
+    const plan = planArtifactWrites({
+      artifacts: [agentsArtifact, configArtifact],
+      existingPaths: new Set(["AGENTS.md", ".open-maintainer.yml"]),
+      existingGeneratedPaths: new Set([".open-maintainer.yml"]),
+    });
+
+    expect(plan.map((item) => [item.path, item.action, item.reason])).toEqual([
+      [
+        "AGENTS.md",
+        "skip",
+        "existing maintainer-owned file preserved; rerun with --force to overwrite",
+      ],
+      [".open-maintainer.yml", "overwrite", "existing generated file"],
+    ]);
+  });
+
+  it("ignores context artifacts that were not fingerprinted in the stored profile", () => {
+    const stored = {
+      ...profile,
+      existingContextFiles: ["AGENTS.md"],
+      contextArtifactHashes: [{ path: "AGENTS.md", hash: "agents-hash" }],
+    };
+    const current = {
+      ...profile,
+      existingContextFiles: [
+        "AGENTS.md",
+        ".open-maintainer/profile.json",
+        ".open-maintainer/report.md",
+        ".agents/skills/tool-extra/SKILL.md",
+      ],
+      trackedFileHashes: [
+        { path: "AGENTS.md", hash: "agents-hash" },
+        { path: ".open-maintainer/profile.json", hash: "profile-hash" },
+        { path: ".open-maintainer/report.md", hash: "report-hash" },
+        { path: ".agents/skills/tool-extra/SKILL.md", hash: "extra-hash" },
+      ],
+    };
+
+    expect(compareProfileDrift({ stored, current })).toEqual([]);
   });
 
   it("uses model-generated artifact bodies when provided", () => {

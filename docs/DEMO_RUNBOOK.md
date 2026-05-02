@@ -26,8 +26,9 @@ Implemented and testable:
 - Drift explanations for commands, CI, docs, templates, context artifacts,
   lock/config files, package boundaries, and risk paths.
 - Dry-run context PR summary from the CLI.
-- GitHub Action audit mode with no default repository mutation, drift warnings,
-  optional failure on drift, and optional PR comments.
+- GitHub Action audit mode with no default repository mutation, Step Summary
+  output, drift warnings, optional failure on drift, optional PR comments,
+  scheduled stale-context checks, and opt-in refresh PRs.
 - Self-hosted dashboard foundation with API, worker, web, Postgres, Redis,
   provider setup, repository analysis, artifact preview, run history, and
   context PR plumbing.
@@ -385,7 +386,7 @@ bun test tests/cli-doctor.test.ts
 Those tests cover command, CI, docs, template, context artifact, lock/config,
 package-boundary, and risk-path drift.
 
-## GitHub Action Audit Mode
+## GitHub Action
 
 Validate the local action metadata and workflow behavior:
 
@@ -396,20 +397,34 @@ bun test tests/action-mvp.test.ts
 The action supports:
 
 - `mode: audit`
+- `mode: refresh`
 - `fail-on-score-below`
 - `report-path`
 - `fail-on-drift`
 - `comment-on-pr`
 - `github-token`
+- `generation-provider`
+- `generation-model`
+- `allow-model-content-transfer`
+- `context-target`
+- `skills-target`
+- `refresh-branch`
+- `refresh-title`
+- `force`
 
-Minimal workflow shape:
+Audit-only workflow shape:
 
 ```yaml
 name: Open Maintainer
 
 on:
   pull_request:
+  schedule:
+    - cron: "17 9 * * 1"
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   audit:
@@ -420,16 +435,80 @@ jobs:
         with:
           mode: audit
           fail-on-score-below: "60"
+          fail-on-drift: "true"
 ```
 
-Optional PR comments require write permission:
+Expected behavior:
+
+- `mode: audit` is non-mutating by default.
+- Every run writes a GitHub Step Summary with readiness, drift, changed surface,
+  likely tests, likely docs impact, missing validation evidence, and refresh
+  recommendation sections.
+- Pull request runs include a readiness delta when the base can be fetched.
+- Scheduled and manual runs do not require `github.event.pull_request` fields.
+- `fail-on-drift: "true"` fails scheduled stale-context checks when drift is
+  detected.
+
+Optional PR comments reuse the Step Summary body and require write permission:
 
 ```yaml
 permissions:
   contents: read
   issues: write
   pull-requests: read
+
+steps:
+  - uses: actions/checkout@v4
+  - uses: open-maintainer/action@v1
+    with:
+      mode: audit
+      comment-on-pr: "true"
 ```
+
+Opt-in deterministic refresh PRs require write permissions:
+
+```yaml
+permissions:
+  contents: write
+  pull-requests: write
+
+steps:
+  - uses: actions/checkout@v4
+  - uses: open-maintainer/action@v1
+    with:
+      mode: refresh
+      generation-provider: deterministic
+      context-target: codex
+      skills-target: codex
+```
+
+Expected refresh behavior:
+
+- No branch is pushed and no PR is opened unless `mode: refresh` is set.
+- The action never pushes to the default branch.
+- The default branch is `open-maintainer/context-refresh`.
+- Existing generated Open Maintainer files can be refreshed.
+- Existing maintainer-owned context files are preserved unless `force: "true"`
+  is set.
+- Repeated runs update the existing refresh PR for the branch.
+
+Model-backed refresh requires explicit provider selection and consent:
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+  - uses: open-maintainer/action@v1
+    with:
+      mode: refresh
+      generation-provider: codex
+      generation-model: gpt-5.3-codex
+      allow-model-content-transfer: "true"
+      context-target: both
+      skills-target: both
+```
+
+Without `allow-model-content-transfer: "true"`, `generation-provider: codex`
+or `generation-provider: claude` fails before generation starts.
 
 ## API, Providers, GitHub Helpers, And Context PRs
 

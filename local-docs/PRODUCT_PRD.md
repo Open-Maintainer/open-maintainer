@@ -357,11 +357,13 @@ Refresh PRs are allowed only when explicitly configured.
 
 Requirements:
 
-- explicit mode or `open-pr: true`
+- explicit `mode: refresh`
 - clear permissions documentation
-- predictable branch names
+- predictable `open-maintainer/context-refresh` branch by default
 - no default branch mutation
-- model-backed generation only after explicit provider/consent configuration
+- generated-file refresh without overwriting maintainer-owned context by default
+- model-backed generation only after explicit `generation-provider` and
+  `allow-model-content-transfer: "true"` configuration
 
 ### 10.3 PR Feedback
 

@@ -2,6 +2,8 @@ name: Open Maintainer Audit
 
 on:
   pull_request:
+  schedule:
+    - cron: "17 9 * * 1"
   workflow_dispatch:
 
 permissions:
@@ -20,4 +22,5 @@ jobs:
       - uses: ./
         with:
           mode: audit
+          fail-on-drift: "true"
           fail-on-score-below: "60"

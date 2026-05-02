@@ -252,6 +252,22 @@ describe("github helpers", () => {
               },
             };
           }
+          if (
+            input.path === ".open-maintainer.yml" &&
+            input.ref === branchName
+          ) {
+            return {
+              data: {
+                type: "file",
+                encoding: "base64",
+                content: Buffer.from(
+                  "generated:\n  by: open-maintainer\n  artifactVersion: 1\n",
+                ).toString("base64"),
+                size: 50,
+                sha: "config-existing-sha",
+              },
+            };
+          }
           throw notFound();
         },
         async createOrUpdateFileContents(input) {
@@ -343,6 +359,7 @@ describe("github helpers", () => {
       {
         path: ".open-maintainer.yml",
         branch: branchName,
+        sha: "config-existing-sha",
         content: Buffer.from("generated:\n  artifactVersion: 3\n").toString(
           "base64",
         ),

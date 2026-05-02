@@ -19,10 +19,13 @@ describe("GitHub Action MVP", () => {
     const steps = action.runs.steps;
 
     expect(action.name).toBe("Open Maintainer");
+    expect(action.inputs.mode.default).toBe("audit");
     expect(action.inputs["fail-on-score-below"].default).toBe("0");
     expect(action.inputs["report-path"].default).toBe(
       "$RUNNER_TEMP/open-maintainer-report.md",
     );
+    expect(action.inputs["generation-provider"].default).toBe("deterministic");
+    expect(action.inputs["allow-model-content-transfer"].default).toBe("false");
 
     expect(steps).toContainEqual(
       expect.objectContaining({
@@ -50,7 +53,7 @@ describe("GitHub Action MVP", () => {
     );
   });
 
-  it("detects drift and supports optional pull request comments", async () => {
+  it("detects drift and publishes summaries with optional pull request comments", async () => {
     const action = await readYaml("action.yml");
     const steps = action.runs.steps;
 
@@ -72,6 +75,16 @@ describe("GitHub Action MVP", () => {
         if: "${{ github.event_name == 'pull_request' }}",
       }),
     );
+    const summaryStep = steps.find(
+      (step: { name?: string }) => step.name === "Render action summary",
+    );
+    expect(summaryStep.run).toContain("$GITHUB_STEP_SUMMARY");
+    expect(summaryStep.run).toContain("### Changed Surface");
+    expect(summaryStep.run).toContain("### Likely Tests");
+    expect(summaryStep.run).toContain("### Docs Impact");
+    expect(summaryStep.run).toContain("### Missing Validation Evidence");
+    expect(summaryStep.run).toContain("### Refresh Recommendation");
+
     expect(steps).toContainEqual(
       expect.objectContaining({
         name: "Comment on pull request",
@@ -79,6 +92,35 @@ describe("GitHub Action MVP", () => {
         uses: "actions/github-script@v7",
       }),
     );
+  });
+
+  it("requires explicit refresh mode and model-backed consent before write paths", async () => {
+    const action = await readYaml("action.yml");
+    const steps = action.runs.steps;
+
+    const validateStep = steps.find(
+      (step: { name?: string }) => step.name === "Validate inputs",
+    );
+    expect(validateStep.run).toContain("audit|refresh");
+    expect(validateStep.run).toContain("Unsupported mode");
+    expect(validateStep.run).toContain(
+      "Model-backed refresh requires allow-model-content-transfer",
+    );
+
+    const refreshStep = steps.find(
+      (step: { name?: string }) => step.name === "Generate refresh artifacts",
+    );
+    expect(refreshStep.if).toBe("${{ inputs.mode == 'refresh' }}");
+    expect(refreshStep.run).toContain("--refresh-generated");
+    expect(refreshStep.run).toContain("--allow-write");
+
+    const prStep = steps.find(
+      (step: { name?: string }) => step.name === "Open refresh pull request",
+    );
+    expect(prStep.if).toBe("${{ inputs.mode == 'refresh' }}");
+    expect(prStep.run).toContain("git push --force-with-lease");
+    expect(prStep.run).toContain("gh pr create");
+    expect(prStep.run).not.toContain("git push origin main");
   });
 
   it("dogfoods the public workflow shape", async () => {
@@ -89,14 +131,17 @@ describe("GitHub Action MVP", () => {
 
     expect(workflow.on).toEqual({
       pull_request: null,
+      schedule: [{ cron: "17 9 * * 1" }],
       workflow_dispatch: null,
     });
+    expect(workflow.permissions).toEqual({ contents: "read" });
     expect(steps).toContainEqual({ uses: "actions/checkout@v4" });
     expect(steps).toContainEqual(
       expect.objectContaining({
         uses: "./",
         with: {
           mode: "audit",
+          "fail-on-drift": "true",
           "fail-on-score-below": "60",
         },
       }),
