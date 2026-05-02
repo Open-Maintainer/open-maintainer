@@ -447,7 +447,8 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                     />
                     <p className="muted">
                       Reviews use {selectedProvider.displayName} /{" "}
-                      {selectedProvider.model}.
+                      {selectedProvider.model}. PR numbers resolve review refs
+                      automatically when GitHub metadata is available.
                     </p>
                   </>
                 ) : (
@@ -460,7 +461,7 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
                 <input
                   id="baseRef"
                   name="baseRef"
-                  placeholder={repo.defaultBranch}
+                  placeholder={`optional, defaults to ${repo.defaultBranch}`}
                   type="text"
                 />
                 <label htmlFor="headRef">Head ref</label>

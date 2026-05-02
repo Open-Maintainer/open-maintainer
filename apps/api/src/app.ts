@@ -33,6 +33,7 @@ import { checkDatabase, checkRedis, store } from "@open-maintainer/db";
 import {
   createContextBranchName,
   createContextPr,
+  fetchPullRequestReviewContext,
   fetchRepositoryFilesForAnalysis,
   mapInstallationEvent,
   renderContextPrBody,
@@ -52,6 +53,7 @@ import {
   type Repo,
   type RepoProfile,
   ReviewFeedbackSchema,
+  type ReviewInput,
   newId,
   nowIso,
 } from "@open-maintainer/shared";
@@ -491,19 +493,6 @@ export function buildApp() {
     if (!repo) {
       return reply.code(404).send({ error: "Unknown repo." });
     }
-    const profile = store.latestProfile(repoId);
-    if (!profile) {
-      return reply.code(409).send({
-        error: "Run repository analysis before creating a PR review preview.",
-      });
-    }
-    const worktreeRoot = store.repoWorktrees.get(repoId);
-    if (!worktreeRoot) {
-      return reply.code(409).send({
-        error:
-          "Review preview requires a registered local repository worktree in this release.",
-      });
-    }
     const provider = body.providerId
       ? (store.providers.get(body.providerId) ?? null)
       : null;
@@ -524,13 +513,29 @@ export function buildApp() {
           error instanceof Error ? error.message : "Review generation blocked.",
       });
     }
-    const baseRef = body.baseRef ?? repo.defaultBranch;
-    const headRef = body.headRef ?? "HEAD";
+    const prepared = await prepareReviewPreviewInput({
+      repoId,
+      repo,
+      ...(body.baseRef ? { baseRef: body.baseRef } : {}),
+      ...(body.headRef ? { headRef: body.headRef } : {}),
+      ...(body.prNumber ? { prNumber: body.prNumber } : {}),
+    }).catch((error) => ({
+      ok: false as const,
+      statusCode: 422 as const,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unable to prepare PR review preview.",
+    }));
+    if (!prepared.ok) {
+      return reply.code(prepared.statusCode).send({ error: prepared.error });
+    }
+    const { profile, reviewInput } = prepared;
     const run = store.recordRun({
       repoId,
       type: "review",
       status: "running",
-      inputSummary: `Review ${repo.fullName} ${baseRef}...${headRef}.`,
+      inputSummary: `Review ${repo.fullName} ${reviewInput.baseRef}...${reviewInput.headRef}.`,
       safeMessage: null,
       artifactVersions: [],
       repoProfileVersion: profile.version,
@@ -539,28 +544,19 @@ export function buildApp() {
       externalId: null,
     });
     try {
-      const reviewInput = await assembleLocalReviewInput({
-        repoRoot: worktreeRoot,
-        repoId,
-        baseRef,
-        headRef,
-      });
       const review = await generateReview({
         profile,
-        input: {
-          ...reviewInput,
-          owner: repo.owner,
-          repo: repo.name,
-          prNumber: body.prNumber ?? null,
-        },
+        input: reviewInput,
         rules: profile.reviewRuleCandidates,
         providerConfig: provider,
-        provider: buildProvider(provider, { cwd: worktreeRoot }),
+        provider: buildProvider(provider, {
+          ...(prepared.worktreeRoot ? { cwd: prepared.worktreeRoot } : {}),
+        }),
       });
       store.reviews.set(review.id, review);
       store.updateRun(run.id, {
         status: "succeeded",
-        safeMessage: `Review preview generated for ${baseRef}...${headRef}.`,
+        safeMessage: `Review preview generated for ${reviewInput.baseRef}...${reviewInput.headRef}.`,
         externalId: review.id,
       });
       return { run: store.runs.get(run.id), review };
@@ -1233,6 +1229,189 @@ function pullRequestNumber(prUrl: string): number {
   return match ? Number.parseInt(match[1] ?? "0", 10) : 0;
 }
 
+async function prepareReviewPreviewInput(input: {
+  repoId: string;
+  repo: Repo;
+  baseRef?: string;
+  headRef?: string;
+  prNumber?: number;
+}): Promise<
+  | {
+      ok: true;
+      profile: RepoProfile;
+      reviewInput: ReviewInput;
+      worktreeRoot: string | null;
+    }
+  | { ok: false; statusCode: 409 | 422; error: string }
+> {
+  if (input.prNumber) {
+    const githubReviewInput = await githubReviewInputForPullRequest(input);
+    if (githubReviewInput) {
+      const profileResult = await latestOrCreateProfile({
+        repoId: input.repoId,
+        repo: input.repo,
+        ref: githubReviewInput.baseRef,
+      });
+      if (!profileResult.ok) {
+        return profileResult;
+      }
+      return {
+        ok: true,
+        profile: profileResult.profile,
+        reviewInput: githubReviewInput,
+        worktreeRoot: null,
+      };
+    }
+  }
+
+  const worktreeRoot = store.repoWorktrees.get(input.repoId);
+  if (!worktreeRoot) {
+    return {
+      ok: false,
+      statusCode: 409,
+      error: input.prNumber
+        ? "PR number review requires GitHub App credentials or a registered local repository worktree with gh available."
+        : "Review preview requires a registered local repository worktree in this release.",
+    };
+  }
+
+  const localPullRequest = input.prNumber
+    ? await localPullRequestMetadata({
+        worktreeRoot,
+        prNumber: input.prNumber,
+      }).catch(() => null)
+    : null;
+  const baseRef =
+    input.baseRef ?? localPullRequest?.baseRef ?? input.repo.defaultBranch;
+  const headRef = input.headRef ?? "HEAD";
+  const profileResult = await latestOrCreateProfile({
+    repoId: input.repoId,
+    repo: input.repo,
+  });
+  if (!profileResult.ok) {
+    return profileResult;
+  }
+  const localReviewInput = await assembleLocalReviewInput({
+    repoRoot: worktreeRoot,
+    repoId: input.repoId,
+    baseRef,
+    headRef,
+  });
+
+  return {
+    ok: true,
+    profile: profileResult.profile,
+    reviewInput: {
+      ...localReviewInput,
+      owner: input.repo.owner,
+      repo: input.repo.name,
+      prNumber: input.prNumber ?? null,
+      title: localPullRequest?.title ?? localReviewInput.title,
+      body: localPullRequest?.body ?? localReviewInput.body,
+      url: localPullRequest?.url ?? localReviewInput.url,
+      author: localPullRequest?.author ?? localReviewInput.author,
+    },
+    worktreeRoot,
+  };
+}
+
+async function githubReviewInputForPullRequest(input: {
+  repoId: string;
+  repo: Repo;
+  prNumber?: number;
+}): Promise<ReviewInput | null> {
+  if (!input.prNumber) {
+    return null;
+  }
+  const auth = githubAuthForInstallation(input.repo.installationId);
+  if (!auth) {
+    return null;
+  }
+  return fetchPullRequestReviewContext({
+    repoId: input.repoId,
+    owner: input.repo.owner,
+    repo: input.repo.name,
+    pullNumber: input.prNumber,
+    auth,
+  });
+}
+
+async function latestOrCreateProfile(input: {
+  repoId: string;
+  repo: Repo;
+  ref?: string;
+}): Promise<
+  | { ok: true; profile: RepoProfile }
+  | { ok: false; statusCode: 409; error: string }
+> {
+  const existing = store.latestProfile(input.repoId);
+  if (existing) {
+    return { ok: true, profile: existing };
+  }
+  const filesResult = await repositoryFilesForAnalysis(input);
+  if (!filesResult.ok) {
+    return { ok: false, statusCode: 409, error: filesResult.error };
+  }
+  const version = (store.profiles.get(input.repoId)?.length ?? 0) + 1;
+  const profile = analyzeRepo({
+    repoId: input.repoId,
+    owner: input.repo.owner,
+    name: input.repo.name,
+    defaultBranch: input.repo.defaultBranch,
+    version,
+    files: filesResult.files,
+  });
+  store.addProfile(profile);
+  store.recordRun({
+    repoId: input.repoId,
+    type: "analysis",
+    status: "succeeded",
+    inputSummary: `Analyze ${input.repo.fullName}`,
+    safeMessage: "Repository profile generated for PR review preview.",
+    artifactVersions: [],
+    repoProfileVersion: profile.version,
+    provider: null,
+    model: null,
+    externalId: null,
+  });
+  return { ok: true, profile };
+}
+
+async function localPullRequestMetadata(input: {
+  worktreeRoot: string;
+  prNumber: number;
+}): Promise<{
+  baseRef: string;
+  title: string | null;
+  body: string;
+  url: string | null;
+  author: string | null;
+}> {
+  const output = await runGh(input.worktreeRoot, [
+    "pr",
+    "view",
+    String(input.prNumber),
+    "--json",
+    "baseRefName,title,body,url,author",
+  ]);
+  const parsed = z
+    .object({
+      baseRefName: z.string().min(1),
+      title: z.string().nullable().optional(),
+      body: z.string().nullable().optional(),
+      url: z.string().url().nullable().optional(),
+      author: z.object({ login: z.string().nullable().optional() }).optional(),
+    })
+    .parse(JSON.parse(output));
+  return {
+    baseRef: parsed.baseRefName,
+    title: parsed.title ?? null,
+    body: parsed.body ?? "",
+    url: parsed.url ?? null,
+    author: parsed.author?.login ?? null,
+  };
+}
+
 function githubAuthForInstallation(
   installationId: string,
 ): GitHubAppInstallationAuth | null {
@@ -1251,6 +1430,7 @@ function githubAuthForInstallation(
 async function repositoryFilesForAnalysis(input: {
   repoId: string;
   repo: Repo;
+  ref?: string;
 }): Promise<
   | { ok: true; files: Array<{ path: string; content: string }> }
   | { ok: false; error: string }
@@ -1270,7 +1450,7 @@ async function repositoryFilesForAnalysis(input: {
   const fetched = await fetchRepositoryFilesForAnalysis({
     owner: input.repo.owner,
     repo: input.repo.name,
-    ref: input.repo.defaultBranch,
+    ref: input.ref ?? input.repo.defaultBranch,
     auth,
   });
   const files = fetched.files.map((file) => ({
