@@ -11,7 +11,7 @@ description: Use when preparing or reviewing pull requests in Open-Maintainer/op
 
 ## Do not use when
 - Implementing the change yourself; use `open-maintainer-start-task` first.
-- Only selecting final commands; use `open-maintainer-validation-testing`.
+- Only selecting final commands; use `open-maintainer-testing-workflow`.
 
 ## Read first
 - `AGENTS.md`.

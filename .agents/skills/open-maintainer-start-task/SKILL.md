@@ -11,7 +11,7 @@ description: Orient inside Open-Maintainer/open-maintainer before making a bound
 
 ## Do not use when
 - Reviewing an existing PR; use `open-maintainer-pr-review`.
-- Only selecting final checks; use `open-maintainer-validation-testing`.
+- Only selecting final checks; use `open-maintainer-testing-workflow`.
 - Release publishing, deployment, ownership routing, or database migration process is needed; Not detected in provided evidence.
 
 ## Read first

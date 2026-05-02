@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_833730d7-7e60-4eaf-be19-3fbafdf0305c",
+  "id": "repo_profile_7c9507b0-dfa3-4212-8775-fa57e187f7f5",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -233,12 +233,12 @@
   ],
   "generatedFilePaths": [
     ".agents/skills/open-maintainer-start-task/SKILL.md",
-    ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
     ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
     "AGENTS.md",
     "CONTRIBUTING.md",
     "apps/web/next-env.d.ts",
-    "packages/analyzer/tests/analyzer.test.ts"
+    "packages/analyzer/tests/analyzer.test.ts",
+    "tests/cli-doctor.test.ts"
   ],
   "existingContextFiles": [
     ".agents/skills/open-maintainer-pr-review/SKILL.md",
@@ -249,7 +249,6 @@
     ".agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md",
     ".agents/skills/open-maintainer-update-github-action-audit/SKILL.md",
     ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
-    ".agents/skills/open-maintainer-validation-testing/SKILL.md",
     ".open-maintainer.yml",
     ".open-maintainer/profile.json",
     ".open-maintainer/report.md",
@@ -571,10 +570,6 @@
       "reason": "detected repository context"
     },
     {
-      "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
-      "reason": "detected repository context"
-    },
-    {
       "path": ".open-maintainer.yml",
       "reason": "detected repository context"
     },
@@ -683,6 +678,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "tests/cli-doctor.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": ".dockerignore",
       "reason": "detected repository context"
     },
@@ -744,10 +743,6 @@
     },
     {
       "path": "tests/cli-audit.test.ts",
-      "reason": "detected repository context"
-    },
-    {
-      "path": "tests/cli-doctor.test.ts",
       "reason": "detected repository context"
     },
     {
@@ -922,15 +917,15 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "e2527b2adc51f772"
+      "hash": "ea9559bc7315c4a8"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "bddc8ab1f7632594"
+      "hash": "4957bb41d71d7bc8"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "b8e1cd600687042c"
+      "hash": "4b59bb0801834475"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
@@ -938,7 +933,7 @@
     },
     {
       "path": ".agents/skills/open-maintainer-update-cli-generation/SKILL.md",
-      "hash": "924f7c16028be3f5"
+      "hash": "6482bb068f03c708"
     },
     {
       "path": ".agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md",
@@ -951,10 +946,6 @@
     {
       "path": ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
       "hash": "7d22fc6a07d58b06"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
-      "hash": "be8e073e1c6b009c"
     },
     {
       "path": ".dockerignore",
@@ -994,11 +985,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "f2773a5592774f98"
+      "hash": "bb0eb5f2655b3a6d"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "4d7b8127725622a2"
+      "hash": "2c68c454a4bd14ce"
     },
     {
       "path": "AGENTS.md",
@@ -1206,7 +1197,7 @@
     },
     {
       "path": "tests/cli-doctor.test.ts",
-      "hash": "e1b254b34109dff5"
+      "hash": "464da56f3a18bc2d"
     },
     {
       "path": "tests/cli-help.test.ts",
@@ -1394,7 +1385,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-02T07:29:31.176Z",
+  "createdAt": "2026-05-02T07:49:28.180Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1741,6 +1732,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "tests/cli-doctor.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/fixtures/high-readiness-ts/.gitignore",
             "reason": "detected repository context"
           },
@@ -1794,10 +1789,6 @@
           },
           {
             "path": "tests/cli-audit.test.ts",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "tests/cli-doctor.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2049,6 +2040,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "tests/cli-doctor.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/fixtures/high-readiness-ts/.gitignore",
             "reason": "detected repository context"
           },
@@ -2102,10 +2097,6 @@
           },
           {
             "path": "tests/cli-audit.test.ts",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "tests/cli-doctor.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2485,10 +2476,6 @@
             "reason": "detected repository context"
           },
           {
-            "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
-            "reason": "detected repository context"
-          },
-          {
             "path": ".open-maintainer.yml",
             "reason": "detected repository context"
           },
@@ -2510,6 +2497,10 @@
           },
           {
             "path": "packages/analyzer/tests/analyzer.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/cli-doctor.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2569,10 +2560,6 @@
             "reason": "detected repository context"
           },
           {
-            "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
-            "reason": "detected repository context"
-          },
-          {
             "path": ".open-maintainer.yml",
             "reason": "detected repository context"
           },
@@ -2592,7 +2579,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T07:29:31.177Z"
+    "generatedAt": "2026-05-02T07:49:28.181Z"
   },
-  "openMaintainerProfileHash": "3e9aced7478a614d"
+  "openMaintainerProfileHash": "7cd8265d91ffc8d7"
 }

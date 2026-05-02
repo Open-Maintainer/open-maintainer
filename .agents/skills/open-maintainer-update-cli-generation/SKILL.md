@@ -12,7 +12,7 @@ description: Use when changing the Bun CLI audit, generate, init, doctor, PR, re
 
 ## Do not use when
 - The change is only dashboard/API behavior with no CLI contract change.
-- The task is only to run validation; use `open-maintainer-validation-testing`.
+- The task is only to run validation; use `open-maintainer-testing-workflow`.
 
 ## Read first
 - `AGENTS.md`.
