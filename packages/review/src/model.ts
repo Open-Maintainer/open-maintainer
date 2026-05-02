@@ -476,6 +476,9 @@ export function buildReviewPrompt(input: {
       "- GitHub mergeStateStatus=BLOCKED can mean required review is pending; treat it as blocking ready_for_review only when paired with failed/pending checks, draft status, merge conflicts, dirty merge state, or requested changes.",
       "- Do not assign ready_for_review when GitHub PR state says the PR is draft, has merge conflicts, has a dirty merge state, has changes requested, or has failed/pending checks.",
       "- Do not collapse every blocked or imperfect PR into needs_author_input; choose the most specific category below.",
+      "- Failed checks block ready_for_review, but they do not automatically decide the replacement category.",
+      "- When a PR has failed checks, still classify the primary contribution problem: missing author information, maintainer design decision, automation/agent unsafety, or spam-like noise.",
+      "- A failed Open Maintainer audit/doctor drift check on a docs-only PR is usually an author follow-up to refresh or explain generated context, not automatically not_agent_ready.",
       "- Do not include a numeric quality score.",
       "- Do not produce issue labels, issue comments, duplicate issue handling, stale handling, auto-close, or agent task briefs.",
       "",
@@ -483,7 +486,7 @@ export function buildReviewPrompt(input: {
       "- ready_for_review: clear intent, bounded diff, enough validation evidence or passing checks for the changed surface, and no objective blocker. REVIEW_REQUIRED or mergeStateStatus=BLOCKED from pending human review alone is compatible with ready_for_review.",
       "- needs_author_input: the primary blocker is missing or unclear author-supplied information, such as no acceptance criteria, no reproduction, unclear intent, missing validation evidence, or an unexplained standalone change.",
       "- needs_maintainer_design: the primary blocker is a maintainer-owned product, architecture, governance, permission, workflow, or policy decision rather than missing author detail.",
-      "- not_agent_ready: the PR has objective execution or automation blockers such as draft status, merge conflicts, dirty merge state, failed/pending checks, broken tests/builds, or high-risk CI/release/dependency/security/generated-file changes that are not safe for agent handoff.",
+      "- not_agent_ready: the PR has objective execution or automation blockers such as draft status, merge conflicts, dirty merge state, broken tests/builds/typechecks, failed non-audit CI, or high-risk CI/release/dependency/security/generated-file changes that are not safe for agent handoff.",
       "- possible_spam: the PR is low-context, promotional, irrelevant, nonspecific, or asks for fast merge without a repository-specific problem, acceptance criteria, or useful validation.",
       "- Category priority when multiple signals apply: possible_spam, needs_maintainer_design, not_agent_ready, needs_author_input, ready_for_review.",
       "",
@@ -673,7 +676,7 @@ export function buildReviewPrompt(input: {
             needs_maintainer_design:
               "Use when the primary blocker is a maintainer-owned product, architecture, governance, permission, workflow, or policy decision.",
             not_agent_ready:
-              "Use when objective execution or automation blockers exist: draft status, merge conflicts, dirty merge state, failed/pending checks, broken tests/builds, or high-risk CI/release/dependency/security/generated-file changes unsafe for agent handoff.",
+              "Use when objective execution or automation blockers exist: draft status, merge conflicts, dirty merge state, broken tests/builds/typechecks, failed non-audit CI, or high-risk CI/release/dependency/security/generated-file changes unsafe for agent handoff.",
             possible_spam:
               "Use when the PR is low-context, promotional, irrelevant, nonspecific, or asks for fast merge without a repository-specific problem, acceptance criteria, or useful validation.",
           },
@@ -684,6 +687,8 @@ export function buildReviewPrompt(input: {
             "Do not treat reviewDecision=REVIEW_REQUIRED as an author-input problem; that is normal before human review.",
             "Do not treat mergeStateStatus=BLOCKED as an author-input problem unless the evidence also shows failed/pending checks, draft status, merge conflicts, dirty merge state, or requested changes.",
             "Do not return ready_for_review if contributionTriageEvidence or checkStatuses show draft status, merge conflicts, dirty merge state, changes requested, failed checks, or pending checks.",
+            "Do not make every failed-check PR not_agent_ready; classify the primary problem and include failed checks in requiredActions.",
+            "For docs-only PRs where the only failed check is Open Maintainer audit/doctor drift, prefer needs_author_input unless the content primarily needs maintainer design.",
             "Choose the most specific category using this priority: possible_spam, needs_maintainer_design, not_agent_ready, needs_author_input, ready_for_review.",
             "Do not include numeric quality scores.",
             "Do not infer whether the author used AI.",

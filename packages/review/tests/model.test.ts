@@ -160,6 +160,9 @@ describe("model-backed review", () => {
       "Contribution triage answers what a maintainer should do before spending normal human review attention",
     );
     expect(prompt.system).toContain("possible_spam, needs_maintainer_design");
+    expect(prompt.system).toContain(
+      "Failed checks block ready_for_review, but they do not automatically decide the replacement category",
+    );
     expect(prompt.user).toContain("packages/review/src/model.ts");
     expect(prompt.user).toContain("Provider output must cite evidence.");
     expect(prompt.user).toContain("contributionTriageEvidence");
@@ -174,6 +177,9 @@ describe("model-backed review", () => {
     expect(prompt.user).toContain("Classify readiness for human review");
     expect(prompt.user).toContain(
       "Do not treat reviewDecision=REVIEW_REQUIRED as an author-input problem",
+    );
+    expect(prompt.user).toContain(
+      "For docs-only PRs where the only failed check is Open Maintainer audit/doctor drift",
     );
     expect(prompt.user).toContain("needs_maintainer_design");
   });
