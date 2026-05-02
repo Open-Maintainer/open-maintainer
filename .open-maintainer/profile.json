@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_55b4cbd0-dd03-4911-89de-8abc2d6195d3",
+  "id": "repo_profile_d7a70195-e491-4d5b-b25b-6d204cd0f5b0",
   "repoId": "local",
   "version": 1,
   "owner": "source",
@@ -883,15 +883,15 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "9b288296d45045c1"
+      "hash": "956bd344369c45da"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "ded59ed2dd0f5921"
+      "hash": "a0516c194270d0aa"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "85fa1f51857790cb"
+      "hash": "ccd7a5eee2be25ec"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
@@ -951,11 +951,11 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "cd680210e447a8c4"
+      "hash": "49fea9bc9e921828"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "3d53451b85bc345e"
+      "hash": "6dc77734632f09d0"
     },
     {
       "path": ".open-maintainer/report.md",
@@ -963,7 +963,7 @@
     },
     {
       "path": "AGENTS.md",
-      "hash": "a2407492b6fd0d8d"
+      "hash": "c7955aca3cbbeccd"
     },
     {
       "path": "apps/api/package.json",
@@ -1035,7 +1035,7 @@
     },
     {
       "path": "docs/V0_3_RELEASE_REVIEW.md",
-      "hash": "720040305c8c6f03"
+      "hash": "86aec926e4d7046f"
     },
     {
       "path": "local-docs/MVP_IMPLEMENTATION_PLAN.md",
@@ -1333,26 +1333,26 @@
   "contextArtifactHashes": [
     {
       "path": "AGENTS.md",
-      "hash": "a2407492b6fd0d8d"
+      "hash": "c7955aca3cbbeccd"
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "a39bdc0df9babbd2"
+      "hash": "6c84b396d9edb72b"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "ded59ed2dd0f5921"
+      "hash": "a0516c194270d0aa"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "85fa1f51857790cb"
+      "hash": "ccd7a5eee2be25ec"
     },
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "9b288296d45045c1"
+      "hash": "956bd344369c45da"
     }
   ],
-  "createdAt": "2026-05-02T01:01:13.746Z",
+  "createdAt": "2026-05-02T01:02:10.722Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2506,7 +2506,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T01:01:13.747Z"
+    "generatedAt": "2026-05-02T01:02:10.723Z"
   },
-  "openMaintainerProfileHash": "bf3baba0aee6aca3"
+  "openMaintainerProfileHash": "0c25dce66f3ed1c6"
 }
