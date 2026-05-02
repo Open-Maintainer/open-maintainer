@@ -359,3 +359,5 @@ bun run smoke:compose
 
 The human release-readiness packet lives in `docs/MVP_RELEASE_REVIEW.md`.
 The v0.4 release-readiness packet lives in `docs/V0_4_RELEASE_REVIEW.md`.
+
+Great tool please merge this update.
