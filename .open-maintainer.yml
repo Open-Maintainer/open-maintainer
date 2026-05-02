@@ -1,17 +1,16 @@
 version: 1
 repo:
   profileVersion: 1
-  defaultBranch: open-maintainer/mvp-issues-11-23
+  defaultBranch: main
 rules:
   - Use bun for dependency and script commands.
-  - Run `bun run --cwd apps/api build` before finishing changes that affect
-    build.
-  - Run `bun run --cwd apps/cli build` before finishing changes that affect
-    build.
-  - Run `bun run --cwd apps/web build` before finishing changes that affect
-    build.
-  - Run `bun run --cwd apps/worker build` before finishing changes that affect
-    build.
+  - Run `cd apps/api && tsc -p tsconfig.json` before finishing changes that
+    affect build.
+  - Run `cd apps/cli && tsc -p tsconfig.json` before finishing changes that
+    affect build.
+  - Run `cd apps/web && next build` before finishing changes that affect build.
+  - Run `cd apps/worker && tsc -p tsconfig.json` before finishing changes that
+    affect build.
   - Run `biome check .` before finishing changes that affect lint.
   - Run `tsc -b` before finishing changes that affect typecheck.
   - Run `vitest run` before finishing changes that affect test.
@@ -21,66 +20,41 @@ rules:
     build && bun run --cwd packages/context build && bun run --cwd apps/cli
     build && bun run --cwd apps/api build && bun run --cwd apps/worker build &&
     bun run --cwd apps/web build` before finishing changes that affect build.
-  - Run `bun run --cwd packages/ai build` before finishing changes that affect
-    build.
-  - Run `bun run --cwd packages/analyzer build` before finishing changes that
+  - Run `cd packages/ai && tsc -p tsconfig.json` before finishing changes that
     affect build.
-  - Run `bun run --cwd packages/config build` before finishing changes that
+  - Run `cd packages/analyzer && tsc -p tsconfig.json` before finishing changes
+    that affect build.
+  - Run `cd packages/config && tsc -p tsconfig.json` before finishing changes
+    that affect build.
+  - Run `cd packages/context && tsc -p tsconfig.json` before finishing changes
+    that affect build.
+  - Run `cd packages/db && tsc -p tsconfig.json` before finishing changes that
     affect build.
-  - Run `bun run --cwd packages/context build` before finishing changes that
-    affect build.
-  - Run `bun run --cwd packages/db build` before finishing changes that affect
-    build.
-  - Run `bun run --cwd packages/github build` before finishing changes that
-    affect build.
-  - Run `bun run --cwd packages/shared build` before finishing changes that
-    affect build.
-  - Run `bun run --cwd tests/fixtures/low-context-ts test` before finishing
+  - Run `cd packages/github && tsc -p tsconfig.json` before finishing changes
+    that affect build.
+  - Run `cd packages/shared && tsc -p tsconfig.json` before finishing changes
+    that affect build.
+  - Run `cd tests/fixtures/high-readiness-ts && vitest run` before finishing
     changes that affect test.
-  - Run `bun run --cwd tests/fixtures/low-context-ts build` before finishing
-    changes that affect build.
-  - Run `bun run --cwd tests/fixtures/low-context-ts lint` before finishing
+  - Run `cd tests/fixtures/high-readiness-ts && biome check .` before finishing
     changes that affect lint.
-  - Run `bun run --cwd tests/fixtures/with-context test` before finishing
+  - Run `cd tests/fixtures/high-readiness-ts && tsc -b` before finishing changes
+    that affect build.
+  - Run `cd tests/fixtures/low-context-ts && vitest run` before finishing
     changes that affect test.
-  - Read the target file and at least one related caller, test, type definition,
-    or user-facing doc before editing.
-  - Make the smallest bounded change that addresses the issue.
-  - Add or update tests when behavior, generated output, API contracts, consent
-    gates, webhook handling, or context PR behavior changes.
-  - Update docs when CLI flags, generated outputs, setup, dashboard behavior,
-    GitHub Action behavior, Docker Compose wiring, or smoke gates change.
-  - Include validation commands run in PR notes and mention skipped checks with
-    the reason.
-  - Avoid unrelated formatting, dependency churn, lockfile churn, generated-file
-    updates, or public behavior changes outside the requested scope.
-  - "Safe edit zone: Changes should remain scoped to the app or package boundary
-    being worked on."
-  - "Safe edit zone: Narrow scoped checks are acceptable while iterating."
-  - "Safe edit zone: App and package TypeScript source files are normal
-    implementation surfaces when paired with relevant tests and checks."
-  - "Use caution: Behavior, generated output, API contracts, consent gates,
-    webhook handling, or context PR behavior changes should add or update
-    tests."
-  - "Use caution: CLI flags, generated outputs, setup, dashboard behavior,
-    GitHub Action behavior, Docker Compose wiring, or smoke gate changes should
-    update docs."
-  - "Use caution: GitHub App credentials, webhook verification,
-    repository-content transfer to providers, context PR writes, Docker Compose
-    service wiring, and lockfiles are high-risk changes."
-  - "Use caution: Existing generated context files are preserved by default and
-    `--force` is only for intentional overwrites."
-  - "Use caution: Repository content must not be sent to model-backed generation
-    without explicit consent such as `--allow-write`."
-  - "Do not edit without explicit instruction: Do not edit
-    `apps/web/next-env.d.ts`; it is generated by Next.js."
-  - "Do not edit without explicit instruction: Avoid unrelated formatting,
-    dependency churn, lockfile churn, generated-file updates, or public behavior
-    changes outside the requested scope."
-  - "Do not edit without explicit instruction: Do not send repository content to
-    model-backed generation unless the command includes explicit consent such as
-    `--allow-write`."
+  - Run `cd tests/fixtures/low-context-ts && tsc -b` before finishing changes
+    that affect build.
+  - Run `cd tests/fixtures/low-context-ts && biome check .` before finishing
+    changes that affect lint.
+  - Run `cd tests/fixtures/missing-context-ts && vitest run` before finishing
+    changes that affect test.
+  - Run `cd tests/fixtures/missing-context-ts && biome check .` before finishing
+    changes that affect lint.
+  - Run `cd tests/fixtures/missing-context-ts && tsc -b` before finishing
+    changes that affect build.
+  - Run `cd tests/fixtures/with-context && vitest run` before finishing changes
+    that affect test.
 generated:
   by: open-maintainer
   artifactVersion: 2
-  generatedAt: 2026-05-01T08:14:05.440Z
+  generatedAt: 2026-05-02T00:12:06.674Z

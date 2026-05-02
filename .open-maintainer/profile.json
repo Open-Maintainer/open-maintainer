@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_5a5db02e-3448-4ff8-aa73-a213b0238737",
+  "id": "repo_profile_bd688808-3ea2-4995-bbc1-7b3c290f2f35",
   "repoId": "local",
   "version": 1,
   "owner": "source",
@@ -55,6 +55,11 @@
     {
       "name": "lint",
       "command": "biome check .",
+      "source": "package.json"
+    },
+    {
+      "name": "format",
+      "command": "biome format --write .",
       "source": "package.json"
     },
     {
@@ -222,7 +227,9 @@
     ".open-maintainer.yml"
   ],
   "generatedFilePaths": [
+    ".agents/skills/open-maintainer-pr-review/SKILL.md",
     ".agents/skills/open-maintainer-start-task/SKILL.md",
+    ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
     ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
     "AGENTS.md",
     "CONTRIBUTING.md",
@@ -232,6 +239,7 @@
   "existingContextFiles": [
     ".agents/skills/open-maintainer-pr-review/SKILL.md",
     ".agents/skills/open-maintainer-start-task/SKILL.md",
+    ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
     ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
     ".agents/skills/open-maintainer-update-cli-generation/SKILL.md",
     ".agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md",
@@ -513,6 +521,10 @@
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
       "reason": "detected repository context"
     },
     {
@@ -854,11 +866,15 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "d8adcbdb3ea66bc5"
+      "hash": "a7e3f7e091b4ec3e"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "3290b898f1db3b14"
+      "hash": "2c46029e336945f1"
+    },
+    {
+      "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
+      "hash": "1ceafc9c927e26e4"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
@@ -918,19 +934,19 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "a2c89879339271e5"
+      "hash": "e43acb30e180fd5b"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "fba21892be978d91"
+      "hash": "bd5e1bce147b401d"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "b912e8c62e133b3a"
+      "hash": "ff991f68306ead10"
     },
     {
       "path": "AGENTS.md",
-      "hash": "576aee6a521065da"
+      "hash": "1c337bfcf7db017b"
     },
     {
       "path": "apps/api/package.json",
@@ -994,7 +1010,7 @@
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
-      "hash": "01c1cbe4d0e913f7"
+      "hash": "c4ee7484292ced7d"
     },
     {
       "path": "docs/ROADMAP.md",
@@ -1018,7 +1034,7 @@
     },
     {
       "path": "package.json",
-      "hash": "7c35f68aec866a2e"
+      "hash": "a52c1d0be8a5ed54"
     },
     {
       "path": "packages/ai/package.json",
@@ -1290,7 +1306,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-01T23:34:13.258Z",
+  "createdAt": "2026-05-02T00:12:06.778Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2285,6 +2301,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
             "reason": "detected repository context"
           },
@@ -2365,6 +2385,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
             "reason": "detected repository context"
           },
@@ -2408,7 +2432,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-01T23:34:13.258Z"
+    "generatedAt": "2026-05-02T00:12:06.779Z"
   },
-  "openMaintainerProfileHash": "1b350b7b2924a1fb"
+  "openMaintainerProfileHash": "faddd7aa612a49d7"
 }

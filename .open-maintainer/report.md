@@ -265,6 +265,7 @@ Agent Readiness: 100/100
 - Evidence: CONTRIBUTING.md (detected repository context)
 - Evidence: .agents/skills/open-maintainer-pr-review/SKILL.md (detected repository context)
 - Evidence: .agents/skills/open-maintainer-start-task/SKILL.md (detected repository context)
+- Evidence: .agents/skills/open-maintainer-testing-workflow/SKILL.md (detected repository context)
 - Evidence: .agents/skills/open-maintainer-update-api-github-flow/SKILL.md (detected repository context)
 - Evidence: .agents/skills/open-maintainer-update-cli-generation/SKILL.md (detected repository context)
 - Evidence: .agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md (detected repository context)
@@ -287,6 +288,7 @@ Agent Readiness: 100/100
 - No missing items detected.
 - Evidence: .agents/skills/open-maintainer-pr-review/SKILL.md (detected repository context)
 - Evidence: .agents/skills/open-maintainer-start-task/SKILL.md (detected repository context)
+- Evidence: .agents/skills/open-maintainer-testing-workflow/SKILL.md (detected repository context)
 - Evidence: .agents/skills/open-maintainer-update-api-github-flow/SKILL.md (detected repository context)
 - Evidence: .agents/skills/open-maintainer-update-cli-generation/SKILL.md (detected repository context)
 - Evidence: .agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md (detected repository context)
@@ -298,10 +300,6 @@ Agent Readiness: 100/100
 - Evidence: .open-maintainer/report.md (detected repository context)
 - Evidence: AGENTS.md (detected repository context)
 
-## Drift
-
-- Documentation: docs/DEMO_RUNBOOK.md was changed. Evidence: docs/DEMO_RUNBOOK.md. Next action: review generated context against the changed docs.
-
 ## Commands
 
 - dev: cd apps/api && bun --watch src/server.ts (apps/api/package.json)
@@ -312,6 +310,7 @@ Agent Readiness: 100/100
 - dev: cd apps/worker && bun --watch src/worker.ts (apps/worker/package.json)
 - build: cd apps/worker && tsc -p tsconfig.json (apps/worker/package.json)
 - lint: biome check . (package.json)
+- format: biome format --write . (package.json)
 - typecheck: tsc -b (package.json)
 - test: vitest run (package.json)
 - build: bun run --cwd packages/shared build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/ai build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build (package.json)
