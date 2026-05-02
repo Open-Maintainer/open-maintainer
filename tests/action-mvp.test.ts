@@ -84,12 +84,16 @@ describe("GitHub Action MVP", () => {
     expect(summaryStep.run).toContain("### Docs Impact");
     expect(summaryStep.run).toContain("### Missing Validation Evidence");
     expect(summaryStep.run).toContain("### Refresh Recommendation");
+    expect(summaryStep.run).toContain(
+      "bun run cli generate . --deterministic --context codex --skills codex --refresh-generated",
+    );
+    expect(summaryStep.run).toContain("bun run cli doctor .");
 
     expect(steps).toContainEqual(
       expect.objectContaining({
         name: "Comment on pull request",
         if: "${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}",
-        uses: "actions/github-script@v7",
+        uses: "actions/github-script@v8",
       }),
     );
   });
@@ -135,7 +139,7 @@ describe("GitHub Action MVP", () => {
       workflow_dispatch: null,
     });
     expect(workflow.permissions).toEqual({ contents: "read" });
-    expect(steps).toContainEqual({ uses: "actions/checkout@v4" });
+    expect(steps).toContainEqual({ uses: "actions/checkout@v6" });
     expect(steps).toContainEqual(
       expect.objectContaining({
         uses: "./",

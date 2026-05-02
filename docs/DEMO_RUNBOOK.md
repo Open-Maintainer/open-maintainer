@@ -430,7 +430,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: open-maintainer/action@v1
         with:
           mode: audit
@@ -458,7 +458,7 @@ permissions:
   pull-requests: read
 
 steps:
-  - uses: actions/checkout@v4
+  - uses: actions/checkout@v6
   - uses: open-maintainer/action@v1
     with:
       mode: audit
@@ -473,7 +473,7 @@ permissions:
   pull-requests: write
 
 steps:
-  - uses: actions/checkout@v4
+  - uses: actions/checkout@v6
   - uses: open-maintainer/action@v1
     with:
       mode: refresh
@@ -496,7 +496,7 @@ Model-backed refresh requires explicit provider selection and consent:
 
 ```yaml
 steps:
-  - uses: actions/checkout@v4
+  - uses: actions/checkout@v6
   - uses: open-maintainer/action@v1
     with:
       mode: refresh

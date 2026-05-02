@@ -113,7 +113,7 @@ jobs:
   audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: open-maintainer/action@v1
         with:
           mode: audit
@@ -142,7 +142,7 @@ permissions:
   pull-requests: read
 
 steps:
-  - uses: actions/checkout@v4
+  - uses: actions/checkout@v6
   - uses: open-maintainer/action@v1
     with:
       mode: audit
@@ -158,7 +158,7 @@ permissions:
   pull-requests: write
 
 steps:
-  - uses: actions/checkout@v4
+  - uses: actions/checkout@v6
   - uses: open-maintainer/action@v1
     with:
       mode: refresh
@@ -171,7 +171,7 @@ Model-backed refresh can send repository content to a local CLI provider and the
 
 ```yaml
 steps:
-  - uses: actions/checkout@v4
+  - uses: actions/checkout@v6
   - uses: open-maintainer/action@v1
     with:
       mode: refresh

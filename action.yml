@@ -258,7 +258,15 @@ runs:
           "",
           "### Refresh Recommendation",
           refreshNeeded
-            ? "- Run `mode: refresh` with the required permissions to open or update a context refresh PR."
+            ? [
+                "- Local fix:",
+                "  ```sh",
+                "  bun run cli generate . --deterministic --context codex --skills codex --refresh-generated",
+                "  bun run cli doctor .",
+                "  ```",
+                "- Commit the refreshed Open Maintainer artifacts.",
+                "- Or run this action with `mode: refresh`, `contents: write`, and `pull-requests: write` to open or update a context refresh PR.",
+              ].join("\n")
             : "- No context refresh is recommended by the current audit.",
           "",
           "<details>",
@@ -291,7 +299,7 @@ runs:
         echo "summary-path=$summary_path" >> "$GITHUB_OUTPUT"
     - name: Comment on pull request
       if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
-      uses: actions/github-script@v7
+      uses: actions/github-script@v8
       env:
         SUMMARY_PATH: ${{ steps.summary.outputs.summary-path }}
       with:

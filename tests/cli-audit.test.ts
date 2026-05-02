@@ -1,8 +1,12 @@
+import { execFile } from "node:child_process";
 import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+
+const execFileAsync = promisify(execFile);
 
 const repoRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -81,6 +85,37 @@ describe("CLI audit", () => {
     ) as { existingContextFiles: string[] };
     expect(profile.existingContextFiles).toContain("AGENTS.md");
     expect(profile.existingContextFiles).toContain(".open-maintainer.yml");
+  });
+
+  it("uses Git remote identity instead of checkout path identity", async () => {
+    const workdir = await mkdtemp(
+      path.join(tmpdir(), "open-maintainer-identity-"),
+    );
+    await cp(fixtureRoot, workdir, { recursive: true });
+    await execFileAsync("git", ["init"], { cwd: workdir });
+    await execFileAsync(
+      "git",
+      [
+        "remote",
+        "add",
+        "origin",
+        "https://github.com/Open-Maintainer/open-maintainer.git",
+      ],
+      { cwd: workdir },
+    );
+    await execFileAsync("git", ["add", "."], { cwd: workdir });
+
+    const result = await runCli(["audit", workdir]);
+
+    expect(result.exitCode).toBe(0);
+    const profile = JSON.parse(
+      await readFile(
+        path.join(workdir, ".open-maintainer/profile.json"),
+        "utf8",
+      ),
+    ) as { owner: string; name: string };
+    expect(profile.owner).toBe("Open-Maintainer");
+    expect(profile.name).toBe("open-maintainer");
   });
 
   it("refreshes generated context while preserving maintainer-owned files", async () => {

@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
+import { execFile } from "node:child_process";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import {
   buildClaudeCliProvider,
   buildCodexCliProvider,
@@ -46,6 +48,8 @@ type CliOptions = {
 };
 
 type ArtifactSelection = "codex" | "claude" | "both";
+
+const execFileAsync = promisify(execFile);
 
 const rootUsage = `open-maintainer <command> <repo>
 
@@ -281,7 +285,7 @@ async function audit(
 
 async function generate(repoRoot: string, options: CliOptions): Promise<void> {
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
-  const profile = createProfileFromFiles(repoRoot, files);
+  const profile = await createProfileFromFiles(repoRoot, files);
   const targets = resolveTargets(options);
   if (!options.model && !options.deterministic) {
     throw new Error(
@@ -491,18 +495,82 @@ async function createProfile(repoRoot: string) {
   return createProfileFromFiles(repoRoot, files);
 }
 
-function createProfileFromFiles(
+async function createProfileFromFiles(
   repoRoot: string,
   files: Awaited<ReturnType<typeof scanRepository>>,
 ) {
+  const identity = await resolveRepoIdentity(repoRoot);
   return analyzeRepo({
     repoId: "local",
-    owner: path.basename(path.dirname(repoRoot)) || "local",
-    name: path.basename(repoRoot),
-    defaultBranch: "main",
+    owner: identity.owner,
+    name: identity.name,
+    defaultBranch: identity.defaultBranch,
     version: 1,
     files,
   });
+}
+
+async function resolveRepoIdentity(repoRoot: string): Promise<{
+  owner: string;
+  name: string;
+  defaultBranch: string;
+}> {
+  const fallback = {
+    owner: path.basename(path.dirname(repoRoot)) || "local",
+    name: path.basename(repoRoot),
+    defaultBranch: "main",
+  };
+  const [remoteUrl, defaultBranch] = await Promise.all([
+    gitOutput(repoRoot, ["remote", "get-url", "origin"]),
+    detectDefaultBranch(repoRoot),
+  ]);
+  const remoteIdentity = remoteUrl ? parseGitHubRemote(remoteUrl) : null;
+  return {
+    owner: remoteIdentity?.owner ?? fallback.owner,
+    name: remoteIdentity?.name ?? fallback.name,
+    defaultBranch: defaultBranch ?? fallback.defaultBranch,
+  };
+}
+
+async function detectDefaultBranch(repoRoot: string): Promise<string | null> {
+  const symbolicRef = await gitOutput(repoRoot, [
+    "symbolic-ref",
+    "--short",
+    "refs/remotes/origin/HEAD",
+  ]);
+  if (symbolicRef?.startsWith("origin/")) {
+    return symbolicRef.slice("origin/".length);
+  }
+  return null;
+}
+
+async function gitOutput(
+  repoRoot: string,
+  args: string[],
+): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", repoRoot, ...args]);
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function parseGitHubRemote(
+  remoteUrl: string,
+): { owner: string; name: string } | null {
+  const normalized = remoteUrl.trim().replace(/\.git$/, "");
+  const sshMatch = /^git@[^:]+:([^/]+)\/(.+)$/.exec(normalized);
+  if (sshMatch?.[1] && sshMatch[2]) {
+    return { owner: sshMatch[1], name: sshMatch[2] };
+  }
+  try {
+    const url = new URL(normalized);
+    const [owner, name] = url.pathname.replace(/^\/+/, "").split("/");
+    return owner && name ? { owner, name } : null;
+  } catch {
+    return null;
+  }
 }
 
 async function generateModelArtifacts(input: {
