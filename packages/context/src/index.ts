@@ -545,7 +545,9 @@ export function createContextArtifacts(input: {
     }
     definitions.push({
       type: "AGENTS.md",
-      content: input.modelArtifacts.agentsMd,
+      content: appendContributionQualityRequirements(
+        input.modelArtifacts.agentsMd,
+      ),
     });
   }
   if (targets.has("claude")) {
@@ -554,7 +556,9 @@ export function createContextArtifacts(input: {
     }
     definitions.push({
       type: "CLAUDE.md",
-      content: input.modelArtifacts.claudeMd,
+      content: appendContributionQualityRequirements(
+        input.modelArtifacts.claudeMd,
+      ),
     });
   }
   if (targets.has("config")) {
@@ -645,6 +649,24 @@ export function createContextArtifacts(input: {
     model: input.model,
     createdAt,
   }));
+}
+
+export const contributionQualityRequirementsSection = [
+  "## Contribution Quality Requirements",
+  "",
+  "- Bug issues should include reproduction steps, expected behavior, actual behavior, affected environment or version when known, and logs or failing commands when available.",
+  "- Feature requests should describe the user problem, affected surface, and concrete acceptance criteria.",
+  "- Security reports should name the affected surface and include a proof of concept or credible exploit path when possible; ask for clarification rather than dismissing reports that lack proof.",
+  "- Pull requests should include clear intent, a linked issue or acceptance criteria when available, a scoped diff, validation evidence, and documentation updates for public behavior changes.",
+  "- High-risk pull requests touching auth, secrets, CI or release workflows, deploy paths, dependencies, lockfiles, generated files, or migrations should include rationale and targeted validation.",
+  "- Open Maintainer evaluates reviewability, scope, evidence, validation, and repository alignment; it does not evaluate whether the author used AI.",
+].join("\n");
+
+function appendContributionQualityRequirements(markdown: string): string {
+  if (markdown.includes(contributionQualityRequirementsSection)) {
+    return markdown;
+  }
+  return `${markdown.trimEnd()}\n\n${contributionQualityRequirementsSection}\n`;
 }
 
 function skillDefinitionsForTarget(

@@ -6,6 +6,7 @@ import {
   buildRepoFactsSynthesisPrompt,
   buildSkillSynthesisPrompt,
   compareProfileDrift,
+  contributionQualityRequirementsSection,
   createContextArtifacts,
   expectedArtifactTypes,
   parseModelArtifactContent,
@@ -357,6 +358,38 @@ describe("context renderers", () => {
     ).toBe(true);
     expect(artifacts.map((artifact) => artifact.type)).toContain(
       ".open-maintainer/report.md",
+    );
+  });
+
+  it("adds deterministic contribution quality requirements to agent context", () => {
+    const artifacts = createContextArtifacts({
+      repoId: "repo_1",
+      profile,
+      output: {
+        summary: "A repo.",
+        qualityRules: ["Use Bun."],
+        commands: ["test: bun test"],
+        notes: [],
+      },
+      modelArtifacts,
+      modelProvider: "local",
+      model: "llama",
+      nextVersion: 1,
+      targets: ["agents", "claude"],
+    });
+
+    expect(artifacts.map((artifact) => artifact.type)).toEqual([
+      "AGENTS.md",
+      "CLAUDE.md",
+    ]);
+    expect(artifacts[0]?.content).toContain(
+      contributionQualityRequirementsSection,
+    );
+    expect(artifacts[1]?.content).toContain(
+      contributionQualityRequirementsSection,
+    );
+    expect(artifacts[0]?.content).toContain(
+      "does not evaluate whether the author used AI",
     );
   });
 
