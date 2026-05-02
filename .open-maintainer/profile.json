@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_bd7bf95a-601e-45ce-a539-3a657dc5a3e6",
+  "id": "repo_profile_c0c4fbd6-0908-4b81-93eb-4b27832405a1",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -315,6 +315,7 @@
     "packages/config/tests/config.test.ts",
     "packages/context/tests/render.test.ts",
     "packages/github/tests/webhook.test.ts",
+    "packages/review/tests/deterministic.test.ts",
     "packages/review/tests/local-git.test.ts",
     "packages/review/tests/render.test.ts",
     "packages/shared/tests/schemas.test.ts",
@@ -706,6 +707,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "packages/review/tests/deterministic.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "packages/review/tests/local-git.test.ts",
       "reason": "detected repository context"
     },
@@ -889,15 +894,15 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "d1b3238443a671ea"
+      "hash": "98eabf127b3fb95e"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "6f153664ad183cf7"
+      "hash": "c886dca87c95e376"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "7ca4d57ef61e06d9"
+      "hash": "92c8642a02b90213"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
@@ -957,19 +962,19 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "476981a7e6d8d686"
+      "hash": "feda95a475dacf75"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "0fd9ef269c8c7eff"
+      "hash": "0d2df14fcb35f08a"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "7a6f2aa8cd3dff2e"
+      "hash": "375123f4ec0d9ae6"
     },
     {
       "path": "AGENTS.md",
-      "hash": "d4f80501c37e02cf"
+      "hash": "62466521b46eee09"
     },
     {
       "path": "apps/api/package.json",
@@ -1122,6 +1127,10 @@
     {
       "path": "packages/review/package.json",
       "hash": "876ec84f5c6aaa31"
+    },
+    {
+      "path": "packages/review/tests/deterministic.test.ts",
+      "hash": "74bdf07b95febfe3"
     },
     {
       "path": "packages/review/tests/local-git.test.ts",
@@ -1339,26 +1348,26 @@
   "contextArtifactHashes": [
     {
       "path": "AGENTS.md",
-      "hash": "62466521b46eee09"
+      "hash": "1a6c9caa009bf22c"
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "feda95a475dacf75"
+      "hash": "336cbc463521849f"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "c886dca87c95e376"
+      "hash": "44dd22d79c3783bd"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "92c8642a02b90213"
+      "hash": "0a776569a13cdbf4"
     },
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "98eabf127b3fb95e"
+      "hash": "1e1441db67609ad6"
     }
   ],
-  "createdAt": "2026-05-02T02:32:22.388Z",
+  "createdAt": "2026-05-02T02:38:00.308Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1725,6 +1734,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "packages/review/tests/deterministic.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "packages/review/tests/local-git.test.ts",
             "reason": "detected repository context"
           },
@@ -2010,6 +2023,10 @@
           },
           {
             "path": "packages/github/tests/webhook.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/review/tests/deterministic.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2500,7 +2517,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T02:32:22.389Z"
+    "generatedAt": "2026-05-02T02:38:00.309Z"
   },
-  "openMaintainerProfileHash": "7c356b020629bfba"
+  "openMaintainerProfileHash": "a9133357f895383f"
 }
