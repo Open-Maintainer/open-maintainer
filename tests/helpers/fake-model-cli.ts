@@ -56,6 +56,17 @@ if (schema.required.includes("findings")) {
       docsSummary: "Fake provider observed no required docs changes."
     },
     findings,
+    contributionTriage: {
+      category: "ready_for_review",
+      recommendation: "Proceed with normal maintainer review.",
+      evidence: [{
+        id: "precheck:contribution:1",
+        kind: "precheck",
+        summary: "PR intent and changed files are available for review."
+      }],
+      missingInformation: [],
+      requiredActions: []
+    },
     mergeReadiness: {
       status: "ready",
       reason: "Fake provider found no cited findings.",

@@ -150,10 +150,12 @@ describe("model-backed review", () => {
       "Deterministic precheck evidence is not a contribution-quality classification",
     );
     expect(prompt.system).toContain("Do not infer whether the author used AI");
+    expect(prompt.system).toContain("Do not include a numeric quality score");
     expect(prompt.user).toContain("packages/review/src/model.ts");
     expect(prompt.user).toContain("Provider output must cite evidence.");
     expect(prompt.user).toContain("contributionTriageEvidence");
     expect(prompt.user).toContain("precheck:contribution:1");
+    expect(prompt.user).toContain("contributionTriageCategories");
     expect(prompt.user).toContain("evidenceItems");
     expect(prompt.user).toContain("reviewKnowledge");
     expect(prompt.user).toContain("repoPrReviewSkill");
@@ -164,6 +166,66 @@ describe("model-backed review", () => {
     expect(() => parseModelReviewOutput("{not json")).toThrow();
     expect(() =>
       parseModelReviewOutput(JSON.stringify({ findings: "bad" })),
+    ).toThrow();
+    expect(() =>
+      parseModelReviewOutput(
+        JSON.stringify({
+          summary: {
+            overview: "Summary.",
+            changedSurfaces: ["package:review"],
+            riskLevel: "low",
+            validationSummary: "Validation reported.",
+            docsSummary: "No docs impact.",
+          },
+          findings: [],
+          contributionTriage: {
+            category: "authorship_detection",
+            recommendation: "Guess authorship.",
+            evidence: [
+              {
+                id: "precheck:contribution:1",
+                kind: "precheck",
+                summary: "Candidate evidence.",
+              },
+            ],
+            missingInformation: [],
+            requiredActions: [],
+          },
+          mergeReadiness: {
+            status: "ready",
+            reason: "No findings.",
+            requiredActions: [],
+          },
+          residualRisk: [],
+        }),
+      ),
+    ).toThrow();
+    expect(() =>
+      parseModelReviewOutput(
+        JSON.stringify({
+          summary: {
+            overview: "Summary.",
+            changedSurfaces: ["package:review"],
+            riskLevel: "low",
+            validationSummary: "Validation reported.",
+            docsSummary: "No docs impact.",
+          },
+          findings: [],
+          contributionTriage: {
+            category: "ready_for_review",
+            recommendation: "Proceed.",
+            evidence: [],
+            missingInformation: [],
+            requiredActions: [],
+          },
+          mergeReadiness: {
+            status: "ready",
+            reason: "No findings.",
+            requiredActions: [],
+          },
+          residualRisk: [],
+        }),
+      ),
     ).toThrow();
   });
 
@@ -249,6 +311,19 @@ describe("model-backed review", () => {
                     "Keep focused tests around model-backed review output.",
                 },
               ],
+              contributionTriage: {
+                category: "ready_for_review",
+                recommendation: "Proceed with normal maintainer review.",
+                evidence: [
+                  {
+                    id: "precheck:contribution:1",
+                    kind: "precheck",
+                    summary: "PR intent is present.",
+                  },
+                ],
+                missingInformation: [],
+                requiredActions: [],
+              },
               mergeReadiness: {
                 status: "conditionally_ready",
                 reason: "Model finding needs maintainer review.",
@@ -273,6 +348,9 @@ describe("model-backed review", () => {
     expect(review.findings.some((item) => item.title.includes("focused"))).toBe(
       true,
     );
+    expect(review.contributionTriage.status).toBe("evaluated");
+    expect(review.contributionTriage.category).toBe("ready_for_review");
+    expect(review.contributionTriage.evidence).toHaveLength(1);
     expect(review.findings[0]?.body).toContain("Recommendation:");
     expect(
       review.residualRisk.some((risk) =>
@@ -315,6 +393,19 @@ describe("model-backed review", () => {
                 recommendation: "Use supplied evidence IDs.",
               },
             ],
+            contributionTriage: {
+              category: "needs_author_input",
+              recommendation: "Ask for clearer validation evidence.",
+              evidence: [
+                {
+                  id: "precheck:contribution:4",
+                  kind: "precheck",
+                  summary: "Validation evidence candidate.",
+                },
+              ],
+              missingInformation: ["Validation command output"],
+              requiredActions: ["Add validation evidence."],
+            },
             mergeReadiness: {
               status: "ready",
               reason: "No rendered findings.",

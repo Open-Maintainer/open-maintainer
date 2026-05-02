@@ -11,6 +11,7 @@ import type {
   ReviewSeverity,
 } from "@open-maintainer/shared";
 import {
+  NotEvaluatedContributionTriage,
   ReviewFindingSchema,
   ReviewResultSchema,
   newId,
@@ -63,6 +64,22 @@ const ModelReviewFindingSchema = z.object({
   recommendation: z.string().min(1),
 });
 
+const ModelContributionTriageCategorySchema = z.enum([
+  "ready_for_review",
+  "needs_author_input",
+  "needs_maintainer_design",
+  "not_agent_ready",
+  "possible_spam",
+]);
+
+const ModelContributionTriageSchema = z.object({
+  category: ModelContributionTriageCategorySchema,
+  recommendation: z.string().min(1),
+  evidence: z.array(ModelFindingEvidenceSchema).min(1),
+  missingInformation: z.array(z.string().min(1)),
+  requiredActions: z.array(z.string().min(1)),
+});
+
 export const ModelReviewOutputSchema = z.object({
   summary: z.object({
     overview: z.string().min(1),
@@ -72,6 +89,7 @@ export const ModelReviewOutputSchema = z.object({
     docsSummary: z.string().min(1),
   }),
   findings: z.array(ModelReviewFindingSchema).default([]),
+  contributionTriage: ModelContributionTriageSchema,
   mergeReadiness: z.object({
     status: z.enum(["ready", "conditionally_ready", "blocked"]),
     reason: z.string().min(1),
@@ -90,7 +108,13 @@ export type ModelReviewOutput = z.infer<typeof ModelReviewOutputSchema>;
 export const modelReviewOutputJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["summary", "findings", "mergeReadiness", "residualRisk"],
+  required: [
+    "summary",
+    "findings",
+    "contributionTriage",
+    "mergeReadiness",
+    "residualRisk",
+  ],
   properties: {
     summary: {
       type: "object",
@@ -189,6 +213,66 @@ export const modelReviewOutputJsonSchema = {
         },
       },
     },
+    contributionTriage: {
+      type: "object",
+      additionalProperties: false,
+      required: [
+        "category",
+        "recommendation",
+        "evidence",
+        "missingInformation",
+        "requiredActions",
+      ],
+      properties: {
+        category: {
+          type: "string",
+          enum: [
+            "ready_for_review",
+            "needs_author_input",
+            "needs_maintainer_design",
+            "not_agent_ready",
+            "possible_spam",
+          ],
+        },
+        recommendation: { type: "string", minLength: 1 },
+        evidence: {
+          type: "array",
+          minItems: 1,
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["id", "kind", "summary"],
+            properties: {
+              id: { type: "string", minLength: 1 },
+              kind: {
+                type: "string",
+                enum: [
+                  "patch",
+                  "changed_file",
+                  "check_status",
+                  "repo_profile",
+                  "openmaintainer_rule",
+                  "agents_md",
+                  "repo_skill",
+                  "issue_context",
+                  "precheck",
+                  "generated_context",
+                ],
+              },
+              summary: { type: "string", minLength: 1 },
+            },
+          },
+        },
+        missingInformation: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+        },
+        requiredActions: {
+          type: "array",
+          items: { type: "string", minLength: 1 },
+        },
+      },
+    },
     mergeReadiness: {
       type: "object",
       additionalProperties: false,
@@ -271,6 +355,10 @@ export async function generateModelBackedReview(
     evidenceItems,
     findings: parsed.findings,
   });
+  const contributionTriage = modelContributionTriage({
+    model: parsed.contributionTriage,
+    evidenceItems,
+  });
   const mergeReadiness = modelMergeReadiness(parsed.mergeReadiness);
 
   return ReviewResultSchema.parse({
@@ -288,12 +376,14 @@ export async function generateModelBackedReview(
     expectedValidation: options.precheck.expectedValidation,
     validationEvidence: options.precheck.validationEvidence,
     docsImpact: options.precheck.docsImpact,
+    contributionTriage: contributionTriage.result,
     findings: validation.findings.sort(compareFindingSeverity),
     mergeReadiness,
     residualRisk: [
       ...options.precheck.residualRisk,
       ...parsed.residualRisk.map(formatModelResidualRisk),
       ...validation.residualRisk,
+      ...contributionTriage.residualRisk,
     ],
     changedFiles: options.input.changedFiles,
     feedback: [],
@@ -380,7 +470,8 @@ export function buildReviewPrompt(input: {
       "- The supplied contributionTriageEvidence entries are candidate evidence for PR reviewability only.",
       "- Deterministic precheck evidence is not a contribution-quality classification.",
       "- Do not infer whether the author used AI.",
-      "- Do not assign PR contribution triage categories in this review output; a later schema owns categorical output.",
+      "- Assign exactly one contributionTriage category from the output schema using the supplied evidence.",
+      "- Do not include a numeric quality score.",
       "- Do not produce issue labels, issue comments, duplicate issue handling, stale handling, auto-close, or agent task briefs.",
       "",
       "Evidence policy:",
@@ -557,6 +648,20 @@ export function buildReviewPrompt(input: {
         outputRequirements: {
           maxFindings: 10,
           severities: ["blocker", "major", "minor", "note"],
+          contributionTriageCategories: [
+            "ready_for_review",
+            "needs_author_input",
+            "needs_maintainer_design",
+            "not_agent_ready",
+            "possible_spam",
+          ],
+          contributionTriageRules: [
+            "Use contributionTriageEvidence as candidate evidence, not as a deterministic classification.",
+            "Return a categorical contributionTriage result only from model judgment.",
+            "Do not include numeric quality scores.",
+            "Do not infer whether the author used AI.",
+            "Do not output issue labels, issue comments, duplicate issue handling, stale handling, auto-close, or agent task briefs.",
+          ],
           invalidFindings:
             "Move uncited, speculative, duplicate, or generic concerns to residualRisk or omit.",
           requiredFindingProperties: [
@@ -626,6 +731,56 @@ function validateModelFindings(input: {
     );
   });
   return { findings, residualRisk };
+}
+
+function modelContributionTriage(input: {
+  model: ModelReviewOutput["contributionTriage"];
+  evidenceItems: PromptEvidenceItem[];
+}): {
+  result: ReviewResult["contributionTriage"];
+  residualRisk: string[];
+} {
+  const evidenceById = new Map(
+    input.evidenceItems.map((item) => [item.id, item]),
+  );
+  const citations = input.model.evidence.flatMap((evidence) => {
+    const evidenceItem = evidenceById.get(evidence.id);
+    return evidenceItem
+      ? [citationFromEvidenceItem(evidenceItem, evidence.summary)]
+      : [];
+  });
+  const unknown = input.model.evidence.filter(
+    (evidence) => !evidenceById.has(evidence.id),
+  );
+  if (citations.length === 0) {
+    return {
+      result: {
+        ...NotEvaluatedContributionTriage,
+        recommendation:
+          "Contribution triage was not evaluated because model evidence citations were unavailable.",
+      },
+      residualRisk: [
+        "Model contribution triage was not rendered because it cited no known evidence.",
+      ],
+    };
+  }
+
+  return {
+    result: {
+      status: "evaluated",
+      category: input.model.category,
+      recommendation: input.model.recommendation,
+      evidence: citations,
+      missingInformation: input.model.missingInformation,
+      requiredActions: input.model.requiredActions,
+    },
+    residualRisk:
+      unknown.length > 0
+        ? [
+            `Model contribution triage cited ${unknown.length} unknown evidence item(s).`,
+          ]
+        : [],
+  };
 }
 
 function citationFromEvidenceItem(

@@ -1,5 +1,8 @@
 import type { ReviewResult } from "@open-maintainer/shared";
-import { ReviewResultSchema } from "@open-maintainer/shared";
+import {
+  NotEvaluatedContributionTriage,
+  ReviewResultSchema,
+} from "@open-maintainer/shared";
 import { describe, expect, it } from "vitest";
 import {
   parseReviewResult,
@@ -43,6 +46,7 @@ const review: ReviewResult = {
       evidence: [citation],
     },
   ],
+  contributionTriage: NotEvaluatedContributionTriage,
   findings: [
     {
       id: "finding_blocker",
@@ -108,6 +112,14 @@ const review: ReviewResult = {
 describe("review schemas", () => {
   it("accepts a complete rule-grounded review result", () => {
     expect(parseReviewResult(review).findings).toHaveLength(4);
+  });
+
+  it("defaults legacy or deterministic review results to not evaluated", () => {
+    const { contributionTriage: _contributionTriage, ...legacyReview } = review;
+
+    expect(parseReviewResult(legacyReview).contributionTriage).toEqual(
+      NotEvaluatedContributionTriage,
+    );
   });
 
   it("rejects uncited findings", () => {

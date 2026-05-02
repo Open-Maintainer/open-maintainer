@@ -560,6 +560,19 @@ describe("MVP API", () => {
                       docsSummary: "No docs gaps.",
                     },
                     findings: [],
+                    contributionTriage: {
+                      category: "ready_for_review",
+                      recommendation: "Proceed with normal maintainer review.",
+                      evidence: [
+                        {
+                          id: "precheck:contribution:1",
+                          kind: "precheck",
+                          summary: "Contribution triage evidence was supplied.",
+                        },
+                      ],
+                      missingInformation: [],
+                      requiredActions: [],
+                    },
                     mergeReadiness: {
                       status: "ready",
                       reason: "No findings.",

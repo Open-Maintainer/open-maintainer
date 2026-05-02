@@ -323,6 +323,64 @@ export const ReviewMergeReadinessSchema = z.object({
 });
 export type ReviewMergeReadiness = z.infer<typeof ReviewMergeReadinessSchema>;
 
+export const ReviewContributionTriageCategorySchema = z.enum([
+  "ready_for_review",
+  "needs_author_input",
+  "needs_maintainer_design",
+  "not_agent_ready",
+  "possible_spam",
+]);
+export type ReviewContributionTriageCategory = z.infer<
+  typeof ReviewContributionTriageCategorySchema
+>;
+
+export const ReviewContributionTriageSchema = z
+  .object({
+    status: z.enum(["evaluated", "not_evaluated"]),
+    category: ReviewContributionTriageCategorySchema.nullable(),
+    recommendation: z.string().min(1),
+    evidence: z.array(ReviewEvidenceCitationSchema),
+    missingInformation: z.array(z.string().min(1)),
+    requiredActions: z.array(z.string().min(1)),
+  })
+  .superRefine((value, context) => {
+    if (value.status === "evaluated") {
+      if (!value.category) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["category"],
+          message: "evaluated contribution triage requires a category",
+        });
+      }
+      if (value.evidence.length === 0) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["evidence"],
+          message: "evaluated contribution triage requires cited evidence",
+        });
+      }
+    }
+    if (value.status === "not_evaluated" && value.category !== null) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["category"],
+        message: "not_evaluated contribution triage cannot include a category",
+      });
+    }
+  });
+export type ReviewContributionTriage = z.infer<
+  typeof ReviewContributionTriageSchema
+>;
+
+export const NotEvaluatedContributionTriage: ReviewContributionTriage = {
+  status: "not_evaluated",
+  category: null,
+  recommendation: "Contribution triage was not evaluated.",
+  evidence: [],
+  missingInformation: [],
+  requiredActions: [],
+};
+
 export const ReviewFeedbackSchema = z.object({
   findingId: z.string().min(1),
   verdict: z.enum([
@@ -352,6 +410,9 @@ export const ReviewResultSchema = z.object({
   expectedValidation: z.array(ReviewValidationExpectationSchema),
   validationEvidence: z.array(z.string().min(1)),
   docsImpact: z.array(ReviewDocsImpactSchema),
+  contributionTriage: ReviewContributionTriageSchema.default(
+    NotEvaluatedContributionTriage,
+  ),
   findings: z.array(ReviewFindingSchema),
   mergeReadiness: ReviewMergeReadinessSchema,
   residualRisk: z.array(z.string().min(1)),
