@@ -57,6 +57,10 @@ describe("analyzeRepo", () => {
           content: "export const auth = process.env.DATABASE_URL;",
         },
         {
+          path: "scripts/deploy.sh",
+          content: "echo ${GH_TOKEN:?missing} ${APP_ENV:-local}",
+        },
+        {
           path: "tests/auth.test.ts",
           content: "import { describe } from 'vitest';",
         },
@@ -92,7 +96,11 @@ describe("analyzeRepo", () => {
     expect(profile.riskHintPaths).toEqual(["src/auth.ts"]);
     expect(profile.ownershipHints).toEqual([".github/CODEOWNERS"]);
     expect(profile.environmentFiles).toEqual([".env.example"]);
-    expect(profile.environmentVariables).toEqual(["DATABASE_URL"]);
+    expect(profile.environmentVariables).toEqual([
+      "APP_ENV",
+      "DATABASE_URL",
+      "GH_TOKEN",
+    ]);
     expect(profile.ignoreFiles).toEqual([".gitignore"]);
     expect(profile.testFilePaths).toEqual(["tests/auth.test.ts"]);
     expect(profile.generatedFilePaths).toEqual(["apps/web/next-env.d.ts"]);

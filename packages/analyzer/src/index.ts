@@ -905,7 +905,6 @@ function detectEnvironmentVariables(files: AnalyzerFile[]): string[] {
     /\bprocess\.env\.([A-Z][A-Z0-9_]*)\b/g,
     /\bDeno\.env\.get\(["']([A-Z][A-Z0-9_]*)["']\)/g,
     /\bimport\.meta\.env\.([A-Z][A-Z0-9_]*)\b/g,
-    /\$\{([A-Z][A-Z0-9_]*)(?::[-=?][^}]*)?\}/g,
   ];
   for (const file of files) {
     for (const pattern of patterns) {
@@ -915,8 +914,69 @@ function detectEnvironmentVariables(files: AnalyzerFile[]): string[] {
         }
       }
     }
+    for (const variable of detectShellEnvironmentVariables(file.content)) {
+      variables.add(variable);
+    }
   }
   return [...variables].sort();
+}
+
+function detectShellEnvironmentVariables(content: string): string[] {
+  const variables = new Set<string>();
+  let searchFrom = 0;
+  while (searchFrom < content.length) {
+    const tokenStart = content.indexOf("${", searchFrom);
+    if (tokenStart === -1) {
+      break;
+    }
+
+    const nameStart = tokenStart + 2;
+    if (!isEnvVarNameStart(content.charCodeAt(nameStart))) {
+      searchFrom = nameStart;
+      continue;
+    }
+
+    let nameEnd = nameStart + 1;
+    while (
+      nameEnd < content.length &&
+      isEnvVarNamePart(content.charCodeAt(nameEnd))
+    ) {
+      nameEnd += 1;
+    }
+
+    if (content[nameEnd] === "}") {
+      variables.add(content.slice(nameStart, nameEnd));
+      searchFrom = nameEnd + 1;
+      continue;
+    }
+
+    if (
+      content[nameEnd] === ":" &&
+      ["-", "=", "?"].includes(content[nameEnd + 1] ?? "")
+    ) {
+      const tokenEnd = content.indexOf("}", nameEnd + 2);
+      if (tokenEnd !== -1) {
+        variables.add(content.slice(nameStart, nameEnd));
+        searchFrom = tokenEnd + 1;
+        continue;
+      }
+    }
+
+    searchFrom = nameEnd + 1;
+  }
+  return [...variables];
+}
+
+function isEnvVarNameStart(charCode: number): boolean {
+  return charCode >= 65 && charCode <= 90;
+}
+
+function isEnvVarNamePart(charCode: number): boolean {
+  return (
+    (charCode >= 65 && charCode <= 90) ||
+    (charCode >= 48 && charCode <= 57) ||
+    charCode === 95
+  );
 }
 
 function detectGeneratedFilePaths(files: AnalyzerFile[]): string[] {
