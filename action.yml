@@ -1,8 +1,8 @@
 name: Open Maintainer
-description: Run Open Maintainer audit checks, rule-grounded PR reviews, and optional context refresh PRs.
+description: Run Open Maintainer audit checks and optional context refresh PRs.
 inputs:
   mode:
-    description: Action mode. Use audit for non-mutating checks, review for PR review summaries, or refresh to open/update a context refresh PR.
+    description: Action mode. Use audit for non-mutating checks or refresh to open/update a context refresh PR.
     required: false
     default: audit
   fail-on-score-below:
@@ -37,30 +37,6 @@ inputs:
     description: Explicit consent for model-backed refresh generation to send repository content to the selected provider CLI.
     required: false
     default: "false"
-  review-provider:
-    description: Review provider. Use codex or claude with allow-review-content-transfer set to true.
-    required: false
-    default: codex
-  review-model:
-    description: Optional model override passed to the selected model-backed review provider.
-    required: false
-    default: ""
-  allow-review-content-transfer:
-    description: Explicit consent for model-backed PR review to send repository content to the selected provider CLI.
-    required: false
-    default: "false"
-  review-comment-on-pr:
-    description: Opt in to one marked PR review summary comment in review mode. Requires issue comment write permission.
-    required: false
-    default: "false"
-  review-inline-comments:
-    description: Opt in to capped inline finding comments in review mode. Requires pull request write permission.
-    required: false
-    default: "false"
-  review-inline-cap:
-    description: Maximum inline review comments when review-inline-comments is true.
-    required: false
-    default: "5"
   context-target:
     description: Context instruction files to generate during refresh. One of codex, claude, or both.
     required: false
@@ -98,9 +74,9 @@ runs:
       shell: bash
       run: |
         case "${{ inputs.mode }}" in
-          audit|refresh|review) ;;
+          audit|refresh) ;;
           *)
-            echo "::error title=Open Maintainer::Unsupported mode '${{ inputs.mode }}'. Use 'audit', 'refresh', or 'review'."
+            echo "::error title=Open Maintainer::Unsupported mode '${{ inputs.mode }}'. Use 'audit' or 'refresh'."
             exit 2
             ;;
         esac
@@ -108,13 +84,6 @@ runs:
           codex|claude) ;;
           *)
             echo "::error title=Open Maintainer::Unsupported generation-provider '${{ inputs.generation-provider }}'. Use 'codex' or 'claude'."
-            exit 2
-            ;;
-        esac
-        case "${{ inputs.review-provider }}" in
-          codex|claude) ;;
-          *)
-            echo "::error title=Open Maintainer::Unsupported review-provider '${{ inputs.review-provider }}'. Use 'codex' or 'claude'."
             exit 2
             ;;
         esac
@@ -135,11 +104,6 @@ runs:
         if [ "${{ inputs.mode }}" = "refresh" ] &&
           [ "${{ inputs.allow-model-content-transfer }}" != "true" ]; then
           echo "::error title=Open Maintainer::Refresh requires allow-model-content-transfer: 'true'."
-          exit 2
-        fi
-        if [ "${{ inputs.mode }}" = "review" ] &&
-          [ "${{ inputs.allow-review-content-transfer }}" != "true" ]; then
-          echo "::error title=Open Maintainer::Review requires allow-review-content-transfer: 'true'."
           exit 2
         fi
     - name: Set up Bun
@@ -332,164 +296,6 @@ runs:
         NODE
         cat "$summary_path" >> "$GITHUB_STEP_SUMMARY"
         echo "summary-path=$summary_path" >> "$GITHUB_OUTPUT"
-    - name: Run pull request review
-      id: review
-      if: ${{ inputs.mode == 'review' && github.event_name == 'pull_request' }}
-      shell: bash
-      run: |
-        set +e
-        review_output="$RUNNER_TEMP/open-maintainer-review.md"
-        review_log="$RUNNER_TEMP/open-maintainer-review-output.txt"
-        git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha }}" >/dev/null 2>&1 || true
-        git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.head.sha }}" >/dev/null 2>&1 || true
-        args=(
-          "review"
-          "$GITHUB_WORKSPACE"
-          "--base-ref"
-          "${{ github.event.pull_request.base.sha }}"
-          "--head-ref"
-          "${{ github.event.pull_request.head.sha }}"
-          "--pr-number"
-          "${{ github.event.pull_request.number }}"
-          "--output-path"
-          "$review_output"
-          "--json"
-          "--review-provider"
-          "${{ inputs.review-provider }}"
-          "--allow-model-content-transfer"
-        )
-        if [ -n "${{ inputs.review-model }}" ]; then
-          args+=("--review-model" "${{ inputs.review-model }}")
-        fi
-        bun run --cwd "$GITHUB_ACTION_PATH" cli "${args[@]}" >"$review_log" 2>&1
-        review_status=$?
-        cat "$review_log"
-        if [ -f "$review_output" ]; then
-          cat "$review_output" >> "$GITHUB_STEP_SUMMARY"
-        fi
-        echo "exit-code=$review_status" >> "$GITHUB_OUTPUT"
-        echo "output-path=$review_output" >> "$GITHUB_OUTPUT"
-        echo "log-path=$review_log" >> "$GITHUB_OUTPUT"
-        exit "$review_status"
-    - name: Skip pull request review
-      if: ${{ inputs.mode == 'review' && github.event_name != 'pull_request' }}
-      shell: bash
-      run: |
-        {
-          echo "## Open Maintainer PR Review"
-          echo
-          echo "Review mode needs a pull_request event with base and head refs."
-          echo "Current event: ${{ github.event_name }}"
-        } >> "$GITHUB_STEP_SUMMARY"
-    - name: Comment review summary on pull request
-      if: ${{ inputs.mode == 'review' && inputs.review-comment-on-pr == 'true' && github.event_name == 'pull_request' }}
-      uses: actions/github-script@v8
-      env:
-        REVIEW_OUTPUT_PATH: ${{ steps.review.outputs.output-path }}
-      with:
-        github-token: ${{ inputs.github-token || github.token }}
-        script: |
-          const fs = require("node:fs");
-          const marker = "<!-- open-maintainer-review-summary -->";
-          const review = fs.readFileSync(process.env.REVIEW_OUTPUT_PATH, "utf8").trim();
-          const body = review.startsWith(marker) ? review : `${marker}\n${review}`;
-          const { owner, repo } = context.repo;
-          const issue_number = context.payload.pull_request.number;
-          try {
-            const comments = await github.rest.issues.listComments({
-              owner,
-              repo,
-              issue_number,
-              per_page: 100,
-            });
-            const existing = comments.data.find((comment) =>
-              comment.body?.includes(marker)
-            );
-            if (existing) {
-              await github.rest.issues.updateComment({
-                owner,
-                repo,
-                comment_id: existing.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner,
-                repo,
-                issue_number,
-                body,
-              });
-            }
-          } catch (error) {
-            core.setFailed(`Open Maintainer review was generated, but summary comment posting failed: ${error.message}`);
-          }
-    - name: Comment inline findings on pull request
-      if: ${{ inputs.mode == 'review' && inputs.review-inline-comments == 'true' && github.event_name == 'pull_request' }}
-      uses: actions/github-script@v8
-      env:
-        REVIEW_JSON_PATH: ${{ steps.review.outputs.log-path }}
-        REVIEW_INLINE_CAP: ${{ inputs.review-inline-cap }}
-      with:
-        github-token: ${{ inputs.github-token || github.token }}
-        script: |
-          const fs = require("node:fs");
-          const marker = "<!-- open-maintainer-review-inline";
-          const review = JSON.parse(fs.readFileSync(process.env.REVIEW_JSON_PATH, "utf8"));
-          const severityRank = { blocker: 0, major: 1, minor: 2, note: 3 };
-          const cap = Math.max(0, Number(process.env.REVIEW_INLINE_CAP || "0"));
-          const changedFiles = new Map(review.changedFiles.map((file) => [file.path, file]));
-          const { owner, repo } = context.repo;
-          const pull_number = context.payload.pull_request.number;
-          try {
-            const existing = await github.rest.pulls.listReviewComments({
-              owner,
-              repo,
-              pull_number,
-              per_page: 100,
-            });
-            const existingFingerprints = new Set(existing.data.flatMap((comment) => {
-              const match = comment.body?.match(/open-maintainer-review-inline fingerprint="([^"]+)"/);
-              if (match?.[1]) return [match[1]];
-              return comment.path && comment.line ? [`legacy:${comment.path}:${comment.line}`] : [];
-            }));
-            const comments = [];
-            for (const finding of [...review.findings].sort((a, b) => {
-              const severityDelta = severityRank[a.severity] - severityRank[b.severity];
-              return severityDelta === 0 ? a.id.localeCompare(b.id) : severityDelta;
-            })) {
-              if (comments.length >= cap) break;
-              if (!finding.path || !finding.line) continue;
-              const changedFile = changedFiles.get(finding.path);
-              if (!changedFile?.patch) continue;
-              const fingerprint = `${finding.id}:${finding.path}:${finding.line}`;
-              if (existingFingerprints.has(fingerprint) || existingFingerprints.has(`legacy:${finding.path}:${finding.line}`)) continue;
-              comments.push({
-                path: finding.path,
-                line: finding.line,
-                side: "RIGHT",
-                body: [
-                  `<!-- open-maintainer-review-inline fingerprint="${fingerprint}" -->`,
-                  `**${finding.severity}: ${finding.title}**`,
-                  "",
-                  finding.body,
-                ].join("\n"),
-              });
-            }
-            if (comments.length === 0) {
-              core.notice("Open Maintainer found no eligible inline review comments to publish.");
-              return;
-            }
-            await github.rest.pulls.createReview({
-              owner,
-              repo,
-              pull_number,
-              event: "COMMENT",
-              body: "Open Maintainer inline review comments.",
-              comments,
-            });
-          } catch (error) {
-            core.setFailed(`Open Maintainer review was generated, but inline comment posting failed: ${error.message}`);
-          }
     - name: Comment on pull request
       if: ${{ inputs.comment-on-pr == 'true' && github.event_name == 'pull_request' }}
       uses: actions/github-script@v8

@@ -26,12 +26,10 @@ describe("GitHub Action MVP", () => {
     );
     expect(action.inputs["generation-provider"].default).toBe("codex");
     expect(action.inputs["allow-model-content-transfer"].default).toBe("false");
-    expect(action.inputs["review-provider"].default).toBe("codex");
-    expect(action.inputs["allow-review-content-transfer"].default).toBe(
-      "false",
-    );
-    expect(action.inputs["review-comment-on-pr"].default).toBe("false");
-    expect(action.inputs["review-inline-comments"].default).toBe("false");
+    expect(action.inputs["review-provider"]).toBeUndefined();
+    expect(action.inputs["allow-review-content-transfer"]).toBeUndefined();
+    expect(action.inputs["review-comment-on-pr"]).toBeUndefined();
+    expect(action.inputs["review-inline-comments"]).toBeUndefined();
 
     expect(steps).toContainEqual(
       expect.objectContaining({
@@ -111,14 +109,12 @@ describe("GitHub Action MVP", () => {
     const validateStep = steps.find(
       (step: { name?: string }) => step.name === "Validate inputs",
     );
-    expect(validateStep.run).toContain("audit|refresh|review");
+    expect(validateStep.run).toContain("audit|refresh");
     expect(validateStep.run).toContain("Unsupported mode");
     expect(validateStep.run).toContain(
       "Refresh requires allow-model-content-transfer",
     );
-    expect(validateStep.run).toContain(
-      "Review requires allow-review-content-transfer",
-    );
+    expect(validateStep.run).not.toContain("Review requires");
     expect(validateStep.run).not.toContain(
       "Review inline comments are not implemented yet",
     );
@@ -140,103 +136,11 @@ describe("GitHub Action MVP", () => {
     expect(prStep.run).not.toContain("git push origin main");
   });
 
-  it("runs review mode through the CLI and writes only to the step summary", async () => {
-    const action = await readYaml("action.yml");
-    const steps = action.runs.steps;
-
-    expect(action.inputs.mode.default).toBe("audit");
-    const reviewStep = steps.find(
-      (step: { name?: string }) => step.name === "Run pull request review",
-    );
-    expect(reviewStep.if).toBe(
-      "${{ inputs.mode == 'review' && github.event_name == 'pull_request' }}",
-    );
-    expect(reviewStep.run).toContain(
-      'bun run --cwd "$GITHUB_ACTION_PATH" cli "${args[@]}"',
-    );
-    expect(reviewStep.run).toContain('"review"');
-    expect(reviewStep.run).toContain("--base-ref");
-    expect(reviewStep.run).toContain(
-      "${{ github.event.pull_request.base.sha }}",
-    );
-    expect(reviewStep.run).toContain("--head-ref");
-    expect(reviewStep.run).toContain(
-      "${{ github.event.pull_request.head.sha }}",
-    );
-    expect(reviewStep.run).toContain("--pr-number");
-    expect(reviewStep.run).toContain("--output-path");
-    expect(reviewStep.run).toContain("--json");
-    expect(reviewStep.run).toContain("--review-provider");
-    expect(reviewStep.run).toContain("$GITHUB_STEP_SUMMARY");
-    expect(reviewStep.run).toContain("--allow-model-content-transfer");
-    expect(reviewStep.run).not.toContain("gh pr comment");
-    expect(reviewStep.run).not.toContain("github.rest.issues.createComment");
-
-    const reviewCommentStep = steps.find(
-      (step: { name?: string }) =>
-        step.name === "Comment review summary on pull request",
-    );
-    expect(reviewCommentStep.if).toBe(
-      "${{ inputs.mode == 'review' && inputs.review-comment-on-pr == 'true' && github.event_name == 'pull_request' }}",
-    );
-    expect(reviewCommentStep.uses).toBe("actions/github-script@v8");
-    expect(reviewCommentStep.env.REVIEW_OUTPUT_PATH).toBe(
-      "${{ steps.review.outputs.output-path }}",
-    );
-    expect(reviewCommentStep.with.script).toContain(
-      "<!-- open-maintainer-review-summary -->",
-    );
-    expect(reviewCommentStep.with.script).toContain(
-      "github.rest.issues.listComments",
-    );
-    expect(reviewCommentStep.with.script).toContain(
-      "github.rest.issues.updateComment",
-    );
-    expect(reviewCommentStep.with.script).toContain(
-      "github.rest.issues.createComment",
-    );
-    expect(reviewCommentStep.with.script).toContain(
-      "summary comment posting failed",
-    );
-
-    const inlineStep = steps.find(
-      (step: { name?: string }) =>
-        step.name === "Comment inline findings on pull request",
-    );
-    expect(inlineStep.if).toBe(
-      "${{ inputs.mode == 'review' && inputs.review-inline-comments == 'true' && github.event_name == 'pull_request' }}",
-    );
-    expect(inlineStep.uses).toBe("actions/github-script@v8");
-    expect(inlineStep.env.REVIEW_JSON_PATH).toBe(
-      "${{ steps.review.outputs.log-path }}",
-    );
-    expect(inlineStep.with.script).toContain(
-      "<!-- open-maintainer-review-inline",
-    );
-    expect(inlineStep.with.script).toContain(
-      "github.rest.pulls.listReviewComments",
-    );
-    expect(inlineStep.with.script).toContain("github.rest.pulls.createReview");
-    expect(inlineStep.with.script).toContain("inline comment posting failed");
-
-    const skipStep = steps.find(
-      (step: { name?: string }) => step.name === "Skip pull request review",
-    );
-    expect(skipStep.if).toBe(
-      "${{ inputs.mode == 'review' && github.event_name != 'pull_request' }}",
-    );
-    expect(skipStep.run).toContain(
-      "Review mode needs a pull_request event with base and head refs.",
-    );
-  });
-
-  it("dogfoods the public workflow shape", async () => {
+  it("keeps the public workflow audit-only for release dogfooding", async () => {
     const workflow = await readYaml(
       ".github/workflows/open-maintainer-audit.yml",
     );
     const auditSteps = workflow.jobs.audit.steps;
-    const reviewJob = workflow.jobs.review;
-    const reviewSteps = reviewJob.steps;
 
     expect(workflow.on).toEqual({
       pull_request: null,
@@ -258,48 +162,7 @@ describe("GitHub Action MVP", () => {
     expect(auditSteps).not.toContainEqual(
       expect.objectContaining({ uses: "oven-sh/setup-bun@v2" }),
     );
-
-    expect(reviewJob.if).toBe(
-      "${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && vars.OPEN_MAINTAINER_REVIEW_ENABLED == 'true' }}",
-    );
-    expect(reviewJob.permissions).toEqual({
-      contents: "read",
-      issues: "write",
-      "pull-requests": "write",
-    });
-    expect(reviewSteps).toContainEqual({
-      uses: "actions/checkout@v6",
-      with: { "fetch-depth": 0 },
-    });
-    expect(reviewSteps).toContainEqual(
-      expect.objectContaining({
-        name: "Require review provider credentials",
-      }),
-    );
-    expect(
-      reviewSteps.find(
-        (step: { name?: string }) =>
-          step.name === "Require review provider credentials",
-      ).run,
-    ).toContain("OPENAI_API_KEY is required");
-    expect(reviewSteps).toContainEqual(
-      expect.objectContaining({
-        name: "Install Codex CLI",
-        run: 'npm install -g "@openai/codex@0.128.0"',
-      }),
-    );
-    expect(reviewSteps).toContainEqual(
-      expect.objectContaining({
-        uses: "./",
-        with: expect.objectContaining({
-          mode: "review",
-          "review-provider": "codex",
-          "allow-review-content-transfer": "true",
-          "review-comment-on-pr": "true",
-          "review-inline-comments": "true",
-        }),
-      }),
-    );
+    expect(workflow.jobs.review).toBeUndefined();
   });
 });
 
