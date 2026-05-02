@@ -44,7 +44,15 @@ export const modelReviewOutputJsonSchema = {
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["title", "severity", "body", "path", "line", "citations"],
+        required: [
+          "id",
+          "title",
+          "severity",
+          "body",
+          "path",
+          "line",
+          "citations",
+        ],
         properties: {
           id: { type: "string", minLength: 1 },
           title: { type: "string", minLength: 1 },
@@ -103,7 +111,7 @@ export const modelReviewOutputJsonSchema = {
       items: { type: "string", minLength: 1 },
     },
   },
-  required: ["findings", "residualRisk"],
+  required: ["summary", "findings", "mergeReadiness", "residualRisk"],
 } as const;
 
 export type ReviewPromptContext = {

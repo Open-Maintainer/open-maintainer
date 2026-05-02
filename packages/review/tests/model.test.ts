@@ -8,6 +8,7 @@ import {
   buildReviewPrompt,
   generateDeterministicReview,
   generateReview,
+  modelReviewOutputJsonSchema,
   parseModelReviewOutput,
 } from "../src";
 
@@ -116,6 +117,14 @@ const consentedProvider: ModelProviderConfig = {
 };
 
 describe("model-backed review", () => {
+  it("uses an OpenAI strict-compatible output schema", () => {
+    const invalidPaths = collectObjectsMissingRequiredProperties(
+      modelReviewOutputJsonSchema,
+    );
+
+    expect(invalidPaths).toEqual([]);
+  });
+
   it("builds a prompt from deterministic review, repo context, and PR evidence", () => {
     const deterministicReview = generateDeterministicReview({
       profile,
@@ -275,3 +284,62 @@ describe("model-backed review", () => {
     );
   });
 });
+
+function collectObjectsMissingRequiredProperties(
+  schema: unknown,
+  path = "$",
+): string[] {
+  if (!schema || typeof schema !== "object") {
+    return [];
+  }
+  const objectSchema = schema as {
+    type?: unknown;
+    properties?: Record<string, unknown>;
+    required?: unknown;
+    items?: unknown;
+    anyOf?: unknown[];
+  };
+  const failures: string[] = [];
+  if (
+    objectSchema.type === "object" &&
+    objectSchema.properties &&
+    Array.isArray(objectSchema.required)
+  ) {
+    const required = new Set(objectSchema.required);
+    const missing = Object.keys(objectSchema.properties).filter(
+      (property) => !required.has(property),
+    );
+    if (missing.length > 0) {
+      failures.push(`${path}: ${missing.join(", ")}`);
+    }
+  }
+  if (objectSchema.properties) {
+    for (const [key, childSchema] of Object.entries(objectSchema.properties)) {
+      failures.push(
+        ...collectObjectsMissingRequiredProperties(
+          childSchema,
+          `${path}.properties.${key}`,
+        ),
+      );
+    }
+  }
+  if (objectSchema.items) {
+    failures.push(
+      ...collectObjectsMissingRequiredProperties(
+        objectSchema.items,
+        `${path}.items`,
+      ),
+    );
+  }
+  if (Array.isArray(objectSchema.anyOf)) {
+    objectSchema.anyOf.forEach((childSchema, index) => {
+      failures.push(
+        ...collectObjectsMissingRequiredProperties(
+          childSchema,
+          `${path}.anyOf.${index}`,
+        ),
+      );
+    });
+  }
+  return failures;
+}
