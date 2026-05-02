@@ -1,11 +1,13 @@
 {
-  "id": "repo_profile_09de1677-7630-41e2-a5ba-2cd1b61782f2",
+  "id": "repo_profile_833730d7-7e60-4eaf-be19-3fbafdf0305c",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
   "name": "open-maintainer",
   "defaultBranch": "main",
-  "primaryLanguages": ["TypeScript"],
+  "primaryLanguages": [
+    "TypeScript"
+  ],
   "frameworks": [
     "next",
     "react",
@@ -232,7 +234,6 @@
     ".open-maintainer.yml"
   ],
   "generatedFilePaths": [
-    ".agents/skills/open-maintainer-pr-review/SKILL.md",
     ".agents/skills/open-maintainer-start-task/SKILL.md",
     ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
     ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
@@ -892,7 +893,9 @@
       "reason": "detected repository context"
     }
   ],
-  "workspaceManifests": ["package.json"],
+  "workspaceManifests": [
+    "package.json"
+  ],
   "lockfiles": [
     "bun.lock",
     "tests/fixtures/high-readiness-ts/bun.lock",
@@ -923,11 +926,11 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "968482f7a53fa197"
+      "hash": "e2527b2adc51f772"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "5dd17a7a292bdc76"
+      "hash": "bddc8ab1f7632594"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
@@ -935,27 +938,27 @@
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
-      "hash": "3edbcc475149b325"
+      "hash": "ab8cd08ca5995586"
     },
     {
       "path": ".agents/skills/open-maintainer-update-cli-generation/SKILL.md",
-      "hash": "87860c1603685851"
+      "hash": "924f7c16028be3f5"
     },
     {
       "path": ".agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md",
-      "hash": "d3e84870804d724a"
+      "hash": "6779e07ec2cffc37"
     },
     {
       "path": ".agents/skills/open-maintainer-update-github-action-audit/SKILL.md",
-      "hash": "8bf24156093b1b90"
+      "hash": "83531ba1da700b06"
     },
     {
       "path": ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
-      "hash": "62aaf2f914efec48"
+      "hash": "7d22fc6a07d58b06"
     },
     {
       "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
-      "hash": "9bb07aca53cf035c"
+      "hash": "be8e073e1c6b009c"
     },
     {
       "path": ".dockerignore",
@@ -991,19 +994,19 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "d76768d5a09a1aaf"
+      "hash": "1724ad54bf757182"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "0254e32fe4cec10c"
+      "hash": "f2773a5592774f98"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "b2805e1b2868c17e"
+      "hash": "4d7b8127725622a2"
     },
     {
       "path": "AGENTS.md",
-      "hash": "68f625a51298b4ad"
+      "hash": "b7405ff51fb7397b"
     },
     {
       "path": "apps/api/package.json",
@@ -1394,49 +1397,8 @@
       "hash": "6b20deced71879d8"
     }
   ],
-  "contextArtifactHashes": [
-    {
-      "path": "AGENTS.md",
-      "hash": "b7405ff51fb7397b"
-    },
-    {
-      "path": ".open-maintainer.yml",
-      "hash": "1724ad54bf757182"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "bddc8ab1f7632594"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-validation-testing/SKILL.md",
-      "hash": "be8e073e1c6b009c"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "e2527b2adc51f772"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-update-cli-generation/SKILL.md",
-      "hash": "924f7c16028be3f5"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
-      "hash": "ab8cd08ca5995586"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
-      "hash": "7d22fc6a07d58b06"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-update-github-action-audit/SKILL.md",
-      "hash": "83531ba1da700b06"
-    },
-    {
-      "path": ".agents/skills/open-maintainer-update-docker-compose-stack/SKILL.md",
-      "hash": "6779e07ec2cffc37"
-    }
-  ],
-  "createdAt": "2026-05-02T07:18:53.721Z",
+  "contextArtifactHashes": [],
+  "createdAt": "2026-05-02T07:29:31.176Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2634,7 +2596,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T07:18:53.722Z"
+    "generatedAt": "2026-05-02T07:29:31.177Z"
   },
   "openMaintainerProfileHash": "3e9aced7478a614d"
 }
