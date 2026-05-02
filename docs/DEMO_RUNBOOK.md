@@ -1,7 +1,7 @@
 # Open Maintainer Feature Runbook
 
 This runbook is the hands-on validation guide for the features implemented
-through `v0.4.0`. It is written so you can copy commands from the repository
+through `v0.4.x`. It is written so you can copy commands from the repository
 root and evaluate release readiness yourself.
 
 Repository analysis is offline and deterministic. Context generation and PR
@@ -19,7 +19,9 @@ Implemented and testable:
 - Repo profiling for commands, CI, docs, ownership hints, generated files,
   lockfiles, environment variables, issue templates, PR templates, risk paths,
   package boundaries, ignore files, and test files.
-- Context artifact generation for Codex and Claude instruction families.
+- Context artifact generation for Codex and Claude instruction families,
+  including deterministic Contribution Quality Requirements in generated
+  `AGENTS.md` and `CLAUDE.md`.
 - Context preservation by default, with explicit `--force` overwrite.
 - Explicit model-backed write consent through `--allow-write`.
 - Doctor checks for missing required context and drift.
@@ -31,12 +33,13 @@ Implemented and testable:
   scheduled stale-context checks, and opt-in refresh PRs.
 - Rule-grounded PR review beta for local Git refs, including summaries,
   walkthroughs, changed-surface analysis, expected validation, docs impact,
-  cited findings, merge readiness, residual risk, and JSON output.
+  contribution-triage signals, cited findings, merge readiness, residual risk,
+  and JSON output.
 - CLI PR review posting through `gh`, with marked summary comments and capped
   duplicate-aware inline comments from a locally authenticated maintainer
   machine.
 - Dashboard PR review previews, review run history, guarded posting controls,
-  and false-positive feedback capture.
+  contribution-triage display, and false-positive feedback capture.
 - Self-hosted dashboard foundation with API, worker, web, Postgres, Redis,
   provider setup, repository analysis, artifact preview, run history, and
   context PR plumbing.
@@ -205,6 +208,12 @@ AGENTS.md
 .open-maintainer/report.md
 .open-maintainer.yml
 ```
+
+Generated `AGENTS.md` and `CLAUDE.md` include a deterministic
+`Contribution Quality Requirements` section. That section asks contributors for
+clear reproduction or acceptance criteria, scoped PRs, validation evidence, docs
+updates for public behavior changes, high-risk rationale, and the boundary that
+Open Maintainer evaluates reviewability rather than whether the author used AI.
 
 Run audit again and verify the score improves:
 
@@ -535,7 +544,7 @@ steps:
 Without `allow-model-content-transfer: "true"`, `generation-provider: codex`
 or `generation-provider: claude` fails before generation starts.
 
-## v0.4 Rule-Grounded PR Review
+## v0.4.x Rule-Grounded PR Review And Contribution Triage
 
 Create a disposable Git repository with a real base/head diff:
 
@@ -555,13 +564,16 @@ git -C "$REVIEW_REPO" add src/index.ts
 git -C "$REVIEW_REPO" commit -m "change fixture"
 ```
 
-Generate a check-output-only review:
+Generate a check-output-only review with explicit repository-content transfer
+consent:
 
 ```sh
 bun run cli review "$REVIEW_REPO" \
   --base-ref HEAD~1 \
   --head-ref HEAD \
   --pr-number 123 \
+  --review-provider codex \
+  --allow-model-content-transfer \
   --output-path .open-maintainer/review.md
 
 sed -n '1,220p' "$REVIEW_REPO/.open-maintainer/review.md"
@@ -572,12 +584,20 @@ Expected review sections include:
 ```text
 ## Summary
 ## Walkthrough
-## Changed Surface
-## Expected Validation
+## Contribution Triage
 ## Findings
+## Required Validation For This PR
 ## Merge Readiness
 ## Residual Risk
 ```
+
+Contribution triage appears inside the review output and uses categorical,
+evidence-based outcomes such as `ready_for_review`, `needs_author_input`,
+`needs_maintainer_design`, `not_agent_ready`, or `possible_spam`. Open
+Maintainer evaluates reviewability, scope, evidence, validation, and repo
+alignment. It does not evaluate whether the author used AI. Issue triage, issue
+labels/comments, duplicate handling, stale handling, auto-close, and agent task
+briefs are outside this PR review path.
 
 Print the machine-readable review result:
 
@@ -585,8 +605,15 @@ Print the machine-readable review result:
 bun run cli review "$REVIEW_REPO" \
   --base-ref HEAD~1 \
   --head-ref HEAD \
+  --review-provider codex \
+  --allow-model-content-transfer \
   --json
 ```
+
+Expected JSON includes a `contributionTriage` object. Model-backed reviews set
+`status: "evaluated"` with one categorical result. Legacy or deterministic
+review-shaped objects without model classification use `status:
+"not_evaluated"` and do not assign a category.
 
 Model-backed review requires explicit repository-content transfer consent:
 
@@ -672,15 +699,17 @@ bun test packages/context/tests/render.test.ts
 Together these validate:
 
 - `/health`, repository registration, analysis, provider actions, artifact
-  generation, PR review preview, finding feedback, run history, retryable
-  failures, guarded posting controls, and local PR plumbing.
+  generation, PR review preview, contribution-triage round trips, finding
+  feedback, run history, retryable failures, guarded posting controls, and
+  local PR plumbing.
 - Provider consent guards and CLI provider execution shape.
 - Webhook signature verification and installation metadata mapping.
 - Bounded repository content fetching.
 - Context branch naming, PR body rendering, preservation of existing context
   files, and existing PR updates.
 - Context artifact schema, profile fingerprints, renderer output, and
-  model-output parsing.
+  model-output parsing, including deterministic Contribution Quality
+  Requirements rendering.
 
 ## Self-Hosted Dashboard Stack
 
@@ -747,8 +776,9 @@ docker exec open-maintainer-api-1 gh auth status
 Dashboard PR review preview requires a registered local repository worktree.
 After selecting and analyzing a repository, use the `PR Review` panel to enter
 base/head refs and preview a review. The dashboard shows the full review before
-any GitHub write, records the review run in history, and captures finding
-feedback such as false positives with optional reasons.
+any GitHub write, displays contribution-triage signals, records the review run
+in history, and captures finding feedback such as false positives with optional
+reasons.
 
 Stop the stack:
 

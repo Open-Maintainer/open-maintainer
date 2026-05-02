@@ -105,6 +105,12 @@ Model-backed skill generation may add additional repo-specific workflow skills w
 
 Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Repo content is sent to the selected LLM CLI only when `--allow-write` is present.
 
+Generated `AGENTS.md` and `CLAUDE.md` include deterministic Contribution
+Quality Requirements. Those requirements ask contributors for clear issue
+reproduction or acceptance criteria, scoped PRs, validation evidence, docs
+updates for public behavior changes, high-risk rationale, and the explicit
+boundary that Open Maintainer evaluates reviewability rather than authorship.
+
 ## Rule-Grounded PR Review Beta
 
 `review` produces a PR review from local Git refs or from a GitHub pull request
