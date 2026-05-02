@@ -4,7 +4,7 @@ Open Maintainer is the open-source control plane for AI agents working in GitHub
 
 The product starts with durable repository context: it audits how a repository actually works, turns that reality into reviewable instructions and policy files, and keeps those artifacts fresh as the repo changes. Later milestones use that approved context to review pull requests, triage issues, prepare agent-safe tasks, and coordinate agent work without losing human control.
 
-This document is the canonical roadmap for product sequencing, milestone scope, and completion criteria. `local-docs/PRODUCT_PRD.md` is the detailed product requirements companion and should stay aligned with this roadmap.
+This document is the canonical roadmap for product sequencing, milestone scope, and completion criteria. `docs/PRODUCT_PRD.md` is the detailed product requirements companion and should stay aligned with this roadmap.
 
 ## Product Thesis
 
@@ -33,7 +33,9 @@ Commercial tools validate adjacent categories:
 - AI review products validate repo-aware PR feedback and policy enforcement.
 - Project tools validate GitHub-adjacent issue and planning workflows.
 
-Open Maintainer's differentiator is that these workflows share one open, inspectable source of repo truth: detected repository facts, maintainer-approved policy, generated agent context, and recorded validation evidence.
+Open Maintainer's differentiator is that these workflows share one open, inspectable source of repo truth: detected repository facts, maintainer-approved policy, generated agent context, contribution-quality requirements, and recorded validation evidence.
+
+AI tools have increased the volume of low-context issues and polished-looking but unreviewable PRs. Open Maintainer should address that pressure through contribution triage: evaluating reviewability, scope, evidence, validation, and repo alignment. It should not try to detect whether a contribution was written by AI.
 
 ## Operating Principles
 
@@ -46,6 +48,8 @@ Open Maintainer's differentiator is that these workflows share one open, inspect
 - Safe repository content transfer: repository content leaves the environment only after explicit provider or agent consent.
 - Auditable writes: GitHub writes must be explicit, reviewable, and traceable to a user, run, policy, and source context version.
 - Conservative automation: automatic comments, labels, refresh PRs, and agent dispatch are opt-in.
+- Maintainer effort reduction: every workflow must save maintainer time and energy, avoid steep learning curves, and keep complexity hidden behind safe defaults.
+- Fast adoption: a maintainer should be able to get Open Maintainer running for one repository and receive useful output in 15 minutes or less.
 
 ## Current State
 
@@ -78,7 +82,8 @@ Status terms:
 | v0.2 | Readiness Quality | Make audit, drift, and readiness reporting trustworthy. |
 | v0.3 | GitHub Action | Make context checks and refresh PRs installable with one workflow file. |
 | v0.4 | Rule-Grounded PR Review Beta | Review PRs using approved repo context, policy, and validation expectations. |
-| v0.5 | Issue Triage and Agent-Safe Backlog | Classify issues, suggest labels, and produce task briefs. |
+| v0.4.x | PR Contribution Triage Signals | Add PR-side contribution quality signals to the shipped PR review beta. |
+| v0.5 | Issue Triage and Agent-Safe Backlog | Locally triage issue quality, suggest actions, and produce task briefs. |
 | v0.6 | Agent Orchestration Experimental | Dispatch external agents with isolated workspaces, approvals, and audit trails. |
 | v0.7 | GitHub App and Self-Hosted Dashboard Alpha | Harden the shipped dashboard and GitHub App into a durable self-hosted product. |
 | v0.8 | Org Policy and Multi-Repo Governance | Add org-level policies, repo overrides, shared skill packs, and multi-repo views. |
@@ -186,30 +191,61 @@ Complete when:
 - Quality bar: review findings cite repo evidence and avoid generic critique.
 - Quality bar: hosted Action review comments are out of release scope; CLI PR posting requires an explicit maintainer command and supports `--dry-run`.
 
-## v0.5: Issue Triage and Agent-Safe Backlog
+## v0.4.x: PR Contribution Triage Signals
 
-Goal: prepare GitHub issues for maintainers and AI agents.
+Goal: tighten the shipped PR review beta with contribution-quality signals without changing v0.4.0 release scope.
 
-Default behavior is suggestion-first. Labels and comments are manually applied or opt-in.
+This is an additive v0.4.x line because v0.4.0 is already released. The feature name is Contribution Triage, but v0.4.x is limited to PR-side signals inside PR review output.
 
 Scope:
 
-- Classify issues by type, clarity, size, affected surface, risk level, testability, missing context, and agent suitability.
-- Suggest labels such as `agent-ready`, `agent-needs-context`, `needs-human-design`, `security-sensitive`, `tests-required`, and `docs-required`.
-- Generate missing-information prompts.
-- Generate acceptance criteria.
-- Detect obvious duplicates and stale issues as advisory findings.
-- Generate agent task briefs with goal, read-first context, likely files, constraints, validation, and done criteria.
-- Add dashboard views for triage output and an agent-safe backlog.
-- Add manual apply-label and post-comment actions.
-- Keep automatic labels and comments opt-in.
+- Add PR contribution triage signals for intent clarity, linked issue or acceptance criteria, diff scope versus stated intent, validation evidence, docs alignment, broad churn, high-risk files, generated-file changes, lockfile changes, dependency changes, and maintainer-attention recommendation.
+- Keep the output categorical and evidence-based; do not ship a numeric quality score by default.
+- Keep issue triage, issue labels/comments, duplicate issue handling, stale issue handling, auto-close, and agent task briefs out of v0.4.x.
+- Categorize PR contribution quality with the LLM only. Deterministic code may gather candidate evidence such as changed files, diff stats, check status, linked issue metadata, and missing detected validation text, but it must not independently assign classifications.
+- Add a deterministic Contribution Quality Requirements section to generated `AGENTS.md` and mirror it in `CLAUDE.md`. The section should require issue reproduction or acceptance criteria, scoped PRs, validation evidence, docs alignment for public behavior, high-risk rationale, and the explicit statement that Open Maintainer evaluates reviewability rather than authorship.
+- Keep the first-use path simple: PR review users should get these signals without learning a separate triage workflow or configuring a policy taxonomy.
 
 Complete when:
 
-- Product outcome: maintainers can inspect triage output and task briefs for GitHub issues before changing GitHub state.
-- Validation evidence: tests cover classification, label suggestions, missing information, stale/duplicate signals, and task brief rendering.
-- Quality bar: issue triage references repo context where applicable and distinguishes low-confidence suggestions.
-- Adoption signal: validated on a small set of real issues across different repository types.
+- Product outcome: PR review output helps maintainers decide whether a PR is ready for review, needs author input, needs maintainer design, is not agent-ready, or is possible spam-like contribution noise.
+- Validation evidence: tests cover prompt/schema handling, candidate evidence gathering, deterministic generated-context section rendering, and non-mutating review output.
+- Quality bar: contribution triage is not marketed or implemented as AI authorship detection.
+
+## v0.5: Issue Triage and Agent-Safe Backlog
+
+Goal: prepare GitHub issues for maintainers and AI agents through local-first Contribution Triage.
+
+Default behavior is suggestion-first and non-mutating. The primary path is local CLI triage using maintainer-controlled provider credentials, because local/subscription-backed runs can be cheaper than GitHub Action token-based usage. GitHub Action issue triage remains available for teams that explicitly want it.
+
+Scope:
+
+- Add CLI commands for single-issue and batch issue triage, such as `open-maintainer triage issue --number <n>` and `open-maintainer triage issues --state open --limit <n>`.
+- Require an LLM provider and explicit repository-content transfer consent for model-backed issue triage.
+- Keep the first useful command easy to learn. Advanced config should be optional and only needed for custom labels, comments, and closure rules.
+- Keep the first useful local triage run within the 15-minute repo adoption target.
+- Classify issues with the LLM only. Deterministic code may gather candidate evidence such as issue templates, labels, related issue candidates, referenced files, repo context, and existing metadata, but it must not independently assign categories.
+- Use primary classifications: `ready_for_review`, `needs_author_input`, `needs_maintainer_design`, `not_agent_ready`, and `possible_spam`.
+- Keep agent readiness as a separate field: `agent_ready`, `not_agent_ready`, or `needs_human_design`.
+- Keep risk flags separate from primary classification, including security-sensitive, high-risk paths, dependency changes, migrations, release/CI changes, broad scope, and unclear scope.
+- Suggest canonical label intents, then map them deterministically to configured or default repo labels.
+- Render public comments through deterministic templates filled with LLM-provided missing-information items and required author actions.
+- Default to console summary plus local artifacts; do not apply labels, post comments, close issues, or otherwise mutate GitHub state unless explicit flags are provided.
+- Store local run history as ignored operational artifacts, including per-issue JSON and batch JSON/Markdown reports.
+- Support opt-in write flags for labels and comments. Do not auto-create missing labels unless an explicit create-labels flag is used.
+- Include selective configurable closure for `possible_spam` and stale `needs_author_input` issues only when repo config and CLI flags both allow closure. Fresh low-context issues should receive author-input requests before closure.
+- Generate agent task briefs only as a second step for `agent_ready` issues or when explicitly requested. Agent-ready briefs must include likely files or surfaces, constraints, validation plan, done criteria, and escalation risks.
+- Keep separate PR triage write workflows out of v0.5; PR contribution quality remains part of the PR review/v0.4.x line.
+
+Complete when:
+
+- Product outcome: maintainers can locally triage one issue or a batch of issues, inspect classifications, required author actions, label intents, rendered comment previews, and local artifacts before changing GitHub state.
+- Product outcome: maintainers can opt into labels, comments, and selective closure through explicit flags and configuration.
+- Validation evidence: tests cover schema handling with fake model outputs, consent gates, batch CLI flow, candidate evidence gathering, label-intent mapping, deterministic comment rendering, local artifact layout, write flags, closure guardrails, duplicate candidate retrieval, and task brief rendering.
+- Quality bar: issue triage references repo context where applicable, distinguishes low-confidence suggestions, and does not infer whether the author used AI.
+- Quality bar: issue triage saves maintainer time; it must not require maintainers to understand the full config model before receiving useful local output.
+- Quality bar: maintainers can reach first useful issue triage output in 15 minutes or less for a typical repository.
+- Adoption signal: validated on synthetic fixtures/golden tests and a small set of real issues across different repository types.
 
 ## v0.6: Agent Orchestration Experimental
 

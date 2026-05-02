@@ -93,6 +93,8 @@ Adjacent commercial categories validate the market:
 
 Open Maintainer differentiates by being open-source, self-hostable, context-first, transparent, and human-controlled by default.
 
+AI tools have increased the volume of low-context issues and polished-looking but unreviewable PRs. Open Maintainer should address that maintainer pain through Contribution Triage: evaluating reviewability, scope, evidence, validation, and repo alignment. It should not classify whether a contribution was written by AI.
+
 ## 5. Product Principles
 
 ### 5.1 Context Is the Foundation
@@ -104,6 +106,7 @@ Open Maintainer's core value is converting repository reality into durable, vers
 - generated agent instructions
 - generated skills
 - maintainer-approved policy
+- contribution-quality requirements
 - validation evidence
 - drift history
 - run history
@@ -172,7 +175,20 @@ Defaults:
 - Agent execution is experimental and approval-gated.
 - Default branch mutation is never automatic.
 
-### 5.6 Evidence-Grounded AI
+### 5.6 Maintainer Effort Reduction
+
+Open Maintainer exists to save maintainer time and energy. Features must not add a steep learning curve or require maintainers to understand a large policy system before receiving value.
+
+Requirements:
+
+- First useful commands should work with safe defaults and minimal flags.
+- A maintainer should be able to get Open Maintainer running for one repository and receive useful output in 15 minutes or less.
+- Advanced configuration should be optional and reserved for teams that want custom labels, comments, closure rules, or org policy.
+- Output should be concise, action-oriented, and sorted by maintainer action.
+- Contribution triage should reduce review queue noise; it should not create a second queue of bot output that maintainers must manually curate.
+- Default workflows must avoid surprising GitHub writes.
+
+### 5.7 Evidence-Grounded AI
 
 AI output should cite one or more grounding sources:
 
@@ -189,7 +205,7 @@ AI output should cite one or more grounding sources:
 
 Generic critique is not enough.
 
-### 5.7 Repository-Content Safety
+### 5.8 Repository-Content Safety
 
 Repository content must not leave the user's environment until explicit provider or agent consent is configured.
 
@@ -246,7 +262,8 @@ Planned capabilities:
 | v0.2 | Readiness Quality | Trusted audit, drift, and readiness reporting. |
 | v0.3 | GitHub Action | One-workflow install for context checks and opt-in refresh PRs. |
 | v0.4 | Rule-Grounded PR Review Beta | PR reviews cite repo rules and validation expectations. |
-| v0.5 | Issue Triage and Agent-Safe Backlog | Issues become actionable, labeled, and ready for humans or agents. |
+| v0.4.x | PR Contribution Triage Signals | PR review gains contribution-quality signals after the v0.4.0 release. |
+| v0.5 | Issue Triage and Agent-Safe Backlog | Local-first issue triage makes issues actionable for humans and agents. |
 | v0.6 | Agent Orchestration Experimental | External agents can be dispatched with isolation, approvals, and audit trails. |
 | v0.7 | GitHub App and Self-Hosted Dashboard Alpha | Durable, debuggable self-hosted product. |
 | v0.8 | Org Policy and Multi-Repo Governance | Org rules, repo overrides, shared skill packs, and multi-repo views. |
@@ -449,42 +466,123 @@ Severity levels:
 - False-positive feedback can be captured.
 - Tests cover changed-surface detection, validation inference, docs alignment, severity, duplicate avoidance, CLI PR fetching/posting, dashboard preview, and feedback capture.
 
-## 12. v0.5 Issue Triage and Agent-Safe Backlog Requirements
+## 12. v0.4.x PR Contribution Triage Signal Requirements
 
-Goal: make GitHub issues actionable for humans and agents.
+Goal: add contribution-quality signals to the shipped v0.4.0 PR review beta without expanding v0.4.0 release scope.
 
-### 12.1 Default Behavior
+### 12.1 Scope
 
-Issue triage is suggestion-first:
+v0.4.x PR contribution triage should stay inside the PR review product. It should evaluate:
 
-- triage output visible in dashboard/run history
-- suggested labels visible
-- missing-information prompts visible
-- task brief visible
-- manual apply-label and post-comment actions enabled
-- automatic labels opt-in
-- automatic comments opt-in
+- PR intent clarity
+- linked issue or acceptance criteria
+- diff scope versus stated intent
+- validation evidence
+- docs alignment
+- broad churn
+- high-risk files
+- generated-file, lockfile, or dependency changes
+- maintainer-attention recommendation
 
-### 12.2 Triage Output
+It must not introduce full issue triage, issue labels/comments, duplicate issue handling, stale issue handling, auto-close, or agent task briefs.
+
+### 12.2 Categorization Boundary
+
+PR contribution categorization is LLM-only. Deterministic code may gather candidate evidence such as changed files, diff stats, linked issue metadata, check status, generated file hints, lockfile changes, and detected validation text. Deterministic code must not independently assign PR categories.
+
+Do not ship a default numeric quality score. Use categorical outcomes and evidence:
+
+- ready for review
+- needs author input
+- needs maintainer design
+- not agent-ready
+- possible spam-like contribution noise
+
+### 12.3 Generated Context Policy
+
+Context artifact generation should add a deterministic Contribution Quality Requirements section to generated `AGENTS.md` and mirror it in `CLAUDE.md`.
+
+The section should require:
+
+- bug issues to include reproduction, expected/actual behavior, environment or version where known, and logs or failing commands when available
+- feature requests to include user problem, affected surface, and acceptance criteria
+- security reports to include affected surface and proof-of-concept or credible exploit path, while requesting clarification rather than dismissing reports that lack proof
+- PRs to include clear intent, linked issue or acceptance criteria where available, scoped diff, validation evidence, and docs updates for public behavior changes
+- high-risk PRs touching auth, secrets, CI/release, deploy, dependencies, lockfiles, generated files, or migrations to include rationale and targeted validation
+- the statement that Open Maintainer evaluates reviewability, scope, evidence, validation, and repo alignment, not whether the author used AI
+
+This is deterministic context policy text. It is separate from LLM-only issue/PR categorization.
+
+### 12.4 Simplicity Requirement
+
+PR review users should receive contribution-quality signals without learning a separate triage workflow or configuring a policy taxonomy. The v0.4.x path should save review time inside the existing PR review flow.
+
+## 13. v0.5 Issue Triage and Agent-Safe Backlog Requirements
+
+Goal: make GitHub issues actionable for humans and agents through local-first Contribution Triage.
+
+### 13.1 Default Behavior
+
+Issue triage is suggestion-first and non-mutating:
+
+- primary path is local CLI triage with maintainer-controlled provider credentials
+- GitHub Action issue triage remains available for teams that explicitly choose token-based usage or self-hosted providers
+- triage requires an LLM provider and explicit repository-content transfer consent
+- console summary and local artifacts are produced by default
+- suggested label intents are visible
+- missing-information prompts and rendered comment previews are visible
+- task briefs are generated only for `agent_ready` issues or when explicitly requested
+- labels, comments, label creation, and closures require explicit flags
+- automatic labels, comments, and closures are opt-in and config-gated
+- first useful command should work without custom triage config
+- first useful issue-triage run should fit inside the 15-minute repo adoption target
+
+### 13.2 Triage Output
 
 For each issue, Open Maintainer should produce:
 
-- issue type
-- suspected affected surface
-- priority
-- complexity
-- risk level
-- testability
+- primary classification: `ready_for_review`, `needs_author_input`, `needs_maintainer_design`, `not_agent_ready`, or `possible_spam`
+- maintainer action: review now, ask author, defer, require human design, or close if configured
+- agent readiness: `agent_ready`, `not_agent_ready`, or `needs_human_design`
+- affected surface candidates
+- risk flags such as security-sensitive, high-risk paths, dependency changes, migrations, release/CI changes, broad scope, or unclear scope
 - missing information
-- duplicate candidates
+- duplicate candidates and LLM duplicate judgment
 - stale signal where applicable
-- suggested labels
-- acceptance criteria
+- suggested label intents
+- required author actions
+- acceptance criteria where possible
+- deterministic rendered comment preview
 - next action
-- agent suitability
 - agent task brief where appropriate
 
-### 12.3 Agent Task Brief
+Issue/PR categorization is LLM-only. Deterministic code may gather candidate evidence such as issue templates, labels, related issue candidates, referenced files, repository context, changed files, check status, and existing metadata. Deterministic code may also validate schemas, enforce consent, map label intents, render comments, cap writes, and apply closure guardrails. It must not independently assign issue or PR categories.
+
+### 13.3 CLI and Write Behavior
+
+The v0.5 CLI should support single-issue and batch local triage:
+
+```sh
+open-maintainer triage issue --number 123
+open-maintainer triage issues --state open --limit 25
+```
+
+Default behavior must not mutate GitHub. Write actions require explicit flags, such as:
+
+```sh
+--apply-labels
+--post-comment
+--create-labels
+--close-allowed
+```
+
+Label handling should use canonical LLM-returned label intents mapped deterministically to configured or default repo labels. Missing labels are reported by default; label creation requires an explicit flag.
+
+Comments should be rendered through deterministic templates filled with LLM-provided missing-information items and required author actions. Comments must not accuse the author of using AI.
+
+Selective closure is allowed only when both repo config and CLI flags permit it. Immediate closure should be limited to `possible_spam`. Low-context but legitimate issues should receive an author-input request first and only become closure-eligible after a configured stale window.
+
+### 13.4 Agent Task Brief
 
 Task briefs should include:
 
@@ -498,18 +596,53 @@ Task briefs should include:
 - done criteria
 - reason the task is or is not agent-ready
 
-### 12.4 Complete When
+Agent task briefs should be generated as a second step only for `agent_ready` issues or when explicitly requested. `agent_ready` requires a bounded scope, likely files or surfaces, constraints from repo context, a specific validation plan, done criteria, and escalation risks.
+
+### 13.5 Local Artifacts
+
+Local triage artifacts are operational run history, not generated context artifacts. They should be ignored/local by default.
+
+Recommended layout:
+
+```text
+.open-maintainer/triage/issues/<issue-number>.json
+.open-maintainer/triage/runs/<run-id>.json
+.open-maintainer/triage/runs/<run-id>.md
+```
+
+Artifacts should capture issue metadata, classification, reasons, required author actions, label intents, rendered comment preview, provider/model metadata, source context version, consent mode, write actions applied or skipped, and errors.
+
+### 13.6 Simplicity Requirement
+
+Issue triage must save maintainer time and energy. It should not require maintainers to learn the full config model before seeing value.
+
+The default batch output should answer:
+
+- which issues are ready for review
+- which need author input
+- which need human design
+- which are not agent-ready
+- which may be spam and can be closed only if configured
+- what the maintainer can do next
+
+Advanced config should only be needed for custom labels, public comments, label creation, selective closure, strictness, and org policy.
+
+The expected first-run path should be learnable from one short command example plus the provider and consent flags. A maintainer should not need to understand dashboard setup, GitHub App installation, or the full `.open-maintainer.yml` policy model before local triage is useful.
+
+### 13.7 Complete When
 
 - Maintainers can inspect triage output before changing GitHub state.
-- Issue labels and comments are opt-in for automatic application.
-- Tests cover classification, label suggestions, missing info, duplicate/stale signals, and task brief rendering.
+- Maintainers can triage one issue or a batch locally, write local artifacts, and opt into GitHub labels, comments, label creation, or selective closure.
+- Tests cover schema handling with fake model outputs, consent gates, batch CLI flow, candidate evidence gathering, label-intent mapping, deterministic comment rendering, local artifact layout, write flags, closure guardrails, duplicate candidate retrieval, and task brief rendering.
 - Triage references repo context where applicable.
+- Triage does not infer whether the author used AI.
+- Synthetic fixtures/golden tests and real issue validation both inform release readiness.
 
-## 13. v0.6 Agent Orchestration Experimental Requirements
+## 14. v0.6 Agent Orchestration Experimental Requirements
 
 Goal: coordinate external agents without promising autonomous coding.
 
-### 13.1 Allowed Behavior
+### 14.1 Allowed Behavior
 
 The experimental orchestration layer may:
 
@@ -523,7 +656,7 @@ The experimental orchestration layer may:
 - prepare or open draft PRs
 - require human approval for high-risk work
 
-### 13.2 Disallowed Behavior
+### 14.2 Disallowed Behavior
 
 The experimental layer must not:
 
@@ -534,7 +667,7 @@ The experimental layer must not:
 - execute arbitrary commands from issue text
 - execute unregistered agents
 
-### 13.3 Approval Gates
+### 14.3 Approval Gates
 
 Human approval is required before agent writes or PR handoff for:
 
@@ -547,18 +680,18 @@ Human approval is required before agent writes or PR handoff for:
 - generated file rewrites
 - broad refactors
 
-### 13.4 Complete When
+### 14.4 Complete When
 
 - Maintainers can dispatch a bounded external-agent task.
 - The system records plan, workspace, command, changed files, validation evidence, and output.
 - Unsafe operations are blocked or require approval.
 - Tests cover registry validation, approval gates, isolation, command capture, and blocked unsafe operations.
 
-## 14. v0.7 GitHub App and Self-Hosted Dashboard Alpha Requirements
+## 15. v0.7 GitHub App and Self-Hosted Dashboard Alpha Requirements
 
 Goal: harden the shipped dashboard foundation and GitHub App pieces into a reliable self-hosted product.
 
-### 14.1 Required Capabilities
+### 15.1 Required Capabilities
 
 - Durable Postgres-backed state for installs, repos, runs, artifacts, reviews, triage results, context PRs, and audit records.
 - Queue-backed job processing and retries.
@@ -569,18 +702,18 @@ Goal: harden the shipped dashboard foundation and GitHub App pieces into a relia
 - Dashboard views for PR review, issue triage, context drift, generated artifacts, and AI runs.
 - Safe retry for failed jobs.
 
-### 14.2 Complete When
+### 15.2 Complete When
 
 - Users can self-host, install the GitHub App, analyze repositories, generate context, inspect runs, open context PRs, and debug failures from the dashboard.
 - Docker Compose smoke, API/web builds, webhook tests, queue/retry tests, and dashboard smoke paths cover the workflow.
 - Failed jobs are visible, diagnosable, and safely retryable.
 - The dashboard is validated against at least 3 real repositories.
 
-## 15. v0.8 Org Policy and Multi-Repo Governance Requirements
+## 16. v0.8 Org Policy and Multi-Repo Governance Requirements
 
 Goal: make governance a product surface.
 
-### 15.1 Required Capabilities
+### 16.1 Required Capabilities
 
 - Org policies.
 - Repo overrides.
@@ -592,18 +725,18 @@ Goal: make governance a product surface.
 - Agent permissions by repo, task type, risk area, and execution environment.
 - Separate citations for org-inherited rules and repo-local rules.
 
-### 15.2 Complete When
+### 16.2 Complete When
 
 - An org can define shared rules and apply them to selected repos.
 - Repos can override inherited rules.
 - PR reviews can cite inherited and repo-local rules separately.
 - Tests cover inheritance, override precedence, citations, and unsafe automation blocking.
 
-## 16. v1.0 OSS Platform Requirements
+## 17. v1.0 OSS Platform Requirements
 
 Goal: ship a cohesive self-hostable OSS platform.
 
-### 16.1 Required Capabilities
+### 17.1 Required Capabilities
 
 - CLI and dashboard are both supported.
 - GitHub Action supports audit, drift, comments, and opt-in refresh PRs.
@@ -614,18 +747,18 @@ Goal: ship a cohesive self-hostable OSS platform.
 - Org policies and repo overrides are usable.
 - Self-hosted deployment is documented and diagnosable.
 
-### 16.2 Complete When
+### 17.2 Complete When
 
 - A self-hosted org can use Open Maintainer end to end for context freshness, PR review, issue triage, dashboard visibility, and policy checks.
 - Full repo gates, Docker Compose smoke, GitHub App/webhook tests, action tests, and dashboard smoke checks cover the v1.0 loop.
 - Repository-content transfer, GitHub writes, and agent execution are explicit and auditable.
 - The product is dogfooded on Open Maintainer and validated on at least 5 external repositories.
 
-## 17. v1.1 Hosted Private Beta Requirements
+## 18. v1.1 Hosted Private Beta Requirements
 
 Goal: package the OSS platform as managed infrastructure.
 
-### 17.1 Required Capabilities
+### 18.1 Required Capabilities
 
 - Managed GitHub App.
 - Scheduled audits.
@@ -638,14 +771,14 @@ Goal: package the OSS platform as managed infrastructure.
 - Provider configuration and model metadata tracking.
 - Operational monitoring and support workflow.
 
-### 17.2 Complete When
+### 18.2 Complete When
 
 - Pilot orgs can use managed Open Maintainer without running the self-hosted stack.
 - Hosted smoke checks cover install, scheduled runs, GitHub writes, dashboard history, and provider failure handling.
 - Hosted preserves auditability, explicit data boundaries, and opt-in GitHub mutations.
 - 2-3 pilot orgs use the managed GitHub App, scheduled runs, and durable history.
 
-## 18. v1.2+ Hosted Scale and Enterprise Controls Requirements
+## 19. v1.2+ Hosted Scale and Enterprise Controls Requirements
 
 Goal: make hosted Open Maintainer reliable for larger teams and orgs.
 
@@ -669,7 +802,7 @@ Complete when:
 - Retention and permission boundaries are enforced.
 - Hosted controls do not make the OSS product hollow.
 
-## 19. Configuration Requirements
+## 20. Configuration Requirements
 
 Open Maintainer should support repo-level configuration through `.open-maintainer.yml`.
 
@@ -684,11 +817,23 @@ reviews:
   max_inline_comments: 8
   require_tests: true
 
-issues:
-  triage_enabled: false
-  auto_apply_labels: false
-  auto_comment: false
-  stale_after_days: 30
+contributionTriage:
+  issues:
+    enabled: false
+    strictness: balanced # lenient | balanced | strict
+    labels:
+      apply: false
+      createMissing: false
+    comments:
+      post: false
+      updateExisting: true
+    close:
+      enabled: false
+      allowedClassifications:
+        - possible_spam
+      requireComment: true
+      staleNeedsAuthorInputDays: 14
+      maxClosuresPerRun: 5
 
 context:
   generate_agents_md: true
@@ -715,10 +860,11 @@ Requirements:
 
 - Invalid config fails safely.
 - Generated config is reviewable before enforcement.
+- Contribution triage config is planned behavior until implementation supports it; generated `.open-maintainer.yml` should not claim supported keys before the code reads them.
 - Dashboard settings and repo config precedence are clear.
 - Org-inherited policy and repo overrides are visible.
 
-## 20. Permissions Requirements
+## 21. Permissions Requirements
 
 Permissions should stay tight and staged by feature.
 
@@ -742,7 +888,7 @@ PR review permissions:
 Issue triage permissions:
 
 - Issues: read.
-- Issues: write only for manual or opt-in labels/comments.
+- Issues: write only for explicit label, comment, label-creation, or closure actions.
 
 Org/dashboard permissions:
 
@@ -753,7 +899,7 @@ Agent orchestration:
 
 - No additional GitHub writes without explicit approval and configured credentials.
 
-## 21. Architecture Requirements
+## 22. Architecture Requirements
 
 The architecture should remain TypeScript-first and GitHub-native.
 
@@ -798,11 +944,11 @@ agent.dispatch
 org.evaluate_policy
 ```
 
-## 22. Data and Artifact Requirements
+## 23. Data and Artifact Requirements
 
 Generated outputs should be immutable or versioned where practical.
 
-Artifacts:
+Generated and durable artifacts:
 
 - `repo_profile`
 - readiness report
@@ -816,6 +962,14 @@ Artifacts:
 - agent run record
 - org policy snapshot
 
+Local-only run artifacts:
+
+- `.open-maintainer/triage/issues/<issue-number>.json`
+- `.open-maintainer/triage/runs/<run-id>.json`
+- `.open-maintainer/triage/runs/<run-id>.md`
+
+Local triage artifacts are operational run history, not generated context artifacts. They should be ignored/local by default unless a maintainer explicitly exports or shares them.
+
 Each AI-backed artifact should capture:
 
 - source repo/profile version
@@ -827,13 +981,14 @@ Each AI-backed artifact should capture:
 - output version
 - errors or skipped checks
 
-## 23. Success Metrics
+## 24. Success Metrics
 
 Milestone completion criteria are the primary success metrics.
 
 Cross-cutting metrics:
 
 - Time from install to first useful context output.
+- Time from first triage setup to useful issue triage output, with a target of 15 minutes or less for one repository.
 - Readiness recommendation usefulness.
 - Drift detection precision.
 - Context refresh PR acceptance.
@@ -841,6 +996,8 @@ Cross-cutting metrics:
 - Duplicate PR comment avoidance.
 - Suggested issue label acceptance.
 - Missing-information prompt usefulness.
+- Maintainer-reported time saved by contribution triage.
+- First-run completion rate without custom config.
 - Failed-run recovery rate.
 - Agent dispatch approval and failure rates.
 - Number of GitHub writes requiring explicit approval.
@@ -851,7 +1008,7 @@ Real-world validation targets:
 - v1.0: dogfooded on Open Maintainer plus at least 5 external repositories.
 - v1.1: 2-3 hosted pilot orgs.
 
-## 24. Non-Goals
+## 25. Non-Goals
 
 Open Maintainer should not become:
 
@@ -862,12 +1019,13 @@ Open Maintainer should not become:
 - a hosted-only product
 - a system that silently mutates repositories or GitHub state
 - a generic AI review tool untethered from repo rules and evidence
+- a high-complexity policy system that takes more time to learn than it saves
 - a tool that sends repository content to providers without explicit consent
 - a product that merges PRs or pushes to default branches automatically
 
-## 25. Key Risks and Mitigations
+## 26. Key Risks and Mitigations
 
-### 25.1 AI Output Quality
+### 26.1 AI Output Quality
 
 Risk: generated context, reviews, or triage may be noisy or wrong.
 
@@ -881,7 +1039,7 @@ Mitigations:
 - false-positive feedback
 - reviewable generated artifacts
 
-### 25.2 Security and Privacy
+### 26.2 Security and Privacy
 
 Risk: private repository content or secrets may leak.
 
@@ -895,7 +1053,7 @@ Mitigations:
 - audit trail for GitHub writes
 - approval gates for security-sensitive paths
 
-### 25.3 Product Sprawl
+### 26.3 Product Sprawl
 
 Risk: the product becomes a weak project board plus weak review bot plus unsafe agent runner.
 
@@ -906,8 +1064,9 @@ Mitigations:
 - issue triage must prepare agent-safe work
 - agent orchestration stays experimental until proven
 - dashboard focuses on maintainer attention and evidence
+- first-use workflows stay small enough to produce useful output in 15 minutes or less
 
-### 25.4 Hosted Complexity
+### 26.4 Hosted Complexity
 
 Risk: hosted concerns distort the OSS product before v1.0.
 
@@ -918,7 +1077,7 @@ Mitigations:
 - hosted packages core workflows instead of replacing them
 - enterprise features wait for v1.2+
 
-## 26. Final Product Definition
+## 27. Final Product Definition
 
 Open Maintainer is an open-source system for maintaining the operational memory and AI-readiness of GitHub repositories.
 
