@@ -5,6 +5,6 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "references": [{ "path": "../shared" }],
+  "references": [{ "path": "../ai" }, { "path": "../shared" }],
   "include": ["src/**/*.ts"]
 }

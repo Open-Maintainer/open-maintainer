@@ -1,4 +1,6 @@
+import type { ModelProvider } from "@open-maintainer/ai";
 import type {
+  ModelProviderConfig,
   RepoProfile,
   ReviewEvidenceCitation,
   ReviewFinding,
@@ -8,8 +10,15 @@ import type {
   ReviewValidationExpectation,
 } from "@open-maintainer/shared";
 import { ReviewResultSchema, newId, nowIso } from "@open-maintainer/shared";
+import { type ReviewPromptContext, generateModelBackedReview } from "./model";
 export { assembleLocalReviewInput } from "./local-git";
 export type { LocalReviewInputOptions } from "./local-git";
+export {
+  buildReviewPrompt,
+  modelReviewOutputJsonSchema,
+  parseModelReviewOutput,
+} from "./model";
+export type { ModelBackedReviewOptions, ModelReviewOutput } from "./model";
 
 const severityOrder: ReviewSeverity[] = ["blocker", "major", "minor", "note"];
 
@@ -19,6 +28,31 @@ export type DeterministicReviewOptions = {
   input: ReviewInput;
   rules?: string[];
 };
+
+export type GenerateReviewOptions = DeterministicReviewOptions & {
+  providerConfig?: ModelProviderConfig | null;
+  provider?: ModelProvider | null;
+  promptContext?: ReviewPromptContext;
+};
+
+export async function generateReview(
+  options: GenerateReviewOptions,
+): Promise<ReviewResult> {
+  const deterministicReview = generateDeterministicReview(options);
+  if (!options.providerConfig || !options.provider) {
+    return deterministicReview;
+  }
+  return generateModelBackedReview({
+    ...(options.repoId ? { repoId: options.repoId } : {}),
+    profile: options.profile,
+    input: options.input,
+    rules: options.rules ?? [],
+    deterministicReview,
+    providerConfig: options.providerConfig,
+    provider: options.provider,
+    ...(options.promptContext ? { promptContext: options.promptContext } : {}),
+  });
+}
 
 export function generateDeterministicReview(
   options: DeterministicReviewOptions,

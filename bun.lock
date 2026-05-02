@@ -91,7 +91,9 @@
     "packages/review": {
       "name": "@open-maintainer/review",
       "dependencies": {
+        "@open-maintainer/ai": "workspace:*",
         "@open-maintainer/shared": "workspace:*",
+        "zod": "^3.24.1",
       },
     },
     "packages/shared": {

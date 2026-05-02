@@ -10,6 +10,8 @@
     "build": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@open-maintainer/shared": "workspace:*"
+    "@open-maintainer/ai": "workspace:*",
+    "@open-maintainer/shared": "workspace:*",
+    "zod": "^3.24.1"
   }
 }

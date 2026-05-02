@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_c0c4fbd6-0908-4b81-93eb-4b27832405a1",
+  "id": "repo_profile_19027e4b-4c8d-4d09-afde-1ca450def671",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -74,7 +74,7 @@
     },
     {
       "name": "build",
-      "command": "bun run --cwd packages/shared build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/ai build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build",
+      "command": "bun run --cwd packages/shared build && bun run --cwd packages/ai build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build",
       "source": "package.json"
     },
     {
@@ -317,6 +317,7 @@
     "packages/github/tests/webhook.test.ts",
     "packages/review/tests/deterministic.test.ts",
     "packages/review/tests/local-git.test.ts",
+    "packages/review/tests/model.test.ts",
     "packages/review/tests/render.test.ts",
     "packages/shared/tests/schemas.test.ts",
     "tests/action-mvp.test.ts",
@@ -373,7 +374,7 @@
     "Run `biome check .` before finishing changes that affect lint.",
     "Run `tsc -b` before finishing changes that affect typecheck.",
     "Run `vitest run` before finishing changes that affect test.",
-    "Run `bun run --cwd packages/shared build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/ai build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build` before finishing changes that affect build.",
+    "Run `bun run --cwd packages/shared build && bun run --cwd packages/ai build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build` before finishing changes that affect build.",
     "Run `cd packages/ai && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd packages/analyzer && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd packages/config && tsc -p tsconfig.json` before finishing changes that affect build.",
@@ -715,6 +716,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "packages/review/tests/model.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "packages/review/tests/render.test.ts",
       "reason": "detected repository context"
     },
@@ -894,15 +899,15 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "98eabf127b3fb95e"
+      "hash": "1e1441db67609ad6"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "c886dca87c95e376"
+      "hash": "44dd22d79c3783bd"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "92c8642a02b90213"
+      "hash": "0a776569a13cdbf4"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
@@ -962,19 +967,19 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "feda95a475dacf75"
+      "hash": "336cbc463521849f"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "0d2df14fcb35f08a"
+      "hash": "b27de0936b1a9b61"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "375123f4ec0d9ae6"
+      "hash": "b7159f217460c457"
     },
     {
       "path": "AGENTS.md",
-      "hash": "62466521b46eee09"
+      "hash": "1a6c9caa009bf22c"
     },
     {
       "path": "apps/api/package.json",
@@ -1022,7 +1027,7 @@
     },
     {
       "path": "bun.lock",
-      "hash": "a56066758bbf3c11"
+      "hash": "8fb8f178c4cd9f9e"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -1054,7 +1059,7 @@
     },
     {
       "path": "package.json",
-      "hash": "b26165022b711d5a"
+      "hash": "9186cbe1b4518571"
     },
     {
       "path": "packages/ai/package.json",
@@ -1126,7 +1131,7 @@
     },
     {
       "path": "packages/review/package.json",
-      "hash": "876ec84f5c6aaa31"
+      "hash": "90f9182c4a646083"
     },
     {
       "path": "packages/review/tests/deterministic.test.ts",
@@ -1137,12 +1142,16 @@
       "hash": "1a4a0489946e176e"
     },
     {
+      "path": "packages/review/tests/model.test.ts",
+      "hash": "d219b65b39994334"
+    },
+    {
       "path": "packages/review/tests/render.test.ts",
       "hash": "cd83648f76295b8d"
     },
     {
       "path": "packages/review/tsconfig.json",
-      "hash": "c7b76c9a19c1c830"
+      "hash": "af6ccd68ad1a0580"
     },
     {
       "path": "packages/shared/package.json",
@@ -1348,26 +1357,26 @@
   "contextArtifactHashes": [
     {
       "path": "AGENTS.md",
-      "hash": "1a6c9caa009bf22c"
+      "hash": "5a42cc09e99b3b63"
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "336cbc463521849f"
+      "hash": "0eda2c24f33b5c9f"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "44dd22d79c3783bd"
+      "hash": "fedb721add39ca65"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "0a776569a13cdbf4"
+      "hash": "b4712457ee60a450"
     },
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "1e1441db67609ad6"
+      "hash": "4feec4f6fbe5fd8d"
     }
   ],
-  "createdAt": "2026-05-02T02:38:00.308Z",
+  "createdAt": "2026-05-02T02:46:56.216Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1742,6 +1751,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "packages/review/tests/model.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "packages/review/tests/render.test.ts",
             "reason": "detected repository context"
           },
@@ -2031,6 +2044,10 @@
           },
           {
             "path": "packages/review/tests/local-git.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/review/tests/model.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2517,7 +2534,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T02:38:00.309Z"
+    "generatedAt": "2026-05-02T02:46:56.217Z"
   },
-  "openMaintainerProfileHash": "a9133357f895383f"
+  "openMaintainerProfileHash": "e24a220595409568"
 }
