@@ -1,4 +1,4 @@
-# Open Maintainer Report: source/open-maintainer
+# Open Maintainer Report: Open-Maintainer/open-maintainer
 
 Agent Readiness: 100/100
 

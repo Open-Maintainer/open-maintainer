@@ -1,8 +1,8 @@
 {
-  "id": "repo_profile_829b7cbe-8bc3-4f36-bf3f-60122919a40b",
+  "id": "repo_profile_f6f0a398-7ef5-4f93-8ddc-a7fa8b8b8c59",
   "repoId": "local",
   "version": 1,
-  "owner": "source",
+  "owner": "Open-Maintainer",
   "name": "open-maintainer",
   "defaultBranch": "main",
   "primaryLanguages": ["TypeScript"],
@@ -863,15 +863,15 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "d613d4d3d3dc3cd6"
+      "hash": "417e337efba93a03"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "dd11e8b4c2f29c5c"
+      "hash": "af2d6dc009e20fcc"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "df072f7ed58674ef"
+      "hash": "ea09913d3dd73427"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
@@ -907,23 +907,23 @@
     },
     {
       "path": ".github/workflows/ci.yml",
-      "hash": "9ab61d9b9528e3c4"
+      "hash": "67e8611a8b177cd7"
     },
     {
       "path": ".github/workflows/codeql.yml",
-      "hash": "b7abe9573c7e879a"
+      "hash": "b640c9ea45d27af5"
     },
     {
       "path": ".github/workflows/compose-smoke.yml",
-      "hash": "81e53cf3c3147dc1"
+      "hash": "c9c5069714cc7d4c"
     },
     {
       "path": ".github/workflows/dependency-review.yml",
-      "hash": "4a102d9aaed12635"
+      "hash": "9eae4af39b4387f7"
     },
     {
       "path": ".github/workflows/open-maintainer-audit.yml",
-      "hash": "eb76bdcd4e9bf4dc"
+      "hash": "cae35a825538c1a1"
     },
     {
       "path": ".gitignore",
@@ -931,19 +931,19 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "6b2a310b49d3d1c4"
+      "hash": "7d2788a057d334a7"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "535b2d80873d803e"
+      "hash": "68280e207b487f14"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "e551902150b96017"
+      "hash": "9b90b476ce793a7d"
     },
     {
       "path": "AGENTS.md",
-      "hash": "df31f40f94db2e13"
+      "hash": "8cc889d931681fe2"
     },
     {
       "path": "apps/api/package.json",
@@ -1003,7 +1003,7 @@
     },
     {
       "path": "docs/DEMO_RUNBOOK.md",
-      "hash": "d4b678699b5f2d92"
+      "hash": "09dcfe2f8e4bf10e"
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
@@ -1107,15 +1107,15 @@
     },
     {
       "path": "README.md",
-      "hash": "33458e930546b6f0"
+      "hash": "2eae845b18d4fb64"
     },
     {
       "path": "tests/action-mvp.test.ts",
-      "hash": "f93fa176635b2e01"
+      "hash": "f7fc624591d6164d"
     },
     {
       "path": "tests/cli-audit.test.ts",
-      "hash": "1eeb10b60e087534"
+      "hash": "4749fac03f972832"
     },
     {
       "path": "tests/cli-doctor.test.ts",
@@ -1297,26 +1297,26 @@
   "contextArtifactHashes": [
     {
       "path": "AGENTS.md",
-      "hash": "c22251d7c3aa7b3f"
+      "hash": "3773d8e73df30f1d"
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "11122c9dadbdbeef"
+      "hash": "b174a421b2eb1a3f"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "18ea6d2e153061b1"
+      "hash": "e471285f802312ed"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "1dfca931e6d9b785"
+      "hash": "2b22671e1ac17057"
     },
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "bdadfec0fa9c36c9"
+      "hash": "9dd4245466b96159"
     }
   ],
-  "createdAt": "2026-05-02T01:51:12.597Z",
+  "createdAt": "2026-05-02T01:59:10.943Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2422,7 +2422,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T01:51:12.597Z"
+    "generatedAt": "2026-05-02T01:59:10.943Z"
   },
-  "openMaintainerProfileHash": "0a0bef2382683ae0"
+  "openMaintainerProfileHash": "3c5f5b65855e222c"
 }
