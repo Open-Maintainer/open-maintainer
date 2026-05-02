@@ -56,6 +56,17 @@ Generation uses three separate choices:
 | `--context` | `codex`, `claude`, `both` | Writes `AGENTS.md`, `CLAUDE.md`, or both. |
 | `--skills` | `codex`, `claude`, `both` | Writes skills under `.agents/skills`, `.claude/skills`, or both. |
 
+Current Codex model choices:
+
+| Model | Recommended use |
+| --- | --- |
+| `gpt-5.5` | Current frontier model for complex coding, research, and real-world work. |
+| `gpt-5.4` | Strong model for everyday coding. |
+| `gpt-5.4-mini` | Small, fast, and cost-efficient model for simpler coding tasks. |
+| `gpt-5.3-codex` | Coding-optimized model. |
+| `gpt-5.3-codex-spark` | Ultra-fast coding model. |
+| `gpt-5.2` | Optimized for professional work and long-running agents. |
+
 Examples:
 
 ```sh
@@ -117,7 +128,7 @@ bun run cli review "$TARGET_REPO" \
   --base-ref origin/main \
   --head-ref HEAD \
   --review-provider codex \
-  --review-model gpt-5.3-codex \
+  --review-model gpt-5.5 \
   --allow-model-content-transfer \
   --output-path .open-maintainer/review.md
 ```
@@ -214,7 +225,7 @@ steps:
     with:
       mode: refresh
       generation-provider: codex
-      generation-model: gpt-5.3-codex
+      generation-model: gpt-5.5
       allow-model-content-transfer: "true"
       context-target: both
       skills-target: both
@@ -282,7 +293,7 @@ steps:
     with:
       mode: review
       review-provider: codex
-      review-model: gpt-5.3-codex
+      review-model: gpt-5.5
       allow-review-content-transfer: "true"
 ```
 

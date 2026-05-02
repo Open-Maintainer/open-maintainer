@@ -303,9 +303,20 @@ claude --version
 Optionally choose backend models:
 
 ```sh
-export OPEN_MAINTAINER_CODEX_MODEL="gpt-5.3-codex"
+export OPEN_MAINTAINER_CODEX_MODEL="gpt-5.5"
 export OPEN_MAINTAINER_CLAUDE_MODEL="claude-sonnet-4-6"
 ```
+
+Current Codex model choices:
+
+| Model | Recommended use |
+| --- | --- |
+| `gpt-5.5` | Current frontier model for complex coding, research, and real-world work. |
+| `gpt-5.4` | Strong model for everyday coding. |
+| `gpt-5.4-mini` | Small, fast, and cost-efficient model for simpler coding tasks. |
+| `gpt-5.3-codex` | Coding-optimized model. |
+| `gpt-5.3-codex-spark` | Ultra-fast coding model. |
+| `gpt-5.2` | Optimized for professional work and long-running agents. |
 
 Generate Codex context with explicit consent:
 
@@ -347,7 +358,7 @@ Override the backend model for one run:
 ```sh
 bun run cli generate "$LLM_ROOT/widget-api" \
   --model codex \
-  --llm-model "gpt-5.3-codex" \
+  --llm-model "gpt-5.5" \
   --context codex \
   --skills codex \
   --allow-write \
@@ -514,7 +525,7 @@ steps:
     with:
       mode: refresh
       generation-provider: codex
-      generation-model: gpt-5.3-codex
+      generation-model: gpt-5.5
       allow-model-content-transfer: "true"
       context-target: both
       skills-target: both
@@ -583,7 +594,7 @@ bun run cli review "$REVIEW_REPO" \
   --base-ref HEAD~1 \
   --head-ref HEAD \
   --review-provider codex \
-  --review-model gpt-5.3-codex \
+  --review-model gpt-5.5 \
   --allow-model-content-transfer \
   --output-path .open-maintainer/review.md
 ```
@@ -679,7 +690,7 @@ steps:
     with:
       mode: review
       review-provider: codex
-      review-model: gpt-5.3-codex
+      review-model: gpt-5.5
       allow-review-content-transfer: "true"
 ```
 
