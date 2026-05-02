@@ -183,6 +183,96 @@ describe("review evidence precheck", () => {
     expect(precheck.riskAnalysis).toEqual([
       "No risk path or skipped-file risk was detected before model review.",
     ]);
+    expect(
+      precheck.contributionTriageEvidence.map((item) => item.signal),
+    ).toEqual([
+      "intent_clarity",
+      "linked_issue_or_acceptance_criteria",
+      "diff_scope",
+      "validation_evidence",
+      "docs_alignment",
+      "broad_churn",
+      "high_risk_files",
+      "generated_file_changes",
+      "lockfile_changes",
+      "dependency_changes",
+    ]);
+  });
+
+  it("gathers contribution triage candidates without assigning categories", () => {
+    const precheck = buildReviewEvidencePrecheck({
+      profile,
+      input: {
+        ...reviewInput,
+        body: "Fixes #12\n\nAcceptance criteria:\n- Keep Bun install working.\n\nValidation: vitest run",
+        changedFiles: [
+          ...reviewInput.changedFiles,
+          {
+            path: "AGENTS.md",
+            status: "modified",
+            additions: 6,
+            deletions: 2,
+            patch: "@@ agents",
+            previousPath: null,
+          },
+          {
+            path: "bun.lock",
+            status: "modified",
+            additions: 12,
+            deletions: 10,
+            patch: "@@ lock",
+            previousPath: null,
+          },
+          {
+            path: "package.json",
+            status: "modified",
+            additions: 1,
+            deletions: 1,
+            patch: "@@ deps",
+            previousPath: null,
+          },
+          {
+            path: "apps/api/src/auth/session.ts",
+            status: "modified",
+            additions: 20,
+            deletions: 3,
+            patch: "@@ auth",
+            previousPath: null,
+          },
+        ],
+        issueContext: [
+          {
+            number: 12,
+            title: "Keep dependency updates reviewable",
+            body: "- Keep Bun install working.",
+            acceptanceCriteria: ["Keep Bun install working."],
+            url: "https://github.com/Open-Maintainer/open-maintainer/issues/12",
+          },
+        ],
+      },
+      rules: profile.reviewRuleCandidates,
+    });
+
+    const candidates = new Map(
+      precheck.contributionTriageEvidence.map((item) => [item.signal, item]),
+    );
+
+    expect(
+      candidates.get("linked_issue_or_acceptance_criteria")?.summary,
+    ).toContain("1 linked issue context item");
+    expect(candidates.get("high_risk_files")?.summary).toContain(
+      "apps/api/src/auth/session.ts",
+    );
+    expect(candidates.get("generated_file_changes")?.summary).toContain(
+      "AGENTS.md",
+    );
+    expect(candidates.get("lockfile_changes")?.summary).toContain("bun.lock");
+    expect(candidates.get("dependency_changes")?.summary).toContain(
+      "package.json",
+    );
+    expect(JSON.stringify(precheck.contributionTriageEvidence)).not.toMatch(
+      /ready_for_review|needs_author_input|needs_maintainer_design|not_agent_ready|possible_spam/,
+    );
   });
 
   it("classifies docs-only changes without generating review findings", () => {

@@ -31,7 +31,27 @@ export type ReviewEvidencePrecheck = Pick<
   | "validationEvidence"
   | "docsImpact"
   | "residualRisk"
->;
+> & {
+  contributionTriageEvidence: ContributionTriageEvidenceCandidate[];
+};
+
+export type ContributionTriageEvidenceSignal =
+  | "intent_clarity"
+  | "linked_issue_or_acceptance_criteria"
+  | "diff_scope"
+  | "validation_evidence"
+  | "docs_alignment"
+  | "broad_churn"
+  | "high_risk_files"
+  | "generated_file_changes"
+  | "lockfile_changes"
+  | "dependency_changes";
+
+export type ContributionTriageEvidenceCandidate = {
+  signal: ContributionTriageEvidenceSignal;
+  summary: string;
+  evidence: ReviewEvidenceCitation[];
+};
 
 export type GenerateReviewOptions = {
   repoId?: string;
@@ -78,6 +98,14 @@ export function buildReviewEvidencePrecheck(input: {
   const docsImpact = inferDocsImpact(input.input, changedSurface);
   const riskAnalysis = buildRiskAnalysis(input.input, input.profile);
   const residualRisk = buildResidualRisk(input.input);
+  const contributionTriageEvidence = buildContributionTriageEvidence({
+    profile: input.profile,
+    input: input.input,
+    changedSurface,
+    expectedValidation,
+    validationEvidence,
+    docsImpact,
+  });
 
   return {
     walkthrough: input.input.changedFiles.map(
@@ -90,6 +118,7 @@ export function buildReviewEvidencePrecheck(input: {
     validationEvidence,
     docsImpact,
     residualRisk,
+    contributionTriageEvidence,
   };
 }
 
@@ -305,6 +334,310 @@ function buildResidualRisk(input: ReviewInput): string[] {
     risks.push("No linked issue acceptance criteria were available.");
   }
   return risks;
+}
+
+function buildContributionTriageEvidence(input: {
+  profile: RepoProfile;
+  input: ReviewInput;
+  changedSurface: string[];
+  expectedValidation: ReviewValidationExpectation[];
+  validationEvidence: string[];
+  docsImpact: ReviewResult["docsImpact"];
+}): ContributionTriageEvidenceCandidate[] {
+  const changedLines = input.input.changedFiles.reduce(
+    (total, file) => total + file.additions + file.deletions,
+    0,
+  );
+  const changedFileCitations = input.input.changedFiles
+    .slice(0, 8)
+    .map((file) =>
+      reviewCitation({
+        source: "changed_file",
+        path: file.path,
+        excerpt: `${file.status} (+${file.additions}/-${file.deletions})`,
+        reason: "Changed file contributes to PR contribution-triage evidence.",
+      }),
+    );
+  const bodyText = input.input.body.trim();
+  const titleText = input.input.title?.trim() ?? "";
+  const issueReferences = detectIssueReferences(
+    `${input.input.title ?? ""}\n${input.input.body}`,
+  );
+  const issueCriteria = input.input.issueContext.flatMap(
+    (issue) => issue.acceptanceCriteria,
+  );
+  const generatedFiles = input.input.changedFiles.filter((file) =>
+    isGeneratedContextPath(file.path, input.profile),
+  );
+  const lockfiles = input.input.changedFiles.filter(
+    (file) =>
+      input.profile.lockfiles.includes(file.path) || isLockfilePath(file.path),
+  );
+  const dependencyFiles = input.input.changedFiles.filter((file) =>
+    isDependencyManifestPath(file.path),
+  );
+  const highRiskFiles = input.input.changedFiles.filter((file) =>
+    input.profile.riskHintPaths.some((riskPath) =>
+      file.path.startsWith(riskPath),
+    ),
+  );
+  const docsChanged = input.input.changedFiles.filter((file) =>
+    isDocsPath(file.path),
+  );
+
+  return [
+    {
+      signal: "intent_clarity",
+      summary: `PR title is ${titleText ? "present" : "missing"}; PR body has ${wordCount(bodyText)} words.`,
+      evidence: [
+        reviewCitation({
+          source: "user_input",
+          path: null,
+          excerpt: titleText || null,
+          reason: "PR title is available as stated intent evidence.",
+        }),
+        reviewCitation({
+          source: "user_input",
+          path: null,
+          excerpt: summarizeText(bodyText) || null,
+          reason: "PR body is available as stated intent evidence.",
+        }),
+      ],
+    },
+    {
+      signal: "linked_issue_or_acceptance_criteria",
+      summary: `Detected ${input.input.issueContext.length} linked issue context item(s), ${issueReferences.length} issue reference(s), and ${issueCriteria.length} acceptance criterion item(s).`,
+      evidence: [
+        ...input.input.issueContext.map((issue) =>
+          reviewCitation({
+            source: "issue_acceptance_criteria",
+            path: issue.url ?? `#${issue.number}`,
+            excerpt: issue.acceptanceCriteria.join("; ") || issue.title,
+            reason: "Linked issue context can ground contribution intent.",
+          }),
+        ),
+        ...issueReferences.slice(0, 5).map((reference) =>
+          reviewCitation({
+            source: "user_input",
+            path: null,
+            excerpt: reference,
+            reason: "PR text references an issue or pull request number.",
+          }),
+        ),
+      ],
+    },
+    {
+      signal: "diff_scope",
+      summary: `${input.input.changedFiles.length} file(s) changed across ${input.changedSurface.join(", ") || "unclassified surface"} with +${totalAdditions(input.input.changedFiles)}/-${totalDeletions(input.input.changedFiles)}.`,
+      evidence: changedFileCitations,
+    },
+    {
+      signal: "validation_evidence",
+      summary:
+        input.validationEvidence.length > 0
+          ? `Detected validation evidence: ${input.validationEvidence.join(" ")}`
+          : `No validation evidence detected for ${input.expectedValidation.length} expected validation item(s).`,
+      evidence:
+        input.validationEvidence.length > 0
+          ? validationEvidenceCitations(input.input, input.validationEvidence)
+          : input.expectedValidation.flatMap((item) => item.evidence),
+    },
+    {
+      signal: "docs_alignment",
+      summary:
+        input.docsImpact.length > 0
+          ? `Documentation impact inferred for ${input.docsImpact.map((item) => item.path).join(", ")}; ${docsChanged.length} docs file(s) changed.`
+          : `No documentation impact was inferred; ${docsChanged.length} docs file(s) changed.`,
+      evidence:
+        input.docsImpact.length > 0
+          ? input.docsImpact.flatMap((item) => item.evidence)
+          : docsChanged.map((file) =>
+              reviewCitation({
+                source: "changed_file",
+                path: file.path,
+                excerpt: `${file.status} docs file`,
+                reason:
+                  "Changed documentation can satisfy docs-alignment evidence.",
+              }),
+            ),
+    },
+    {
+      signal: "broad_churn",
+      summary: `Diff size candidate: ${input.input.changedFiles.length} file(s), ${changedLines} changed line(s), and ${input.input.skippedFiles.length} skipped file(s).`,
+      evidence: [
+        ...changedFileCitations,
+        ...input.input.skippedFiles.map((file) =>
+          reviewCitation({
+            source: "changed_file",
+            path: file.path,
+            excerpt: file.reason,
+            reason: "Skipped file contributes to reviewability scope evidence.",
+          }),
+        ),
+      ],
+    },
+    {
+      signal: "high_risk_files",
+      summary:
+        highRiskFiles.length > 0
+          ? `High-risk path candidates changed: ${highRiskFiles.map((file) => file.path).join(", ")}.`
+          : "No profile high-risk path candidate was detected in changed files.",
+      evidence: highRiskFiles.map((file) =>
+        reviewCitation({
+          source: "changed_file",
+          path: file.path,
+          excerpt: matchingRiskHints(file.path, input.profile).join(", "),
+          reason: "Changed file matches repository risk path hints.",
+        }),
+      ),
+    },
+    {
+      signal: "generated_file_changes",
+      summary:
+        generatedFiles.length > 0
+          ? `Generated/context file candidates changed: ${generatedFiles.map((file) => file.path).join(", ")}.`
+          : "No generated/context file candidate was detected in changed files.",
+      evidence: generatedFiles.map((file) =>
+        reviewCitation({
+          source: "changed_file",
+          path: file.path,
+          excerpt: file.status,
+          reason: "Changed file matches generated context hints.",
+        }),
+      ),
+    },
+    {
+      signal: "lockfile_changes",
+      summary:
+        lockfiles.length > 0
+          ? `Lockfile candidates changed: ${lockfiles.map((file) => file.path).join(", ")}.`
+          : "No lockfile candidate was detected in changed files.",
+      evidence: lockfiles.map((file) =>
+        reviewCitation({
+          source: "changed_file",
+          path: file.path,
+          excerpt: file.status,
+          reason: "Changed file is a detected lockfile.",
+        }),
+      ),
+    },
+    {
+      signal: "dependency_changes",
+      summary:
+        dependencyFiles.length > 0
+          ? `Dependency manifest candidates changed: ${dependencyFiles.map((file) => file.path).join(", ")}.`
+          : "No dependency manifest candidate was detected in changed files.",
+      evidence: dependencyFiles.map((file) =>
+        reviewCitation({
+          source: "changed_file",
+          path: file.path,
+          excerpt: file.status,
+          reason: "Changed file is a dependency manifest candidate.",
+        }),
+      ),
+    },
+  ];
+}
+
+function reviewCitation(input: {
+  source: ReviewEvidenceCitation["source"];
+  path: string | null;
+  excerpt: string | null;
+  reason: string;
+}): ReviewEvidenceCitation {
+  return input;
+}
+
+function detectIssueReferences(text: string): string[] {
+  const references = new Set<string>();
+  for (const match of text.matchAll(
+    /(?:^|\s)(?:#(\d+)|(?:issues|pull)\/(\d+))/gi,
+  )) {
+    const number = match[1] ?? match[2];
+    if (number) {
+      references.add(`#${number}`);
+    }
+  }
+  return [...references];
+}
+
+function validationEvidenceCitations(
+  input: ReviewInput,
+  validationEvidence: string[],
+): ReviewEvidenceCitation[] {
+  const citations: ReviewEvidenceCitation[] = [];
+  if (validationEvidence.some((item) => /PR body mentions/.test(item))) {
+    citations.push(
+      reviewCitation({
+        source: "user_input",
+        path: null,
+        excerpt: summarizeText(input.body) || null,
+        reason: "PR body includes validation evidence.",
+      }),
+    );
+  }
+  for (const check of input.checkStatuses) {
+    if (
+      validationEvidence.some((item) =>
+        item.includes(`Check \`${check.name}\``),
+      )
+    ) {
+      citations.push(
+        reviewCitation({
+          source: "ci_status",
+          path: check.url,
+          excerpt: `${check.status} ${check.conclusion ?? ""}`.trim(),
+          reason: "Check status includes validation evidence.",
+        }),
+      );
+    }
+  }
+  return citations;
+}
+
+function wordCount(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function summarizeText(text: string): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, 240);
+}
+
+function totalAdditions(files: ReviewInput["changedFiles"]): number {
+  return files.reduce((total, file) => total + file.additions, 0);
+}
+
+function totalDeletions(files: ReviewInput["changedFiles"]): number {
+  return files.reduce((total, file) => total + file.deletions, 0);
+}
+
+function matchingRiskHints(repoPath: string, profile: RepoProfile): string[] {
+  return profile.riskHintPaths.filter((riskPath) =>
+    repoPath.startsWith(riskPath),
+  );
+}
+
+function isLockfilePath(repoPath: string): boolean {
+  const fileName = repoPath.split("/").at(-1)?.toLowerCase() ?? "";
+  return (
+    fileName.endsWith(".lock") ||
+    fileName === "bun.lock" ||
+    fileName === "package-lock.json" ||
+    fileName === "pnpm-lock.yaml" ||
+    fileName === "yarn.lock"
+  );
+}
+
+function isDependencyManifestPath(repoPath: string): boolean {
+  const fileName = repoPath.split("/").at(-1)?.toLowerCase() ?? "";
+  return (
+    fileName === "package.json" ||
+    fileName === "pyproject.toml" ||
+    fileName === "requirements.txt" ||
+    fileName === "go.mod" ||
+    fileName === "cargo.toml" ||
+    fileName === "gemfile"
+  );
 }
 
 export function renderReviewMarkdown(input: ReviewResult): string {

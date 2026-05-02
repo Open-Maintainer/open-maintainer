@@ -145,8 +145,15 @@ describe("model-backed review", () => {
     });
 
     expect(prompt.system).toContain("expert repository-aware code reviewer");
+    expect(prompt.system).toContain("Contribution triage boundary");
+    expect(prompt.system).toContain(
+      "Deterministic precheck evidence is not a contribution-quality classification",
+    );
+    expect(prompt.system).toContain("Do not infer whether the author used AI");
     expect(prompt.user).toContain("packages/review/src/model.ts");
     expect(prompt.user).toContain("Provider output must cite evidence.");
+    expect(prompt.user).toContain("contributionTriageEvidence");
+    expect(prompt.user).toContain("precheck:contribution:1");
     expect(prompt.user).toContain("evidenceItems");
     expect(prompt.user).toContain("reviewKnowledge");
     expect(prompt.user).toContain("repoPrReviewSkill");
@@ -174,6 +181,11 @@ describe("model-backed review", () => {
     expect(precheck.validationEvidence).toContain(
       "PR body mentions `vitest run`.",
     );
+    expect(
+      precheck.contributionTriageEvidence.some(
+        (item) => item.signal === "validation_evidence",
+      ),
+    ).toBe(true);
   });
 
   it("requires repo-content consent before provider review", async () => {

@@ -351,6 +351,7 @@ export function buildReviewPrompt(input: {
     docsImpact: input.precheck.docsImpact,
     riskAnalysis: input.precheck.riskAnalysis,
     residualRisk: input.precheck.residualRisk,
+    contributionTriageEvidence: input.precheck.contributionTriageEvidence,
   };
   const evidenceItems = buildEvidenceItems(input);
 
@@ -374,6 +375,13 @@ export function buildReviewPrompt(input: {
       "- repo-specific rules",
       "- language/framework-specific pitfalls",
       "- maintainability only when tied to concrete changed code and plausible impact",
+      "",
+      "Contribution triage boundary:",
+      "- The supplied contributionTriageEvidence entries are candidate evidence for PR reviewability only.",
+      "- Deterministic precheck evidence is not a contribution-quality classification.",
+      "- Do not infer whether the author used AI.",
+      "- Do not assign PR contribution triage categories in this review output; a later schema owns categorical output.",
+      "- Do not produce issue labels, issue comments, duplicate issue handling, stale handling, auto-close, or agent task briefs.",
       "",
       "Evidence policy:",
       "- Every finding must cite one or more supplied evidence item IDs.",
@@ -773,6 +781,14 @@ function buildEvidenceItems(input: {
       kind: "precheck",
       path: docsImpact.path,
       summary: `${docsImpact.required ? "Required" : "Optional"} docs impact: ${docsImpact.reason}`,
+    });
+  });
+  input.precheck.contributionTriageEvidence.forEach((candidate, index) => {
+    items.push({
+      id: `precheck:contribution:${index + 1}`,
+      kind: "precheck",
+      path: ".open-maintainer/profile.json",
+      summary: `${candidate.signal}: ${candidate.summary}`,
     });
   });
 
