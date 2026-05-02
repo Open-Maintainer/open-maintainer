@@ -13,7 +13,8 @@ Included:
   through `gh`, runs the selected local model CLI, and posts marked summary plus
   capped inline review comments through `gh`.
 - Deterministic review by default, with model-backed review only after explicit
-  `--review-provider` and `--allow-model-content-transfer`.
+  `--model` and `--allow-model-content-transfer`. Older
+  `--review-provider` scripts remain supported as aliases.
 - Review output with summary, walkthrough, changed surface, risk analysis,
   expected validation, validation evidence, docs impact, cited findings, merge
   readiness, residual risk, and JSON output.

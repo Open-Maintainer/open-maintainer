@@ -195,9 +195,11 @@ Output options:
   --dry-run                             With --pr, fetch and review without posting to GitHub
 
 Model review options:
-  --review-provider codex|claude        Required CLI backend for model-backed review
-  --review-model <model>                Optional backend model override
-  --allow-model-content-transfer        Required with --review-provider; sends repo content to the backend
+  --model codex|claude                  Required CLI backend for model-backed review
+  --llm-model <model>                   Optional backend model override
+  --allow-model-content-transfer        Required with --model; sends repo content to the backend
+  --review-provider codex|claude        Alias for --model, kept for existing scripts
+  --review-model <model>                Alias for --llm-model, kept for existing scripts
 
 Posting options:
   --review-post-summary                 Post or update the marked PR summary comment
@@ -208,9 +210,9 @@ Examples:
   open-maintainer review . --base-ref main --head-ref HEAD
   open-maintainer review . --base-ref origin/main --head-ref HEAD --output-path .open-maintainer/review.md
   open-maintainer review . --base-ref main --head-ref HEAD --json
-  open-maintainer review . --base-ref main --head-ref HEAD --review-provider codex --allow-model-content-transfer
-  open-maintainer review . --pr 123 --review-provider codex --allow-model-content-transfer
-  open-maintainer review . --pr 123 --review-provider claude --allow-model-content-transfer --dry-run
+  open-maintainer review . --base-ref main --head-ref HEAD --model codex --allow-model-content-transfer
+  open-maintainer review . --pr 123 --model codex --allow-model-content-transfer
+  open-maintainer review . --pr 123 --model claude --allow-model-content-transfer --dry-run
 `,
   pr: `open-maintainer pr <repo> --create
 
@@ -787,8 +789,8 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
   };
   const providerReview = buildReviewProvider({
     repoRoot,
-    provider: options.reviewProvider,
-    model: options.reviewModel,
+    provider: resolveReviewProvider(options),
+    model: resolveReviewModel(options),
     allowModelContentTransfer: options.allowModelContentTransfer,
   });
   const [
@@ -1292,12 +1294,12 @@ function buildReviewProvider(input: {
 }) {
   if (!input.provider) {
     throw new Error(
-      "review requires --review-provider codex or --review-provider claude because PR reviews are LLM-backed only.",
+      "review requires --model codex or --model claude because PR reviews are LLM-backed only.",
     );
   }
   if (!input.allowModelContentTransfer) {
     throw new Error(
-      "--review-provider requires --allow-model-content-transfer because PR review sends repository content to the selected CLI backend.",
+      "--model requires --allow-model-content-transfer because PR review sends repository content to the selected CLI backend.",
     );
   }
   const createdAt = new Date(0).toISOString();
@@ -1340,6 +1342,32 @@ function buildReviewProvider(input: {
           ...(input.model ? { model: input.model } : {}),
         });
   return { providerConfig, provider };
+}
+
+function resolveReviewProvider(options: CliOptions): ArtifactModel | null {
+  if (
+    options.model &&
+    options.reviewProvider &&
+    options.model !== options.reviewProvider
+  ) {
+    throw new Error(
+      "--model and --review-provider disagree. Use one review provider flag.",
+    );
+  }
+  return options.model ?? options.reviewProvider;
+}
+
+function resolveReviewModel(options: CliOptions): string | null {
+  if (
+    options.llmModel &&
+    options.reviewModel &&
+    options.llmModel !== options.reviewModel
+  ) {
+    throw new Error(
+      "--llm-model and --review-model disagree. Use one model override flag.",
+    );
+  }
+  return options.llmModel ?? options.reviewModel;
 }
 
 async function readOptionalRepoFile(

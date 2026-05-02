@@ -572,7 +572,7 @@ bun run cli review "$REVIEW_REPO" \
   --base-ref HEAD~1 \
   --head-ref HEAD \
   --pr-number 123 \
-  --review-provider codex \
+  --model codex \
   --allow-model-content-transfer \
   --output-path .open-maintainer/review.md
 
@@ -605,7 +605,7 @@ Print the machine-readable review result:
 bun run cli review "$REVIEW_REPO" \
   --base-ref HEAD~1 \
   --head-ref HEAD \
-  --review-provider codex \
+  --model codex \
   --allow-model-content-transfer \
   --json
 ```
@@ -621,11 +621,15 @@ Model-backed review requires explicit repository-content transfer consent:
 bun run cli review "$REVIEW_REPO" \
   --base-ref HEAD~1 \
   --head-ref HEAD \
-  --review-provider codex \
-  --review-model gpt-5.5 \
+  --model codex \
+  --llm-model gpt-5.5 \
   --allow-model-content-transfer \
   --output-path .open-maintainer/review.md
 ```
+
+`review` uses the same `--model` and `--llm-model` flag names as context
+generation. Existing scripts that use `--review-provider` or `--review-model`
+continue to work as aliases.
 
 Review a real GitHub PR from the local checkout with locally authenticated
 `gh` and model CLI credentials. This fetches PR metadata and refs, generates a
@@ -637,8 +641,8 @@ concise and reports whether comments were posted; add `--output-path` or
 ```sh
 bun run cli review . \
   --pr 123 \
-  --review-provider codex \
-  --review-model gpt-5.5 \
+  --model codex \
+  --llm-model gpt-5.5 \
   --allow-model-content-transfer
 ```
 
@@ -647,7 +651,7 @@ Preview the same PR review without GitHub writes:
 ```sh
 bun run cli review . \
   --pr 123 \
-  --review-provider claude \
+  --model claude \
   --allow-model-content-transfer \
   --dry-run
 ```

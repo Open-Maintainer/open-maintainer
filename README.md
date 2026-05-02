@@ -44,7 +44,7 @@ TARGET_REPO="/path/to/selected/repository"
 bun run cli audit "$TARGET_REPO"
 bun run cli generate "$TARGET_REPO" --model codex --context codex --skills codex --allow-write
 bun run cli doctor "$TARGET_REPO"
-bun run cli review "$TARGET_REPO" --pr 123 --review-provider codex --allow-model-content-transfer --dry-run
+bun run cli review "$TARGET_REPO" --pr 123 --model codex --allow-model-content-transfer --dry-run
 bun run cli pr "$TARGET_REPO" --create
 ```
 
@@ -132,14 +132,14 @@ auto-close, and agent task briefs are outside the v0.4.x PR review path.
 bun run cli review "$TARGET_REPO" \
   --base-ref main \
   --head-ref HEAD \
-  --review-provider codex \
+  --model codex \
   --allow-model-content-transfer \
   --output-path .open-maintainer/review.md
 
 bun run cli review "$TARGET_REPO" \
   --base-ref origin/main \
   --head-ref HEAD \
-  --review-provider codex \
+  --model codex \
   --allow-model-content-transfer \
   --json
 ```
@@ -150,23 +150,27 @@ Model-backed review:
 bun run cli review "$TARGET_REPO" \
   --base-ref origin/main \
   --head-ref HEAD \
-  --review-provider codex \
-  --review-model gpt-5.5 \
+  --model codex \
+  --llm-model gpt-5.5 \
   --allow-model-content-transfer \
   --output-path .open-maintainer/review.md
 ```
+
+`review` uses the same `--model` and `--llm-model` flag names as context
+generation. Existing scripts that use `--review-provider` or `--review-model`
+continue to work as aliases.
 
 To review and post to a real GitHub PR from a locally authenticated maintainer machine, use `--pr`. The command fetches PR refs with `gh`, updates one marked summary comment, and creates capped duplicate-aware inline comments with recommendations. Normal PR posting output is concise and reports whether comments were posted; use `--output-path` or `--json` when you need the full generated review. Use `--dry-run` to run the review without posting:
 
 ```sh
 bun run cli review "$TARGET_REPO" \
   --pr <number> \
-  --review-provider codex \
+  --model codex \
   --allow-model-content-transfer
 
 bun run cli review "$TARGET_REPO" \
   --pr <number> \
-  --review-provider codex \
+  --model codex \
   --allow-model-content-transfer \
   --dry-run
 ```
@@ -266,8 +270,8 @@ Rule-grounded PR review is a maintainer-run CLI workflow in v0.4. It uses the ma
 ```sh
 bun run cli review . \
   --pr 123 \
-  --review-provider codex \
-  --review-model gpt-5.5 \
+  --model codex \
+  --llm-model gpt-5.5 \
   --allow-model-content-transfer
 ```
 
@@ -276,7 +280,7 @@ Dry-run review keeps GitHub untouched:
 ```sh
 bun run cli review . \
   --pr 123 \
-  --review-provider claude \
+  --model claude \
   --allow-model-content-transfer \
   --dry-run
 ```

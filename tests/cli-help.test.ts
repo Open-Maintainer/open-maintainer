@@ -75,7 +75,11 @@ describe("CLI help", () => {
     expect(result.stdout).toContain("--pr <number>");
     expect(result.stdout).toContain("--json");
     expect(result.stdout).toContain("--dry-run");
+    expect(result.stdout).toContain("--model codex|claude");
+    expect(result.stdout).toContain("--llm-model <model>");
     expect(result.stdout).toContain("--allow-model-content-transfer");
+    expect(result.stdout).toContain("--review-provider codex|claude");
+    expect(result.stdout).toContain("Alias for --model");
     expect(result.stdout).toContain("Local ref review is non-mutating");
   });
 

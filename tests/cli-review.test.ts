@@ -178,7 +178,7 @@ describe("CLI review", () => {
         "44",
         "--output-path",
         outputPath,
-        "--review-provider",
+        "--model",
         "codex",
         "--allow-model-content-transfer",
       ],
@@ -209,7 +209,7 @@ describe("CLI review", () => {
         "--head-ref",
         "HEAD",
         "--json",
-        "--review-provider",
+        "--model",
         "codex",
         "--allow-model-content-transfer",
       ],
@@ -255,14 +255,86 @@ describe("CLI review", () => {
       "HEAD~1",
       "--head-ref",
       "HEAD",
-      "--review-provider",
+      "--model",
       "codex",
     ]);
 
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
-      "--review-provider requires --allow-model-content-transfer",
+      "--model requires --allow-model-content-transfer",
     );
+  });
+
+  it("keeps review-specific provider flags as backwards-compatible aliases", async () => {
+    const fixture = await createReviewRepo();
+    const fakeCodex = await createFakeCodexCli();
+
+    const result = await runCli(
+      [
+        "review",
+        fixture,
+        "--base-ref",
+        "HEAD~1",
+        "--head-ref",
+        "HEAD",
+        "--json",
+        "--review-provider",
+        "codex",
+        "--review-model",
+        "gpt-test",
+        "--allow-model-content-transfer",
+      ],
+      fakeCodex.env,
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    const review = ReviewResultSchema.parse(JSON.parse(result.stdout));
+    expect(review.modelProvider).toBe("Codex CLI");
+  });
+
+  it("rejects conflicting review provider flag aliases", async () => {
+    const fixture = await createReviewRepo();
+
+    const result = await runCli([
+      "review",
+      fixture,
+      "--base-ref",
+      "HEAD~1",
+      "--head-ref",
+      "HEAD",
+      "--model",
+      "codex",
+      "--review-provider",
+      "claude",
+      "--allow-model-content-transfer",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("--model and --review-provider disagree");
+  });
+
+  it("rejects conflicting review model override aliases", async () => {
+    const fixture = await createReviewRepo();
+
+    const result = await runCli([
+      "review",
+      fixture,
+      "--base-ref",
+      "HEAD~1",
+      "--head-ref",
+      "HEAD",
+      "--model",
+      "codex",
+      "--llm-model",
+      "gpt-a",
+      "--review-model",
+      "gpt-b",
+      "--allow-model-content-transfer",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("--llm-model and --review-model disagree");
   });
 
   it("fetches a pull request with gh and posts summary plus inline review comments", async () => {
@@ -278,7 +350,7 @@ describe("CLI review", () => {
         fixture,
         "--pr",
         String(prNumber),
-        "--review-provider",
+        "--model",
         "codex",
         "--allow-model-content-transfer",
       ],
