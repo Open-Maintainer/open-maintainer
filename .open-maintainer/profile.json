@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_f728376a-f874-4cdd-bbd2-59d3401326f2",
+  "id": "repo_profile_cd1ab752-2fbf-4d8f-92a5-e1d76d8f1c6a",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -198,6 +198,7 @@
   "importantDocs": [
     "CONTRIBUTING.md",
     "docs/DEMO_RUNBOOK.md",
+    "docs/mock-prs/gate-a.md",
     "docs/MVP_RELEASE_REVIEW.md",
     "docs/PRODUCT_PRD.md",
     "docs/ROADMAP.md",
@@ -514,6 +515,10 @@
     },
     {
       "path": "docs/DEMO_RUNBOOK.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "docs/mock-prs/gate-a.md",
       "reason": "detected repository context"
     },
     {
@@ -996,11 +1001,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "eadba1daac0b9f3e"
+      "hash": "c5d715c08897e503"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "8ada714e1f6d787a"
+      "hash": "4f107bc725ee6a6f"
     },
     {
       "path": "AGENTS.md",
@@ -1065,6 +1070,10 @@
     {
       "path": "docs/DEMO_RUNBOOK.md",
       "hash": "c2da896289a741b3"
+    },
+    {
+      "path": "docs/mock-prs/gate-a.md",
+      "hash": "518268772fd12759"
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
@@ -1404,7 +1413,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-02T21:38:17.471Z",
+  "createdAt": "2026-05-02T23:15:58.941Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1504,6 +1513,10 @@
           },
           {
             "path": "docs/DEMO_RUNBOOK.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/mock-prs/gate-a.md",
             "reason": "detected repository context"
           },
           {
@@ -1652,6 +1665,10 @@
           },
           {
             "path": "docs/DEMO_RUNBOOK.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/mock-prs/gate-a.md",
             "reason": "detected repository context"
           },
           {
@@ -2403,6 +2420,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "docs/mock-prs/gate-a.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": "docs/MVP_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
@@ -2448,6 +2469,10 @@
           },
           {
             "path": "docs/DEMO_RUNBOOK.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/mock-prs/gate-a.md",
             "reason": "detected repository context"
           },
           {
@@ -2630,7 +2655,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T21:38:17.472Z"
+    "generatedAt": "2026-05-02T23:15:58.942Z"
   },
-  "openMaintainerProfileHash": "7c69e19eb59d4f37"
+  "openMaintainerProfileHash": "1ee1c3406fdcee64"
 }
