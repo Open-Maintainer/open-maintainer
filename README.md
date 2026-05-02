@@ -1,11 +1,11 @@
 # Open Maintainer
 
-Open Maintainer audits a repository for agent readiness, generates repo-specific context files, and can open a context PR through a GitHub App.
+Open Maintainer audits a repository for agent readiness, generates repo-specific context files, reviews pull requests against approved repo context, and can open a context PR through a GitHub App.
 
 The primary MVP demo is CLI-first and uses a local LLM CLI for generated context files:
 
 ```text
-audit repo -> show readiness score -> generate context -> doctor -> dry-run PR summary
+audit repo -> show readiness score -> generate context -> doctor -> review PR
 ```
 
 The dashboard and self-hosted GitHub App flow remain available as a secondary path.
@@ -44,6 +44,7 @@ TARGET_REPO="/path/to/selected/repository"
 bun run cli audit "$TARGET_REPO"
 bun run cli generate "$TARGET_REPO" --model codex --context codex --skills codex --allow-write
 bun run cli doctor "$TARGET_REPO"
+bun run cli review "$TARGET_REPO" --base-ref main --head-ref HEAD --output-path .open-maintainer/review.md
 bun run cli pr "$TARGET_REPO" --create
 ```
 
@@ -93,6 +94,40 @@ Model-backed skill generation may add additional repo-specific workflow skills w
 
 Existing context files are preserved by default. Use `--force` only when you explicitly want generated output to overwrite existing files. Repo content is sent to the selected LLM CLI only when `--allow-write` is present; offline deterministic mode is reserved for smoke tests.
 
+## Rule-Grounded PR Review Beta
+
+`review` produces a non-mutating PR review from local Git refs. It writes a summary, walkthrough, changed surface, risk analysis, expected validation, docs impact, cited findings, merge readiness, and residual risk. Deterministic review runs locally by default; model-backed review requires explicit repository-content transfer consent.
+
+```sh
+bun run cli review "$TARGET_REPO" \
+  --base-ref main \
+  --head-ref HEAD \
+  --output-path .open-maintainer/review.md
+
+bun run cli review "$TARGET_REPO" \
+  --base-ref origin/main \
+  --head-ref HEAD \
+  --json
+```
+
+Model-backed review:
+
+```sh
+bun run cli review "$TARGET_REPO" \
+  --base-ref origin/main \
+  --head-ref HEAD \
+  --review-provider codex \
+  --review-model gpt-5.3-codex \
+  --allow-model-content-transfer \
+  --output-path .open-maintainer/review.md
+```
+
+The CLI review command never posts to GitHub in v0.4. To post manually, inspect the generated markdown first and then use a maintainer-controlled command such as:
+
+```sh
+gh pr comment <number> --body-file "$TARGET_REPO/.open-maintainer/review.md"
+```
+
 ## GitHub Action
 
 Use the action in OSS repositories before installing a hosted app:
@@ -130,7 +165,10 @@ Permission tiers:
 | Mode | Minimum permissions | GitHub writes |
 | --- | --- | --- |
 | Audit and Step Summary | `contents: read` | None |
-| PR comment | `contents: read`, `issues: write`, `pull-requests: read` | Updates one marked PR comment |
+| Audit PR comment | `contents: read`, `issues: write`, `pull-requests: read` | Updates one marked audit comment |
+| Review Step Summary | `contents: read` | None |
+| Review summary comment | `contents: read`, `issues: write`, `pull-requests: read` | Updates one marked review summary comment |
+| Review inline comments | `contents: read`, `pull-requests: write` | Opens one capped pull request review with inline comments |
 | Refresh PR | `contents: write`, `pull-requests: write` | Pushes `open-maintainer/context-refresh` and opens or updates one PR |
 
 To add a pull request comment using the same summary body, grant comment permission and enable comments:
@@ -182,12 +220,78 @@ steps:
       skills-target: both
 ```
 
+Review mode is check-output-only by default. It appends the generated review to the GitHub Step Summary and does not comment unless comment inputs are enabled:
+
+```yaml
+permissions:
+  contents: read
+
+steps:
+  - uses: actions/checkout@v6
+    with:
+      fetch-depth: 0
+  - uses: open-maintainer/action@v1
+    with:
+      mode: review
+```
+
+Opt-in review summary comments update one marked PR comment:
+
+```yaml
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+steps:
+  - uses: actions/checkout@v6
+    with:
+      fetch-depth: 0
+  - uses: open-maintainer/action@v1
+    with:
+      mode: review
+      review-comment-on-pr: "true"
+```
+
+Opt-in inline findings are capped and duplicate-aware:
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+
+steps:
+  - uses: actions/checkout@v6
+    with:
+      fetch-depth: 0
+  - uses: open-maintainer/action@v1
+    with:
+      mode: review
+      review-inline-comments: "true"
+      review-inline-cap: "5"
+```
+
+Model-backed review uses the selected local CLI provider only after explicit consent:
+
+```yaml
+steps:
+  - uses: actions/checkout@v6
+    with:
+      fetch-depth: 0
+  - uses: open-maintainer/action@v1
+    with:
+      mode: review
+      review-provider: codex
+      review-model: gpt-5.3-codex
+      allow-review-content-transfer: "true"
+```
+
 ## Dashboard and GitHub App
 
 The secondary self-hosted workflow is:
 
 ```text
-connect GitHub -> analyze repo -> generate context -> preview -> open context PR
+connect GitHub -> analyze repo -> generate context -> preview -> review PR -> open context PR
 ```
 
 Prerequisites:
@@ -223,6 +327,8 @@ Run the Docker Compose smoke gate:
 ```sh
 bun run smoke:compose
 ```
+
+The dashboard can start local PR review previews for a selected repository, show the full review before any GitHub write, record review runs in history, and capture finding feedback such as false positives. Posting controls remain guarded unless GitHub credentials and permissions are available.
 
 ## GitHub App Setup
 
@@ -263,3 +369,4 @@ bun run smoke:compose
 ```
 
 The human release-readiness packet lives in `docs/MVP_RELEASE_REVIEW.md`.
+The v0.4 release-readiness packet lives in `docs/V0_4_RELEASE_REVIEW.md`.

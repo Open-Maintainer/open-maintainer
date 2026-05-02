@@ -224,11 +224,13 @@ Current shipped/foundation capabilities:
 - dashboard artifact preview
 - dashboard run history
 - dashboard/context PR foundation
+- rule-grounded PR review beta across CLI, Action, and dashboard preview
+- opt-in Action review summary and capped inline comments
+- dashboard PR review finding feedback capture
 - GitHub App webhook/auth/context PR foundation
 
 Planned capabilities:
 
-- rule-grounded PR review product
 - issue triage product
 - agent-safe backlog
 - external-agent orchestration
@@ -394,9 +396,11 @@ Goal: review PRs using approved repository context and explicit policy.
 PR review is conservative by default:
 
 - dashboard/check-output review enabled
-- manual GitHub posting enabled
-- automatic summary comments opt-in
-- inline comments opt-in and capped
+- CLI review output is non-mutating and available for manual maintainer posting
+- dashboard review preview is enabled before any GitHub write
+- dashboard posting remains credential-gated in v0.4
+- Action automatic summary comments are opt-in
+- Action inline comments are opt-in and capped
 - blocking merge checks later and opt-in
 
 ### 11.2 Review Grounding
@@ -442,7 +446,7 @@ Severity levels:
 - Review avoids generic critique.
 - Duplicate comments are avoided.
 - False-positive feedback can be captured.
-- Tests cover changed-surface detection, validation inference, docs alignment, severity, duplicate avoidance, and manual posting.
+- Tests cover changed-surface detection, validation inference, docs alignment, severity, duplicate avoidance, Action summary and inline posting, dashboard preview, and feedback capture.
 
 ## 12. v0.5 Issue Triage and Agent-Safe Backlog Requirements
 
@@ -760,6 +764,7 @@ apps/
   web/          # Next dashboard
   worker/       # background worker
 packages/
+  review/       # PR review engine
   ai/           # provider construction and checks
   analyzer/     # deterministic repo analysis
   config/       # shared config
@@ -773,7 +778,6 @@ Future package boundaries may include:
 
 ```text
 packages/
-  review/       # PR review engine
   triage/       # issue triage engine
   policy/       # org/repo policy evaluation
   orchestration/# external-agent registry and execution records

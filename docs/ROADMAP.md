@@ -57,7 +57,7 @@ Open Maintainer's differentiator is that these workflows share one open, inspect
 | GitHub Action audit/drift/comment mode | Shipped | Audit mode can warn on missing context and drift and can comment on PRs when configured. |
 | Self-hosted dashboard context workflow | Shipped foundation | Dashboard supports repository analysis, provider consent, artifacts, run history, and context PR workflows, but needs refinement, durable-state hardening, and extensive debugging. |
 | GitHub App and context PR flow | Foundation exists | Webhooks, installation metadata, auth helpers, and context PR helpers exist, but production install/admin polish and durable persistence need work. |
-| PR review product | Planned | No rule-grounded PR review engine is shipped yet. |
+| PR review product | Shipped beta | CLI, Action, and dashboard preview paths can generate rule-grounded PR reviews. GitHub summary and inline comments are opt-in in the Action; dashboard posting remains credential-gated. |
 | Issue triage product | Planned | No issue classification, label suggestion, or task brief workflow is shipped yet. |
 | Agent orchestration | Experimental | Planned as an explicit experimental track, not a v1.0 autonomous-coding promise. |
 | Hosted product | Planned | Committed after v1.0 as hosted private beta and later hosted scale milestones. |
@@ -156,6 +156,8 @@ Complete when:
 
 ## v0.4: Rule-Grounded PR Review Beta
 
+Status: shipped beta.
+
 Goal: provide the first direct repo-aware review product.
 
 Default behavior is dashboard/check-output first. GitHub posting and inline comments are manual or opt-in.
@@ -166,16 +168,20 @@ Scope:
 - Review against repo profile, `.open-maintainer.yml`, generated context, changed paths, CI status, and issue acceptance criteria when available.
 - Produce findings only when they cite repo rules or concrete evidence.
 - Support severity levels: blocker, major, minor, note.
-- Support manual posting to GitHub.
-- Add opt-in automatic summary comments.
-- Add opt-in capped inline comments.
+- Support local CLI review output for manual maintainer-controlled posting.
+- Add GitHub Action `mode: review` with Step Summary output by default.
+- Add opt-in automatic summary comments in the Action.
+- Add opt-in capped inline comments in the Action.
+- Add dashboard review previews before any GitHub write.
+- Add dashboard finding feedback capture for false positives, accepted findings, needs-more-context findings, and unclear findings.
 - Avoid duplicate comments on repeated pushes.
 - Capture false-positive feedback.
 
 Complete when:
 
 - Product outcome: maintainers can review a PR using Open Maintainer and see rule-grounded findings before posting them to GitHub.
-- Validation evidence: tests cover changed-surface detection, required validation inference, docs alignment, severity classification, duplicate avoidance, and manual posting.
+- Product outcome: maintainers can preview reviews in the dashboard and capture finding feedback for release-quality tuning.
+- Validation evidence: tests cover changed-surface detection, required validation inference, docs alignment, severity classification, duplicate avoidance, Action summary and inline posting, dashboard preview, and feedback capture.
 - Quality bar: review findings cite repo evidence and avoid generic critique.
 - Quality bar: automatic GitHub comments and inline comments are disabled by default.
 

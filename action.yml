@@ -50,15 +50,15 @@ inputs:
     required: false
     default: "false"
   review-comment-on-pr:
-    description: Reserved for opt-in review summary comments. Disabled and not implemented in this release.
+    description: Opt in to one marked PR review summary comment in review mode. Requires issue comment write permission.
     required: false
     default: "false"
   review-inline-comments:
-    description: Reserved for opt-in capped inline review comments. Disabled and not implemented in this release.
+    description: Opt in to capped inline finding comments in review mode. Requires pull request write permission.
     required: false
     default: "false"
   review-inline-cap:
-    description: Maximum inline review comments when review-inline-comments is implemented.
+    description: Maximum inline review comments when review-inline-comments is true.
     required: false
     default: "5"
   context-target:

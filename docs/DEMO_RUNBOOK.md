@@ -1,7 +1,7 @@
 # Open Maintainer Feature Runbook
 
 This runbook is the hands-on validation guide for the features implemented
-through `v0.2.0`. It is written so you can copy commands from the repository
+through `v0.4.0`. It is written so you can copy commands from the repository
 root and evaluate release readiness yourself.
 
 Most commands below are offline and deterministic. The optional LLM-backed
@@ -29,6 +29,13 @@ Implemented and testable:
 - GitHub Action audit mode with no default repository mutation, Step Summary
   output, drift warnings, optional failure on drift, optional PR comments,
   scheduled stale-context checks, and opt-in refresh PRs.
+- Rule-grounded PR review beta for local Git refs, including summaries,
+  walkthroughs, changed-surface analysis, expected validation, docs impact,
+  cited findings, merge readiness, residual risk, and JSON output.
+- GitHub Action `mode: review`, with Step Summary output by default,
+  opt-in marked summary comments, and opt-in capped inline comments.
+- Dashboard PR review previews, review run history, guarded posting controls,
+  and false-positive feedback capture.
 - Self-hosted dashboard foundation with API, worker, web, Postgres, Redis,
   provider setup, repository analysis, artifact preview, run history, and
   context PR plumbing.
@@ -37,7 +44,6 @@ Implemented and testable:
 
 Not implemented yet:
 
-- Rule-grounded PR review product.
 - Issue triage product.
 - Agent orchestration.
 - Hosted product.
@@ -50,6 +56,7 @@ Not implemented yet:
 - Optional: Codex CLI installed and logged in for `--model codex`.
 - Optional: Claude Code CLI installed and logged in for `--model claude`.
 - Optional: GitHub CLI authentication or `GH_TOKEN` for real context PRs.
+- Optional: GitHub pull request permissions for opt-in review comments.
 
 Start from the repository root:
 
@@ -406,6 +413,12 @@ The action supports:
 - `generation-provider`
 - `generation-model`
 - `allow-model-content-transfer`
+- `review-provider`
+- `review-model`
+- `allow-review-content-transfer`
+- `review-comment-on-pr`
+- `review-inline-comments`
+- `review-inline-cap`
 - `context-target`
 - `skills-target`
 - `refresh-branch`
@@ -510,6 +523,172 @@ steps:
 Without `allow-model-content-transfer: "true"`, `generation-provider: codex`
 or `generation-provider: claude` fails before generation starts.
 
+## v0.4 Rule-Grounded PR Review
+
+Create a disposable Git repository with a real base/head diff:
+
+```sh
+REVIEW_ROOT="$(mktemp -d)"
+cp -R tests/fixtures/high-readiness-ts "$REVIEW_ROOT/review-fixture"
+REVIEW_REPO="$REVIEW_ROOT/review-fixture"
+
+git -C "$REVIEW_REPO" init -b main
+git -C "$REVIEW_REPO" config user.email "review@example.com"
+git -C "$REVIEW_REPO" config user.name "Review Tester"
+git -C "$REVIEW_REPO" add .
+git -C "$REVIEW_REPO" commit -m "initial fixture"
+
+printf '\nexport const reviewValue = 42;\n' >> "$REVIEW_REPO/src/index.ts"
+git -C "$REVIEW_REPO" add src/index.ts
+git -C "$REVIEW_REPO" commit -m "change fixture"
+```
+
+Generate a check-output-only review:
+
+```sh
+bun run cli review "$REVIEW_REPO" \
+  --base-ref HEAD~1 \
+  --head-ref HEAD \
+  --pr-number 123 \
+  --output-path .open-maintainer/review.md
+
+sed -n '1,220p' "$REVIEW_REPO/.open-maintainer/review.md"
+```
+
+Expected review sections include:
+
+```text
+## Summary
+## Walkthrough
+## Changed Surface
+## Expected Validation
+## Findings
+## Merge Readiness
+## Residual Risk
+```
+
+Print the machine-readable review result:
+
+```sh
+bun run cli review "$REVIEW_REPO" \
+  --base-ref HEAD~1 \
+  --head-ref HEAD \
+  --json
+```
+
+Model-backed review requires explicit repository-content transfer consent:
+
+```sh
+bun run cli review "$REVIEW_REPO" \
+  --base-ref HEAD~1 \
+  --head-ref HEAD \
+  --review-provider codex \
+  --review-model gpt-5.3-codex \
+  --allow-model-content-transfer \
+  --output-path .open-maintainer/review.md
+```
+
+Manual summary posting is a maintainer action in v0.4. Inspect the generated
+markdown first, then post with a GitHub command you control:
+
+```sh
+gh pr comment 123 --body-file "$REVIEW_REPO/.open-maintainer/review.md"
+```
+
+The CLI posting flags are intentionally guarded in v0.4 and fail without
+writing:
+
+```sh
+bun run cli review "$REVIEW_REPO" \
+  --base-ref HEAD~1 \
+  --head-ref HEAD \
+  --review-post-summary
+```
+
+Expected result: non-zero exit with a message that review posting is not
+implemented by the CLI.
+
+Run focused review tests:
+
+```sh
+bun test packages/review
+bun test tests/cli-review.test.ts
+```
+
+## v0.4 GitHub Action Review Mode
+
+Check-output-only review mode writes to the Step Summary and does not comment:
+
+```yaml
+permissions:
+  contents: read
+
+steps:
+  - uses: actions/checkout@v6
+    with:
+      fetch-depth: 0
+  - uses: open-maintainer/action@v1
+    with:
+      mode: review
+```
+
+Opt-in automatic summary comments update one marked PR comment:
+
+```yaml
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+steps:
+  - uses: actions/checkout@v6
+    with:
+      fetch-depth: 0
+  - uses: open-maintainer/action@v1
+    with:
+      mode: review
+      review-comment-on-pr: "true"
+```
+
+Opt-in capped inline comments require pull request write permission:
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write
+
+steps:
+  - uses: actions/checkout@v6
+    with:
+      fetch-depth: 0
+  - uses: open-maintainer/action@v1
+    with:
+      mode: review
+      review-inline-comments: "true"
+      review-inline-cap: "5"
+```
+
+Model-backed Action review requires explicit consent:
+
+```yaml
+steps:
+  - uses: actions/checkout@v6
+    with:
+      fetch-depth: 0
+  - uses: open-maintainer/action@v1
+    with:
+      mode: review
+      review-provider: codex
+      review-model: gpt-5.3-codex
+      allow-review-content-transfer: "true"
+```
+
+Run the Action review coverage:
+
+```sh
+bun test tests/action-mvp.test.ts
+```
+
 ## API, Providers, GitHub Helpers, And Context PRs
 
 Run API contract and dashboard action tests:
@@ -539,7 +718,8 @@ bun test packages/context/tests/render.test.ts
 Together these validate:
 
 - `/health`, repository registration, analysis, provider actions, artifact
-  generation, run history, retryable failures, and local PR plumbing.
+  generation, PR review preview, finding feedback, run history, retryable
+  failures, guarded posting controls, and local PR plumbing.
 - Provider consent guards and CLI provider execution shape.
 - Webhook signature verification and installation metadata mapping.
 - Bounded repository content fetching.
@@ -587,7 +767,7 @@ Docker Compose smoke passed.
 ```
 
 Check provider CLIs inside the API container when testing LLM-backed dashboard
-generation:
+generation or review:
 
 ```sh
 docker exec open-maintainer-api-1 codex --version
@@ -609,6 +789,12 @@ Recreate the API container after changing `.env`:
 docker compose up -d --force-recreate api
 docker exec open-maintainer-api-1 gh auth status
 ```
+
+Dashboard PR review preview requires a registered local repository worktree.
+After selecting and analyzing a repository, use the `PR Review` panel to enter
+base/head refs and preview a review. The dashboard shows the full review before
+any GitHub write, records the review run in history, and captures finding
+feedback such as false positives with optional reasons.
 
 Stop the stack:
 
@@ -676,5 +862,5 @@ docker compose logs --no-color api worker web
 Clean up disposable fixture copies:
 
 ```sh
-rm -rf "$RUN_ROOT" "$INIT_ROOT" "$CONSENT_ROOT" "$LLM_ROOT" "$DRIFT_ROOT"
+rm -rf "$RUN_ROOT" "$INIT_ROOT" "$CONSENT_ROOT" "$LLM_ROOT" "$DRIFT_ROOT" "$REVIEW_ROOT"
 ```

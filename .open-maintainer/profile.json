@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_b939d830-7a34-4036-a077-49e7594216ea",
+  "id": "repo_profile_b05084d9-5589-40f9-9825-f39ad8792e79",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -201,6 +201,7 @@
     "docs/MVP_RELEASE_REVIEW.md",
     "docs/ROADMAP.md",
     "docs/V0_3_RELEASE_REVIEW.md",
+    "docs/V0_4_RELEASE_REVIEW.md",
     "local-docs/PRODUCT_PRD.md",
     "README.md"
   ],
@@ -522,6 +523,10 @@
     },
     {
       "path": "docs/V0_3_RELEASE_REVIEW.md",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "docs/V0_4_RELEASE_REVIEW.md",
       "reason": "detected repository context"
     },
     {
@@ -908,15 +913,15 @@
   "trackedFileHashes": [
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "1c9109e97829a992"
+      "hash": "60cc2649657f22d0"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "05a3c58753b518ae"
+      "hash": "75373a2ee93494bf"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "458b1243e6d3cf29"
+      "hash": "61450aba197a32c0"
     },
     {
       "path": ".agents/skills/open-maintainer-update-api-github-flow/SKILL.md",
@@ -976,19 +981,19 @@
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "437aeabd9139f776"
+      "hash": "20dce1b04a8d9bb9"
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "c4cd4f2986c3caeb"
+      "hash": "01e81a55c2b479c1"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "b8dc67bee55759b8"
+      "hash": "0af167e78917a9fa"
     },
     {
       "path": "AGENTS.md",
-      "hash": "9aa0ca4984e2fbe2"
+      "hash": "ddbea157115256f9"
     },
     {
       "path": "apps/api/package.json",
@@ -1048,7 +1053,7 @@
     },
     {
       "path": "docs/DEMO_RUNBOOK.md",
-      "hash": "09dcfe2f8e4bf10e"
+      "hash": "7d0bba058ad27610"
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
@@ -1056,15 +1061,19 @@
     },
     {
       "path": "docs/ROADMAP.md",
-      "hash": "77e46e631e3a8249"
+      "hash": "464ce4894dc51677"
     },
     {
       "path": "docs/V0_3_RELEASE_REVIEW.md",
       "hash": "86aec926e4d7046f"
     },
     {
+      "path": "docs/V0_4_RELEASE_REVIEW.md",
+      "hash": "cbf144f6418dd9ed"
+    },
+    {
       "path": "local-docs/PRODUCT_PRD.md",
-      "hash": "dec28a039f22f895"
+      "hash": "201661a75ed9d8fb"
     },
     {
       "path": "package.json",
@@ -1176,7 +1185,7 @@
     },
     {
       "path": "README.md",
-      "hash": "2eae845b18d4fb64"
+      "hash": "232783db20cb04de"
     },
     {
       "path": "tests/action-mvp.test.ts",
@@ -1370,26 +1379,26 @@
   "contextArtifactHashes": [
     {
       "path": "AGENTS.md",
-      "hash": "8e53c3ed1201e875"
+      "hash": "83070e80b3c388e5"
     },
     {
       "path": ".open-maintainer.yml",
-      "hash": "b82c3a952602a66b"
+      "hash": "54c4df299f1bf590"
     },
     {
       "path": ".agents/skills/open-maintainer-start-task/SKILL.md",
-      "hash": "ed9f78bc20fa0f05"
+      "hash": "ea11445a90306955"
     },
     {
       "path": ".agents/skills/open-maintainer-testing-workflow/SKILL.md",
-      "hash": "4e8be66f6ddb2ba7"
+      "hash": "8e4ae0c030421269"
     },
     {
       "path": ".agents/skills/open-maintainer-pr-review/SKILL.md",
-      "hash": "06837531d704ce79"
+      "hash": "0f1d2d5ee021516f"
     }
   ],
-  "createdAt": "2026-05-02T03:34:26.308Z",
+  "createdAt": "2026-05-02T03:44:17.405Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1501,6 +1510,10 @@
           },
           {
             "path": "docs/V0_3_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/V0_4_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
           {
@@ -1637,6 +1650,10 @@
           },
           {
             "path": "docs/V0_3_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/V0_4_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
           {
@@ -2360,6 +2377,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "docs/V0_4_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
             "path": "local-docs/PRODUCT_PRD.md",
             "reason": "detected repository context"
           },
@@ -2393,6 +2414,10 @@
           },
           {
             "path": "docs/V0_3_RELEASE_REVIEW.md",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "docs/V0_4_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
           {
@@ -2555,7 +2580,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T03:34:26.309Z"
+    "generatedAt": "2026-05-02T03:44:17.406Z"
   },
-  "openMaintainerProfileHash": "5b1d406e6a6015f9"
+  "openMaintainerProfileHash": "10853d3a79b0eb36"
 }

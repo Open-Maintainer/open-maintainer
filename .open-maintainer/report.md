@@ -33,6 +33,7 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
 - Evidence: docs/V0_3_RELEASE_REVIEW.md (detected repository context)
+- Evidence: docs/V0_4_RELEASE_REVIEW.md (detected repository context)
 - Evidence: local-docs/PRODUCT_PRD.md (detected repository context)
 - Evidence: README.md (detected repository context)
 - Evidence: .env.example (detected repository context)
@@ -69,6 +70,7 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
 - Evidence: docs/V0_3_RELEASE_REVIEW.md (detected repository context)
+- Evidence: docs/V0_4_RELEASE_REVIEW.md (detected repository context)
 - Evidence: apps/api/tsconfig.json (detected repository context)
 - Evidence: apps/cli/tsconfig.json (detected repository context)
 - Evidence: apps/web/tsconfig.json (detected repository context)
@@ -255,6 +257,7 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
 - Evidence: docs/V0_3_RELEASE_REVIEW.md (detected repository context)
+- Evidence: docs/V0_4_RELEASE_REVIEW.md (detected repository context)
 - Evidence: local-docs/PRODUCT_PRD.md (detected repository context)
 - Evidence: README.md (detected repository context)
 
@@ -266,6 +269,7 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
 - Evidence: docs/V0_3_RELEASE_REVIEW.md (detected repository context)
+- Evidence: docs/V0_4_RELEASE_REVIEW.md (detected repository context)
 - Evidence: local-docs/PRODUCT_PRD.md (detected repository context)
 - Evidence: README.md (detected repository context)
 
