@@ -5,9 +5,7 @@
   "owner": "Open-Maintainer",
   "name": "open-maintainer",
   "defaultBranch": "main",
-  "primaryLanguages": [
-    "TypeScript"
-  ],
+  "primaryLanguages": ["TypeScript"],
   "frameworks": [
     "next",
     "react",
@@ -904,9 +902,7 @@
       "reason": "detected repository context"
     }
   ],
-  "workspaceManifests": [
-    "package.json"
-  ],
+  "workspaceManifests": ["package.json"],
   "lockfiles": [
     "bun.lock",
     "tests/fixtures/high-readiness-ts/bun.lock",
