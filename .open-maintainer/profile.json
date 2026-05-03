@@ -1,11 +1,13 @@
 {
-  "id": "repo_profile_cf6bfba2-fdef-4e06-86b0-cc742f04dcb1",
+  "id": "repo_profile_62066c04-abe9-47fe-876d-98f1793f999a",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
   "name": "open-maintainer",
   "defaultBranch": "main",
-  "primaryLanguages": ["TypeScript"],
+  "primaryLanguages": [
+    "TypeScript"
+  ],
   "frameworks": [
     "next",
     "react",
@@ -914,7 +916,9 @@
       "reason": "detected repository context"
     }
   ],
-  "workspaceManifests": ["package.json"],
+  "workspaceManifests": [
+    "package.json"
+  ],
   "lockfiles": [
     "bun.lock",
     "tests/fixtures/high-readiness-ts/bun.lock",
@@ -1014,11 +1018,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "bf0187d273fd30f3"
+      "hash": "fb70d2d870848c18"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "1f7fe256eb392761"
+      "hash": "053fcf954aa6ca5e"
     },
     {
       "path": "AGENTS.md",
@@ -1242,7 +1246,7 @@
     },
     {
       "path": "tests/cli-triage.test.ts",
-      "hash": "3fbaf04fd08f30c2"
+      "hash": "ccc3b693f909756b"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1426,7 +1430,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-03T09:02:48.352Z",
+  "createdAt": "2026-05-03T09:11:24.083Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2636,7 +2640,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-03T09:02:48.353Z"
+    "generatedAt": "2026-05-03T09:11:24.084Z"
   },
-  "openMaintainerProfileHash": "65e1c8eef425e8e1"
+  "openMaintainerProfileHash": "1234468fb6b2c055"
 }
