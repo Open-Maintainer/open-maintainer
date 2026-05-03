@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -70,8 +71,10 @@ describe("CLI help", () => {
     expect(result.stdout).toContain("--post-comment");
     expect(result.stdout).toContain("--close-allowed");
     expect(result.stdout).toContain("--allow-non-agent-ready");
+    expect(result.stdout).toContain("--output-path <path>");
     expect(result.stdout).toContain("--model codex|claude");
     expect(result.stdout).toContain("--allow-model-content-transfer");
+    expect(result.stdout).toContain("--json");
     expect(result.stdout).toContain("non-mutating");
   });
 
@@ -105,6 +108,28 @@ describe("CLI help", () => {
     expect(result.stdout).toContain("--review-apply-triage-label");
     expect(result.stdout).toContain("--review-create-triage-labels");
     expect(result.stdout).toContain("Local ref review is non-mutating");
+  });
+
+  it("keeps README command flags aligned with CLI help", async () => {
+    const readme = await readFile(path.join(repoRoot, "README.md"), "utf8");
+
+    for (const command of [
+      "audit",
+      "generate",
+      "init",
+      "doctor",
+      "review",
+      "triage",
+      "pr",
+    ]) {
+      const result = await runCli(["help", command]);
+      expect(result.exitCode).toBe(0);
+
+      const flags = new Set(result.stdout.match(/--[a-z0-9-]+/g) ?? []);
+      for (const flag of flags) {
+        expect(readme, `${command} ${flag}`).toContain(flag);
+      }
+    }
   });
 
   it("rejects missing and invalid option values", async () => {

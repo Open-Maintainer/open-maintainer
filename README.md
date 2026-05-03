@@ -69,6 +69,121 @@ bun run cli review "$TARGET_REPO" --pr 123 --model codex --allow-model-content-t
 bun run cli pr "$TARGET_REPO" --create
 ```
 
+## CLI Command Reference
+
+Run `bun run cli help <command>` for terminal help. The supported commands and
+flags are:
+
+### `audit <repo>`
+
+Analyzes a repository and writes readiness artifacts.
+
+| Flag | Meaning |
+| --- | --- |
+| `--fail-on-score-below <number>` | Exit non-zero when the audit score is below the threshold. |
+| `--report-path <path>` | Write the audit report to a custom path. |
+| `--no-profile-write` | Skip `.open-maintainer/profile.json` writes. |
+
+### `generate <repo>`
+
+Generates repository context artifacts. Existing files are preserved unless a
+write flag explicitly allows replacement.
+
+| Flag | Meaning |
+| --- | --- |
+| `--context codex|claude|both` | Generate `AGENTS.md`, `CLAUDE.md`, or both. |
+| `--skills codex|claude|both` | Generate `.agents` skills, `.claude` skills, or both. |
+| `--model codex|claude` | Select the LLM CLI backend used for generated artifact content. |
+| `--llm-model <model>` | Override the backend model. |
+| `--allow-write` | Required with `--model`; permits model-backed artifact writes. |
+| `--force` | Overwrite existing generated artifact files. |
+| `--refresh-generated` | Overwrite only existing Open Maintainer generated files. |
+| `--dry-run` | Print planned writes without writing files. |
+
+### `init <repo>`
+
+Runs `audit`, then generates missing context artifacts.
+
+| Flag | Meaning |
+| --- | --- |
+| `--fail-on-score-below <number>` | Exit non-zero when the audit score is below the threshold. |
+| `--report-path <path>` | Write the audit report to a custom path. |
+| `--no-profile-write` | Skip `.open-maintainer/profile.json` writes during audit. |
+| `--model codex|claude` | Select the LLM CLI backend used for generated artifact content. |
+| `--context codex|claude|both` | Generate `AGENTS.md`, `CLAUDE.md`, or both. |
+| `--skills codex|claude|both` | Generate `.agents` skills, `.claude` skills, or both. |
+| `--llm-model <model>` | Override the backend model. |
+| `--allow-write` | Required with `--model`; permits model-backed artifact writes. |
+| `--force` | Overwrite existing generated artifact files. |
+| `--refresh-generated` | Overwrite only existing Open Maintainer generated files. |
+| `--dry-run` | Print planned writes without writing files. |
+
+### `doctor <repo>`
+
+Checks required generated context and stored profile drift.
+
+| Flag | Meaning |
+| --- | --- |
+| `--fix` | Remove obsolete generated context artifacts. |
+
+### `review <repo>`
+
+Produces a rule-grounded PR review. Local ref review is non-mutating by default.
+With `--pr`, the CLI posts the marked summary and capped inline comments unless
+`--dry-run` is present; posting flags let maintainers explicitly select which
+write paths run.
+
+| Flag | Meaning |
+| --- | --- |
+| `--pr <number>` | Fetch PR metadata and diff with `gh`; required for GitHub posting flags. |
+| `--base-ref <ref>` | Base ref or SHA for local diff review. |
+| `--head-ref <ref>` | Head ref or SHA for local diff review; defaults to `HEAD`. |
+| `--pr-number <number>` | Include PR number metadata for local diff review. |
+| `--output-path <path>` | Write markdown review output to a file. |
+| `--json` | Print the machine-readable `ReviewResult` JSON. |
+| `--dry-run` | With `--pr`, fetch and review without posting to GitHub. |
+| `--model codex|claude` | Select the CLI backend for model-backed review. |
+| `--llm-model <model>` | Override the backend model. |
+| `--allow-model-content-transfer` | Required with `--model`; sends repo content to the selected backend. |
+| `--review-provider codex|claude` | Alias for `--model`. |
+| `--review-model <model>` | Alias for `--llm-model`. |
+| `--review-post-summary` | Post or update the marked PR summary comment. |
+| `--review-inline-comments` | Post capped inline finding comments. |
+| `--review-inline-cap <number>` | Maximum inline comments; default with `--pr` is 5. |
+| `--review-apply-triage-label` | Apply one filterable PR triage label. |
+| `--review-create-triage-labels` | Create missing Open Maintainer PR triage labels before applying; requires `--review-apply-triage-label`. |
+
+### `triage issue <repo>`, `triage issues <repo>`, and `triage brief <repo>`
+
+Runs local issue triage or generates an agent task brief from a local triage
+artifact. Issue triage is preview-only by default: it writes local artifacts but
+does not label, comment, or close GitHub issues unless write flags are present.
+
+| Flag | Meaning |
+| --- | --- |
+| `--number <n>` | GitHub issue number for `triage issue` or `triage brief`. |
+| `--state open|closed|all` | Issue state for `triage issues`; default is `open`. |
+| `--limit <n>` | Maximum issues to triage before model calls; default is 10, max is 50. |
+| `--label <name>` | Optional label filter for `triage issues`. |
+| `--model codex|claude` | Select the CLI backend for model-backed triage. |
+| `--llm-model <model>` | Override the backend model. |
+| `--allow-model-content-transfer` | Required with `--model`; sends issue evidence and repo context to the selected backend. |
+| `--json` | Print machine-readable triage result or batch report JSON. |
+| `--apply-labels` | Apply mapped Open Maintainer issue labels to GitHub issues. |
+| `--create-labels` | Create missing issue labels before applying them; requires `--apply-labels`. |
+| `--post-comment` | Post or update the marked Open Maintainer issue triage comment. |
+| `--close-allowed` | Allow config-gated selective issue closure. |
+| `--allow-non-agent-ready` | Generate a task brief despite non-agent-ready triage. |
+| `--output-path <path>` | Write generated task brief markdown to a file. |
+
+### `pr <repo>`
+
+Prints a dry-run context PR summary for generated artifacts.
+
+| Flag | Meaning |
+| --- | --- |
+| `--create` | Required; print the dry-run PR summary. |
+
 Generation uses three separate choices:
 
 | Flag | Options | Meaning |
@@ -243,7 +358,13 @@ Local issue artifacts are written under
 `.open-maintainer/triage/runs/`. Treat `.open-maintainer/triage/` as ignored
 local operational history for maintainer inspection. Opt-in writes use explicit
 flags: `--apply-labels`, `--create-labels`, `--post-comment`, and config-gated
-`--close-allowed`.
+`--close-allowed`. Label creation uses `gh label create`, label application uses
+`gh issue edit --add-label`, and new comments use
+`gh issue comment --body-file`. Existing marked comment updates and closure use
+`gh api` for the missing high-level operations. All writes use the maintainer's
+local `gh` authentication with issue write permission; if GitHub rejects a
+write, the triage result remains available and the write action is recorded as
+failed.
 
 Generate agent task briefs as a second step from an existing local triage
 artifact:
