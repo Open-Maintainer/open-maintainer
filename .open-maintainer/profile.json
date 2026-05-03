@@ -1,13 +1,11 @@
 {
-  "id": "repo_profile_09b2f5ac-1252-4c03-ac24-e0629640486f",
+  "id": "repo_profile_6266f712-3cd3-467f-884a-2d00481d86aa",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
   "name": "open-maintainer",
   "defaultBranch": "main",
-  "primaryLanguages": [
-    "TypeScript"
-  ],
+  "primaryLanguages": ["TypeScript"],
   "frameworks": [
     "next",
     "react",
@@ -301,6 +299,7 @@
     "OPEN_MAINTAINER_FAKE_EXISTING_TRIAGE_COMMENT",
     "OPEN_MAINTAINER_FAKE_GH_CALLS",
     "OPEN_MAINTAINER_FAKE_GH_COMMENT_FAIL",
+    "OPEN_MAINTAINER_FAKE_GH_LABELLED_FIRST_PAGE",
     "OPEN_MAINTAINER_FAKE_GH_LABEL_APPLY_FAIL",
     "OPEN_MAINTAINER_FAKE_GH_REJECT_ENV_TOKEN",
     "OPEN_MAINTAINER_FAKE_ISSUE_42_UPDATED_AT",
@@ -915,9 +914,7 @@
       "reason": "detected repository context"
     }
   ],
-  "workspaceManifests": [
-    "package.json"
-  ],
+  "workspaceManifests": ["package.json"],
   "lockfiles": [
     "bun.lock",
     "tests/fixtures/high-readiness-ts/bun.lock",
@@ -1017,11 +1014,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "ad925ffd3e9d1043"
+      "hash": "3b8f9736f19f80fa"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "f33d77b14485038b"
+      "hash": "0354505035cbd033"
     },
     {
       "path": "AGENTS.md",
@@ -1097,7 +1094,7 @@
     },
     {
       "path": "docs/ROADMAP.md",
-      "hash": "563437472bf07785"
+      "hash": "4ad546f40721408c"
     },
     {
       "path": "docs/V0_5_RELEASE_REVIEW.md",
@@ -1205,7 +1202,7 @@
     },
     {
       "path": "packages/shared/tests/schemas.test.ts",
-      "hash": "b88765ca4b2108c2"
+      "hash": "58399099683d8f49"
     },
     {
       "path": "packages/shared/tsconfig.json",
@@ -1217,7 +1214,7 @@
     },
     {
       "path": "packages/triage/tests/index.test.ts",
-      "hash": "26a53addd7c4ef89"
+      "hash": "5aa3d503b02f8801"
     },
     {
       "path": "packages/triage/tsconfig.json",
@@ -1225,7 +1222,7 @@
     },
     {
       "path": "README.md",
-      "hash": "23bea47b2a14b0e2"
+      "hash": "3137f85567cd051e"
     },
     {
       "path": "tests/action-mvp.test.ts",
@@ -1249,7 +1246,7 @@
     },
     {
       "path": "tests/cli-triage.test.ts",
-      "hash": "b83132254c265b4b"
+      "hash": "ad705e26710e8485"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1393,7 +1390,7 @@
     },
     {
       "path": "tests/helpers/fake-model-cli.ts",
-      "hash": "6e8788815681e337"
+      "hash": "aa19aecdaa260578"
     },
     {
       "path": "tests/mvp-golden.test.ts",
@@ -1429,7 +1426,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-03T07:20:05.874Z",
+  "createdAt": "2026-05-03T08:11:53.404Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2647,7 +2644,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-03T07:20:05.875Z"
+    "generatedAt": "2026-05-03T08:11:53.405Z"
   },
-  "openMaintainerProfileHash": "57d176c485f4f229"
+  "openMaintainerProfileHash": "e15eafc4f98b4c59"
 }

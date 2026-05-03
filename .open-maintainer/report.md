@@ -325,9 +325,8 @@ Agent Readiness: 100/100
 
 ## Drift
 
-- Documentation: docs/V0_5_RELEASE_REVIEW.md was changed. Evidence: docs/V0_5_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
+- Documentation: docs/ROADMAP.md was changed. Evidence: docs/ROADMAP.md. Next action: review generated context against the changed docs.
 - Documentation: README.md was changed. Evidence: README.md. Next action: review generated context against the changed docs.
-- Lockfiles and config: biome.json was changed. Evidence: biome.json. Next action: review setup and validation context for the changed file.
 
 ## Commands
 
