@@ -12,6 +12,10 @@ import {
 } from "@open-maintainer/ai";
 import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
 import {
+  type OpenMaintainerConfig,
+  parseOpenMaintainerConfig,
+} from "@open-maintainer/config";
+import {
   type ArtifactModel,
   type ContextArtifactTarget,
   buildArtifactSynthesisPrompt,
@@ -102,6 +106,7 @@ type CliOptions = {
   issueApplyLabels: boolean;
   issueCreateLabels: boolean;
   issuePostComment: boolean;
+  issueCloseAllowed: boolean;
 };
 
 type ArtifactSelection = "codex" | "claude" | "both";
@@ -262,6 +267,7 @@ Batch options:
   --apply-labels                         Apply mapped Open Maintainer issue labels
   --create-labels                        Create missing labels before applying them; requires --apply-labels
   --post-comment                         Post or update the marked Open Maintainer issue triage comment
+  --close-allowed                        Allow config-gated selective issue closure
 
 Model required:
   --model codex|claude                  CLI backend used for model-backed triage
@@ -848,6 +854,8 @@ type IssueTriageContext = {
   providerConfig: ModelProviderConfig;
   provider: ModelProvider;
   client: GitHubRepositoryClient;
+  config: OpenMaintainerConfig | null;
+  closuresApplied: number;
 };
 
 type IssueTriagePreview = {
@@ -873,6 +881,10 @@ async function prepareIssueTriageContext(
     providerConfig: provider.providerConfig,
     provider: provider.provider,
     client: buildGhIssueTriageClient(repoRoot),
+    config: await readOptionalRepoFile(repoRoot, ".open-maintainer.yml")
+      .then((source) => (source ? parseOpenMaintainerConfig(source) : null))
+      .catch(() => null),
+    closuresApplied: 0,
   };
 }
 
@@ -921,12 +933,24 @@ async function runIssueTriagePreview(input: {
     owner: profile.owner,
     repo: profile.name,
     issueNumber: input.issueNumber,
+    issueUpdatedAt: evidence.issue.updatedAt,
+    classification: modelResult.classification,
     labelIntents: modelResult.labelIntents,
     commentPreview,
     applyLabels: input.options.issueApplyLabels,
     createLabels: input.options.issueCreateLabels,
     postComment: input.options.issuePostComment,
+    closeAllowed: input.options.issueCloseAllowed,
+    closureConfig: input.context.config?.issueTriage?.closure ?? null,
+    closuresApplied: input.context.closuresApplied,
   });
+  if (
+    writeActions.some(
+      (action) => action.type === "close_issue" && action.status === "applied",
+    )
+  ) {
+    input.context.closuresApplied += 1;
+  }
   const result = IssueTriageResultSchema.parse({
     ...modelResult,
     commentPreview,
@@ -1142,7 +1166,7 @@ function renderTriageBatchConsole(
     renderTriageBatchGroups(report),
     `JSON report: ${paths.jsonPath}`,
     `Markdown report: ${paths.markdownPath}`,
-    "GitHub writes: skipped (preview-only default)",
+    `GitHub writes: ${formatBatchGitHubWritesSummary(report)}`,
   ].join("\n");
 }
 
@@ -1358,26 +1382,101 @@ async function issueTriageWriteActions(
     owner: string;
     repo: string;
     issueNumber: number;
+    issueUpdatedAt: string;
+    classification: IssueTriageResult["classification"];
     labelIntents: IssueTriageResult["labelIntents"];
     commentPreview: IssueTriageResult["commentPreview"];
     applyLabels: boolean;
     createLabels: boolean;
     postComment: boolean;
+    closeAllowed: boolean;
+    closureConfig: NonNullable<
+      NonNullable<OpenMaintainerConfig["issueTriage"]>["closure"]
+    > | null;
+    closuresApplied: number;
   },
 ): Promise<IssueTriageResult["writeActions"]> {
   const labelActions = await issueTriageLabelActions(repoRoot, input);
   const commentAction = await issueTriageCommentAction(repoRoot, input);
-  return [
-    ...labelActions,
+  const closeAction = await issueTriageCloseAction(repoRoot, {
+    ...input,
     commentAction,
-    {
-      type: "close_issue",
-      status: "skipped",
-      target: `issue:${input.issueNumber}`,
-      reason:
-        "Issue triage is non-mutating by default; closure was not requested.",
-    },
-  ];
+  });
+  return [...labelActions, commentAction, closeAction];
+}
+
+async function issueTriageCloseAction(
+  repoRoot: string,
+  input: {
+    owner: string;
+    repo: string;
+    issueNumber: number;
+    issueUpdatedAt: string;
+    classification: IssueTriageResult["classification"];
+    closeAllowed: boolean;
+    closureConfig: NonNullable<
+      NonNullable<OpenMaintainerConfig["issueTriage"]>["closure"]
+    > | null;
+    closuresApplied: number;
+    commentAction: IssueTriageResult["writeActions"][number];
+  },
+): Promise<IssueTriageResult["writeActions"][number]> {
+  const skipped = (
+    reason: string,
+  ): IssueTriageResult["writeActions"][number] => ({
+    type: "close_issue",
+    status: "skipped",
+    target: `issue:${input.issueNumber}`,
+    reason,
+  });
+  if (!input.closeAllowed) {
+    return skipped("Closure requires explicit --close-allowed.");
+  }
+  const config = input.closureConfig;
+  if (!config) {
+    return skipped(
+      "Closure requires .open-maintainer.yml issueTriage.closure config.",
+    );
+  }
+  if (input.closuresApplied >= config.maxClosuresPerRun) {
+    return skipped(`Closure cap reached (${config.maxClosuresPerRun}).`);
+  }
+  if (
+    config.requireCommentBeforeClose &&
+    input.commentAction.status !== "applied"
+  ) {
+    return skipped(
+      "Closure requires a posted or updated public triage comment.",
+    );
+  }
+  if (input.classification === "possible_spam") {
+    if (!config.allowPossibleSpam) {
+      return skipped("Config does not allow possible_spam closure.");
+    }
+  } else if (input.classification === "needs_author_input") {
+    if (!config.allowStaleAuthorInput) {
+      return skipped("Config does not allow stale needs_author_input closure.");
+    }
+    const staleMs = config.staleAuthorInputDays * 24 * 60 * 60 * 1000;
+    const updatedAt = new Date(input.issueUpdatedAt).getTime();
+    if (!Number.isFinite(updatedAt) || Date.now() - updatedAt < staleMs) {
+      return skipped("needs_author_input issue is not stale enough to close.");
+    }
+  } else {
+    return skipped(`Closure is unsupported for ${input.classification}.`);
+  }
+  await ghApiWithJsonBody(
+    repoRoot,
+    issueEndpoint(input.owner, input.repo, input.issueNumber),
+    "PATCH",
+    { state: "closed", state_reason: "not_planned" },
+  );
+  return {
+    type: "close_issue",
+    status: "applied",
+    target: `issue:${input.issueNumber}`,
+    reason: `Closed ${input.classification} issue after config and CLI approval.`,
+  };
 }
 
 async function issueTriageCommentAction(
@@ -1648,8 +1747,9 @@ function formatIssueTriageSummary(
     `Next action: ${result.nextAction}`,
     `Comment preview: ${result.commentPreview.summary}`,
     `Comment action: ${formatCommentActionSummary(result.writeActions)}`,
+    `Closure action: ${formatWriteActionSummary(result.writeActions, "close_issue")}`,
     `Artifact: ${artifactPath}`,
-    "GitHub writes: skipped (preview-only default)",
+    `GitHub writes: ${formatGitHubWritesSummary(result.writeActions)}`,
   ];
 }
 
@@ -1667,6 +1767,31 @@ function formatWriteActionSummary(
         `${action.status} ${action.target ?? "target"} (${action.reason})`,
     )
     .join("; ");
+}
+
+function formatGitHubWritesSummary(
+  actions: IssueTriageResult["writeActions"],
+): string {
+  const applied = actions.filter((action) => action.status === "applied");
+  if (applied.length === 0) {
+    return "skipped (preview-only default)";
+  }
+  return `applied (${applied
+    .map((action) => `${action.type}:${action.target ?? "target"}`)
+    .join(", ")})`;
+}
+
+function formatBatchGitHubWritesSummary(
+  report: IssueTriageBatchReport,
+): string {
+  const appliedCount = report.issues
+    .filter((record) => record.status === "succeeded")
+    .flatMap((record) => record.writeActions)
+    .filter((action) => action.status === "applied").length;
+  if (appliedCount === 0) {
+    return "skipped (preview-only default)";
+  }
+  return `applied (${appliedCount} action${appliedCount === 1 ? "" : "s"})`;
 }
 
 function formatCommentActionSummary(
@@ -2829,6 +2954,7 @@ function parseOptions(rawOptions: string[]): CliOptions {
     issueApplyLabels: false,
     issueCreateLabels: false,
     issuePostComment: false,
+    issueCloseAllowed: false,
   };
   for (let index = 0; index < rawOptions.length; index += 1) {
     const option = rawOptions[index];
@@ -2941,6 +3067,8 @@ function parseOptions(rawOptions: string[]): CliOptions {
       options.issueCreateLabels = true;
     } else if (option === "--post-comment") {
       options.issuePostComment = true;
+    } else if (option === "--close-allowed") {
+      options.issueCloseAllowed = true;
     } else if (option === "--output-path") {
       options.outputPath = requireOptionValue(rawOptions, index, option);
       index += 1;

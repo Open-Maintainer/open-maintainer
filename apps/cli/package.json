@@ -11,6 +11,7 @@
   "dependencies": {
     "@open-maintainer/ai": "workspace:*",
     "@open-maintainer/analyzer": "workspace:*",
+    "@open-maintainer/config": "workspace:*",
     "@open-maintainer/context": "workspace:*",
     "@open-maintainer/github": "workspace:*",
     "@open-maintainer/review": "workspace:*",

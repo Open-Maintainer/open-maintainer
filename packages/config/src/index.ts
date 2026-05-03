@@ -18,6 +18,19 @@ export const OpenMaintainerConfigSchema = z.object({
     defaultBranch: z.string(),
   }),
   rules: z.array(z.string()).default([]),
+  issueTriage: z
+    .object({
+      closure: z
+        .object({
+          allowPossibleSpam: z.boolean().default(false),
+          allowStaleAuthorInput: z.boolean().default(false),
+          staleAuthorInputDays: z.number().int().positive().default(14),
+          maxClosuresPerRun: z.number().int().min(0).default(0),
+          requireCommentBeforeClose: z.boolean().default(true),
+        })
+        .default({}),
+    })
+    .optional(),
   generated: z.object({
     by: z.literal("open-maintainer"),
     artifactVersion: z.number().int().positive(),

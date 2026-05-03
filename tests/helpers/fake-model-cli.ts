@@ -36,14 +36,15 @@ if (schema.required.includes("classification")) {
     output = "not an issue triage object";
   } else {
     const noEvidence = process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "no-evidence";
+    const spam = process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "spam";
     output = {
-      classification: "needs_author_input",
+      classification: spam ? "possible_spam" : "needs_author_input",
       agentReadiness: "not_agent_ready",
-      confidence: 0.71,
-      riskFlags: ["unclear_scope", "missing_validation"],
-      labelIntents: ["needs_author_input", "needs_validation"],
-      recommendation: "Ask the author for reproduction steps and validation expectations.",
-      rationale: "The issue evidence is available, but the fake provider is configured to require more author detail.",
+      confidence: spam ? 0.82 : 0.71,
+      riskFlags: spam ? ["unclear_scope"] : ["unclear_scope", "missing_validation"],
+      labelIntents: spam ? ["possible_spam"] : ["needs_author_input", "needs_validation"],
+      recommendation: spam ? "Close as policy-focused spam only if configured guardrails allow it." : "Ask the author for reproduction steps and validation expectations.",
+      rationale: spam ? "The fake provider is simulating a possible spam issue." : "The issue evidence is available, but the fake provider is configured to require more author detail.",
       evidence: noEvidence ? [] : [{
         source: "github_issue",
         path: null,

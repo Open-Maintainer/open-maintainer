@@ -56,6 +56,30 @@ async function createTriageRepo(): Promise<string> {
   return directory;
 }
 
+async function writeClosureConfig(
+  repoRoot: string,
+  closure: Record<string, boolean | number>,
+): Promise<void> {
+  await writeFile(
+    path.join(repoRoot, ".open-maintainer.yml"),
+    [
+      "version: 1",
+      "repo:",
+      "  profileVersion: 2",
+      "  defaultBranch: main",
+      "rules: []",
+      "issueTriage:",
+      "  closure:",
+      ...Object.entries(closure).map(([key, value]) => `    ${key}: ${value}`),
+      "generated:",
+      "  by: open-maintainer",
+      "  artifactVersion: 3",
+      '  generatedAt: "2026-04-30T00:00:00.000Z"',
+      "",
+    ].join("\n"),
+  );
+}
+
 async function createFakeGhCli(): Promise<{
   env: Record<string, string>;
   callsPath: string;
@@ -98,6 +122,11 @@ if (method === "PATCH" && endpoint === "repos/acme/triage-fixture/issues/comment
   write({ id: 901, html_url: "https://github.com/acme/triage-fixture/issues/42#issuecomment-901" });
   process.exit(0);
 }
+if (method === "PATCH" && /^repos\\/acme\\/triage-fixture\\/issues\\/(42|43|44)$/.test(endpoint)) {
+  const number = Number(endpoint.split("/").at(-1));
+  write({ number, state: "closed" });
+  process.exit(0);
+}
 if (method !== "GET") {
   console.error("unexpected mutation: " + args.join(" "));
   process.exit(1);
@@ -121,7 +150,7 @@ if (endpoint === "repos/acme/triage-fixture/issues/42") {
     labels: [{ name: "enhancement" }],
     state: "open",
     created_at: "2026-05-03T00:00:00.000Z",
-    updated_at: "2026-05-03T00:01:00.000Z"
+    updated_at: process.env.OPEN_MAINTAINER_FAKE_ISSUE_42_UPDATED_AT ?? "2026-05-03T00:01:00.000Z"
   });
   process.exit(0);
 }
@@ -459,6 +488,337 @@ describe("CLI issue triage", () => {
     const ghCalls = await readFile(fakeGh.callsPath, "utf8");
     expect(ghCalls).toContain("repos/acme/triage-fixture/issues/comments/901");
     expect(ghCalls).toContain("PATCH");
+  });
+
+  it("skips issue closure without both CLI and config approval", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const withoutFlag = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "spam",
+      },
+    );
+
+    expect(withoutFlag.exitCode).toBe(0);
+    expect(withoutFlag.stdout).toContain(
+      "Closure action: skipped issue:42 (Closure requires explicit --close-allowed.)",
+    );
+
+    const withoutConfig = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--close-allowed",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "spam",
+      },
+    );
+
+    expect(withoutConfig.exitCode).toBe(0);
+    expect(withoutConfig.stdout).toContain(
+      "Closure action: skipped issue:42 (Closure requires .open-maintainer.yml issueTriage.closure config.)",
+    );
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).not.toContain('"PATCH"');
+    expect(ghCalls).not.toContain(
+      'repos/acme/triage-fixture/issues/42","--method',
+    );
+  });
+
+  it("closes possible spam only after posting the configured public comment", async () => {
+    const fixture = await createTriageRepo();
+    await writeClosureConfig(fixture, {
+      allowPossibleSpam: true,
+      maxClosuresPerRun: 1,
+      requireCommentBeforeClose: true,
+    });
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--post-comment",
+        "--close-allowed",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "spam",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Classification: possible_spam");
+    expect(result.stdout).toContain("Closure action: applied issue:42");
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    );
+    const triage = IssueTriageResultSchema.parse(artifact.result);
+    expect(
+      triage.writeActions.some(
+        (action) =>
+          action.type === "post_comment" && action.status === "applied",
+      ),
+    ).toBe(true);
+    expect(
+      triage.writeActions.some(
+        (action) =>
+          action.type === "close_issue" && action.status === "applied",
+      ),
+    ).toBe(true);
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).toContain("repos/acme/triage-fixture/issues/42/comments");
+    expect(ghCalls).toContain("repos/acme/triage-fixture/issues/42");
+    expect(ghCalls).toContain("PATCH");
+  });
+
+  it("requires the configured public comment before issue closure", async () => {
+    const fixture = await createTriageRepo();
+    await writeClosureConfig(fixture, {
+      allowPossibleSpam: true,
+      maxClosuresPerRun: 1,
+      requireCommentBeforeClose: true,
+    });
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--close-allowed",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "spam",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      "Closure action: skipped issue:42 (Closure requires a posted or updated public triage comment.)",
+    );
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).not.toContain('"PATCH"');
+  });
+
+  it("does not close fresh needs-author-input issues", async () => {
+    const fixture = await createTriageRepo();
+    await writeClosureConfig(fixture, {
+      allowStaleAuthorInput: true,
+      staleAuthorInputDays: 14,
+      maxClosuresPerRun: 1,
+      requireCommentBeforeClose: true,
+    });
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--post-comment",
+        "--close-allowed",
+      ],
+      { ...fakeCodex.env, ...fakeGh.env },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(
+      "Closure action: skipped issue:42 (needs_author_input issue is not stale enough to close.)",
+    );
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    );
+    const triage = IssueTriageResultSchema.parse(artifact.result);
+    expect(
+      triage.writeActions.some(
+        (action) =>
+          action.type === "close_issue" &&
+          action.status === "skipped" &&
+          action.reason.includes("not stale enough"),
+      ),
+    ).toBe(true);
+  });
+
+  it("closes stale needs-author-input issues when guardrails pass", async () => {
+    const fixture = await createTriageRepo();
+    await writeClosureConfig(fixture, {
+      allowStaleAuthorInput: true,
+      staleAuthorInputDays: 14,
+      maxClosuresPerRun: 1,
+      requireCommentBeforeClose: true,
+    });
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--post-comment",
+        "--close-allowed",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_ISSUE_42_UPDATED_AT: "2026-04-01T00:01:00.000Z",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Closure action: applied issue:42");
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    );
+    const triage = IssueTriageResultSchema.parse(artifact.result);
+    expect(
+      triage.writeActions.some(
+        (action) =>
+          action.type === "close_issue" && action.status === "applied",
+      ),
+    ).toBe(true);
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).toContain("repos/acme/triage-fixture/issues/42");
+    expect(ghCalls).toContain("PATCH");
+  });
+
+  it("enforces the configured closure cap across batch triage", async () => {
+    const fixture = await createTriageRepo();
+    await writeClosureConfig(fixture, {
+      allowPossibleSpam: true,
+      maxClosuresPerRun: 1,
+      requireCommentBeforeClose: false,
+    });
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issues",
+        fixture,
+        "--state",
+        "open",
+        "--limit",
+        "2",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--close-allowed",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "spam",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    const issue42 = IssueTriageResultSchema.parse(
+      JSON.parse(
+        await readFile(
+          path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+          "utf8",
+        ),
+      ).result,
+    );
+    const issue43 = IssueTriageResultSchema.parse(
+      JSON.parse(
+        await readFile(
+          path.join(fixture, ".open-maintainer/triage/issues/43.json"),
+          "utf8",
+        ),
+      ).result,
+    );
+    expect(
+      issue42.writeActions.some(
+        (action) =>
+          action.type === "close_issue" && action.status === "applied",
+      ),
+    ).toBe(true);
+    expect(
+      issue43.writeActions.some(
+        (action) =>
+          action.type === "close_issue" &&
+          action.status === "skipped" &&
+          action.reason.includes("Closure cap reached"),
+      ),
+    ).toBe(true);
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(
+      ghCalls
+        .split("\n")
+        .filter((line) => line.includes("repos/acme/triage-fixture/issues/42"))
+        .filter((line) => line.includes('"PATCH"')).length,
+    ).toBe(1);
+    expect(
+      ghCalls
+        .split("\n")
+        .filter((line) => line.includes("repos/acme/triage-fixture/issues/43"))
+        .filter((line) => line.includes('"PATCH"')).length,
+    ).toBe(0);
   });
 
   it("runs bounded batch triage with grouped reports and per-issue errors", async () => {
