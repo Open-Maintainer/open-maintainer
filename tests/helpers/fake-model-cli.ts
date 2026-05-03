@@ -184,6 +184,113 @@ process.stdin.on("end", () => {
       };
     }
   }
+  if (
+    schema.required.includes("classification") &&
+    process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "all-classifications"
+  ) {
+    const issueMatch = promptText.match(/"issueNumber":\\s*(\\d+)/);
+    const issueNumber = issueMatch ? Number(issueMatch[1]) : 0;
+    const byIssue = {
+      42: {
+        classification: "ready_for_review",
+        agentReadiness: "agent_ready",
+        confidence: 0.91,
+        riskFlags: [],
+        labelIntents: ["ready_for_review", "agent_ready"],
+        recommendation: "Proceed with maintainer review and generate a task brief.",
+        rationale: "The issue has a clear goal, acceptance criteria, likely files, and validation expectations.",
+        missingInformation: [],
+        requiredAuthorActions: [],
+        nextAction: "Generate an agent task brief for the scoped CLI change.",
+        summary: "Ready for review."
+      },
+      43: {
+        classification: "needs_author_input",
+        agentReadiness: "not_agent_ready",
+        confidence: 0.73,
+        riskFlags: ["unclear_scope", "missing_validation"],
+        labelIntents: ["needs_author_input", "needs_reproduction", "needs_validation"],
+        recommendation: "Ask the reporter for reproduction steps, environment details, and expected validation.",
+        rationale: "The bug report describes a symptom but omits a reproducible path and validation evidence.",
+        missingInformation: ["Minimal reproduction", "Observed and expected behavior", "Validation command"],
+        requiredAuthorActions: ["Add a reproducible example and the command that demonstrates the failure."],
+        nextAction: "Request author input before maintainer review.",
+        summary: "Needs author input."
+      },
+      44: {
+        classification: "needs_maintainer_design",
+        agentReadiness: "needs_human_design",
+        confidence: 0.82,
+        riskFlags: ["broad_scope"],
+        labelIntents: ["needs_maintainer_design", "needs_human_design"],
+        recommendation: "Route to a maintainer for the product policy decision before implementation.",
+        rationale: "The issue asks for a triage policy choice and does not define the intended behavior.",
+        missingInformation: ["Maintainer-approved policy decision"],
+        requiredAuthorActions: [],
+        nextAction: "Get maintainer design direction before assigning implementation.",
+        summary: "Needs maintainer design."
+      },
+      45: {
+        classification: "not_agent_ready",
+        agentReadiness: "not_agent_ready",
+        confidence: 0.8,
+        riskFlags: ["security_sensitive", "high_risk_path"],
+        labelIntents: ["not_agent_ready", "security_sensitive", "high_risk_path"],
+        recommendation: "Keep this in human maintainer review because it touches sensitive credential handling.",
+        rationale: "The issue targets authentication and secret handling without enough safety constraints for agent execution.",
+        missingInformation: ["Threat model", "Security review owner"],
+        requiredAuthorActions: ["Describe the security boundary and required manual review path."],
+        nextAction: "Escalate to human maintainer review instead of agent handoff.",
+        summary: "Not agent-ready."
+      },
+      46: {
+        classification: "possible_spam",
+        agentReadiness: "not_agent_ready",
+        confidence: 0.86,
+        riskFlags: ["unclear_scope"],
+        labelIntents: ["possible_spam"],
+        recommendation: "Close only if configured spam-closure guardrails and comment requirements pass.",
+        rationale: "The issue is promotional, does not request a repo-specific change, and lacks actionable evidence.",
+        missingInformation: ["Repo-specific requested change"],
+        requiredAuthorActions: ["Replace promotional content with a concrete bug, feature, or docs request."],
+        nextAction: "Treat as possible spam under maintainer-configured guardrails.",
+        summary: "Possible spam."
+      }
+    };
+    const scenario = byIssue[issueNumber];
+    if (issueNumber === 47) {
+      output = {
+        ...output,
+        evidence: [],
+      };
+    } else if (scenario) {
+      output = {
+        classification: scenario.classification,
+        agentReadiness: scenario.agentReadiness,
+        confidence: scenario.confidence,
+        riskFlags: scenario.riskFlags,
+        labelIntents: scenario.labelIntents,
+        recommendation: scenario.recommendation,
+        rationale: scenario.rationale,
+        evidence: [{
+          source: "github_issue",
+          path: null,
+          url: "https://github.com/acme/triage-fixture/issues/" + issueNumber,
+          excerpt: "The mock issue includes realistic triage evidence for classification coverage.",
+          reason: "Primary issue text drives the synthetic validation scenario."
+        }],
+        missingInformation: scenario.missingInformation,
+        requiredAuthorActions: scenario.requiredAuthorActions,
+        nextAction: scenario.nextAction,
+        commentPreview: {
+          marker: "<!-- open-maintainer:issue-triage -->",
+          summary: scenario.summary,
+          body: scenario.recommendation,
+          artifactPath: ".open-maintainer/triage/issues/" + issueNumber + ".json"
+        }
+      };
+    }
+  }
   fs.writeFileSync(outputPath, JSON.stringify(output));
 });
 `,

@@ -147,6 +147,16 @@ if (args[0] === "pr" && args[1] === "view") {
   });
   process.exit(0);
 }
+if (args[0] === "label" && args[1] === "create") {
+  fs.appendFileSync(callsPath, JSON.stringify({ kind: "label_create", args }) + "\\n");
+  write({ name: args[2] });
+  process.exit(0);
+}
+if (args[0] === "issue" && args[1] === "edit") {
+  fs.appendFileSync(callsPath, JSON.stringify({ kind: "issue_edit", args }) + "\\n");
+  write({ number: Number(args[2]) });
+  process.exit(0);
+}
 if (args[0] === "api") {
   const endpoint = args[1];
   const inputIndex = args.indexOf("--input");
@@ -445,21 +455,27 @@ describe("CLI review", () => {
       .map(
         (line) =>
           JSON.parse(line) as {
+            kind?: string;
+            args?: string[];
             endpoint: string;
             input: { labels?: string[]; name?: string } | null;
           },
       );
+    expect(calls.filter((call) => call.kind === "label_create")).toHaveLength(
+      5,
+    );
     expect(
-      calls.filter(
+      calls.some(
         (call) =>
-          call.endpoint === "repos/Open-Maintainer/cli-review-fixture/labels",
+          call.kind === "issue_edit" &&
+          call.args?.includes("--add-label") &&
+          call.args?.includes("open-maintainer/ready-for-review"),
       ),
-    ).toHaveLength(5);
-    expect(calls).toContainEqual(
-      expect.objectContaining({
-        endpoint: "repos/Open-Maintainer/cli-review-fixture/issues/12/labels",
-        input: { labels: ["open-maintainer/ready-for-review"] },
-      }),
+    ).toBe(true);
+    expect(
+      JSON.stringify(calls.filter((call) => call.kind !== "api")),
+    ).not.toContain(
+      "repos/Open-Maintainer/cli-review-fixture/issues/12/labels",
     );
   });
 
@@ -511,9 +527,7 @@ describe("CLI review", () => {
     expect(result.stderr).toContain("blocking checks: Tests");
 
     const calls = await readFile(fakeGh.callsPath, "utf8").catch(() => "");
-    expect(calls).not.toContain(
-      "repos/Open-Maintainer/cli-review-fixture/issues/12/labels",
-    );
+    expect(calls).not.toContain('"issue","edit","12"');
   });
 
   it("requires a pull request target for posting flags", async () => {

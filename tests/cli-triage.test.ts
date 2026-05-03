@@ -93,9 +93,40 @@ async function createFakeGhCli(): Promise<{
 const fs = require("node:fs");
 const args = process.argv.slice(2);
 const callsPath = process.env.OPEN_MAINTAINER_FAKE_GH_CALLS;
-fs.appendFileSync(callsPath, JSON.stringify({ args }) + "\\n");
+const inputIndex = args.indexOf("--input");
+const input = inputIndex >= 0 ? JSON.parse(fs.readFileSync(args[inputIndex + 1], "utf8")) : null;
+fs.appendFileSync(callsPath, JSON.stringify({ args, input }) + "\\n");
 function write(value) {
   process.stdout.write(JSON.stringify(value));
+}
+function rejectEnvTokenIfRequested() {
+  if (
+    process.env.OPEN_MAINTAINER_FAKE_GH_REJECT_ENV_TOKEN === "1" &&
+    process.env.GH_TOKEN
+  ) {
+    console.error("gh: Resource not accessible by personal access token (HTTP 403)");
+    process.exit(1);
+  }
+}
+if (args[0] === "issue" && args[1] === "edit") {
+  if (process.env.OPEN_MAINTAINER_FAKE_GH_LABEL_APPLY_FAIL === "1") {
+    console.error("gh: Resource not accessible by personal access token (HTTP 403)");
+    process.exit(1);
+  }
+  write({ number: Number(args[2]) });
+  process.exit(0);
+}
+if (args[0] === "issue" && args[1] === "comment") {
+  if (process.env.OPEN_MAINTAINER_FAKE_GH_COMMENT_FAIL === "1") {
+    console.error("gh: Resource not accessible by personal access token (HTTP 403)");
+    process.exit(1);
+  }
+  process.stdout.write("https://github.com/acme/triage-fixture/issues/" + args[2] + "#issuecomment-900");
+  process.exit(0);
+}
+if (args[0] === "label" && args[1] === "create") {
+  write({ name: args[2] });
+  process.exit(0);
 }
 if (args[0] !== "api") {
   console.error("unexpected gh args: " + args.join(" "));
@@ -104,21 +135,34 @@ if (args[0] !== "api") {
 const endpoint = args[1];
 const methodIndex = args.indexOf("--method");
 const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
-const inputIndex = args.indexOf("--input");
-const input = inputIndex >= 0 ? JSON.parse(fs.readFileSync(args[inputIndex + 1], "utf8")) : null;
+if (method === "POST" && /^repos\\/acme\\/triage-fixture\\/issues\\/\\d+\\/comments$/.test(endpoint)) {
+  rejectEnvTokenIfRequested();
+  if (process.env.OPEN_MAINTAINER_FAKE_GH_COMMENT_FAIL === "1") {
+    console.error("gh: Resource not accessible by personal access token (HTTP 403)");
+    process.exit(1);
+  }
+  write({ id: 900, html_url: "https://github.com/acme/triage-fixture/issues/42#issuecomment-900" });
+  process.exit(0);
+}
 if (method === "POST" && endpoint === "repos/acme/triage-fixture/labels") {
+  rejectEnvTokenIfRequested();
   write({ name: input.name });
   process.exit(0);
 }
 if (method === "POST" && /^repos\\/acme\\/triage-fixture\\/issues\\/\\d+\\/labels$/.test(endpoint)) {
-  write(input.labels.map((name) => ({ name })));
-  process.exit(0);
-}
-if (method === "POST" && /^repos\\/acme\\/triage-fixture\\/issues\\/\\d+\\/comments$/.test(endpoint)) {
-  write({ id: 900, html_url: "https://github.com/acme/triage-fixture/issues/42#issuecomment-900" });
+  rejectEnvTokenIfRequested();
+  if (process.env.OPEN_MAINTAINER_FAKE_GH_LABEL_APPLY_FAIL === "1") {
+    console.error("gh: Resource not accessible by personal access token (HTTP 403)");
+    process.exit(1);
+  }
+  write((input.labels ?? []).map((name) => ({ name })));
   process.exit(0);
 }
 if (method === "PATCH" && endpoint === "repos/acme/triage-fixture/issues/comments/901") {
+  if (process.env.OPEN_MAINTAINER_FAKE_GH_COMMENT_FAIL === "1") {
+    console.error("gh: Resource not accessible by personal access token (HTTP 403)");
+    process.exit(1);
+  }
   write({ id: 901, html_url: "https://github.com/acme/triage-fixture/issues/42#issuecomment-901" });
   process.exit(0);
 }
@@ -134,9 +178,12 @@ if (method !== "GET") {
 if (endpoint === "repos/acme/triage-fixture/issues") {
   write([
     { number: 42, title: "Triage one issue locally", pull_request: null },
-    { number: 43, title: "Invalid model issue", pull_request: null },
+    { number: 43, title: "Bug: dashboard provider form accepts blank base URL", pull_request: null },
     { number: 44, title: "Ready batch issue", pull_request: null },
-    { number: 45, title: "Beyond requested limit", pull_request: null }
+    { number: 45, title: "Rotate GitHub App webhook credentials safely", pull_request: null },
+    { number: 46, title: "Best crypto casino bonus partnership", pull_request: null },
+    { number: 47, title: "Malformed provider output fixture", pull_request: null },
+    { number: 48, title: "Beyond requested limit", pull_request: null }
   ]);
   process.exit(0);
 }
@@ -157,11 +204,11 @@ if (endpoint === "repos/acme/triage-fixture/issues/42") {
 if (endpoint === "repos/acme/triage-fixture/issues/43") {
   write({
     number: 43,
-    title: "Invalid model issue",
-    body: "## Feature request\\nThis issue is used to exercise per-issue batch errors.",
+    title: "Bug: dashboard provider form accepts blank base URL",
+    body: "## Bug report\\nThe dashboard provider form accepted an empty base URL, but I do not have a minimal reproduction yet.\\n\\n## Expected behavior\\nThe form should reject blank provider URLs before saving.",
     html_url: "https://github.com/acme/triage-fixture/issues/43",
     user: { login: "author" },
-    labels: [{ name: "enhancement" }],
+    labels: [{ name: "bug" }],
     state: "open",
     created_at: "2026-05-03T00:00:00.000Z",
     updated_at: "2026-05-03T00:01:00.000Z"
@@ -171,11 +218,53 @@ if (endpoint === "repos/acme/triage-fixture/issues/43") {
 if (endpoint === "repos/acme/triage-fixture/issues/44") {
   write({
     number: 44,
-    title: "Ready batch issue",
-    body: "## Feature request\\nThis issue includes enough scope.\\n\\n## Acceptance criteria\\n- Batch output records the next action",
+    title: "Choose stale issue closure policy",
+    body: "## Decision needed\\nMaintainers need to decide whether stale author-input issues can be closed automatically.\\n\\n## Acceptance criteria\\n- Policy choices are documented before implementation\\n- Closure remains opt-in",
     html_url: "https://github.com/acme/triage-fixture/issues/44",
     user: { login: "author" },
     labels: [{ name: "enhancement" }],
+    state: "open",
+    created_at: "2026-05-03T00:00:00.000Z",
+    updated_at: "2026-05-03T00:01:00.000Z"
+  });
+  process.exit(0);
+}
+if (endpoint === "repos/acme/triage-fixture/issues/45") {
+  write({
+    number: 45,
+    title: "Rotate GitHub App webhook credentials safely",
+    body: "## Security task\\nUpdate webhook credential rotation around \`GITHUB_WEBHOOK_SECRET\` and \`packages/github/src/index.ts\`.\\n\\n## Acceptance criteria\\n- Existing webhook verification tests keep passing\\n- Manual security review is required before release",
+    html_url: "https://github.com/acme/triage-fixture/issues/45",
+    user: { login: "security-reviewer" },
+    labels: [{ name: "security" }],
+    state: "open",
+    created_at: "2026-05-03T00:00:00.000Z",
+    updated_at: "2026-05-03T00:01:00.000Z"
+  });
+  process.exit(0);
+}
+if (endpoint === "repos/acme/triage-fixture/issues/46") {
+  write({
+    number: 46,
+    title: "Best crypto casino bonus partnership",
+    body: "Hello maintainer, we can promote your repository with guaranteed traffic. Visit our unrelated landing page for a sponsorship package.",
+    html_url: "https://github.com/acme/triage-fixture/issues/46",
+    user: { login: "promo-account" },
+    labels: [],
+    state: "open",
+    created_at: "2026-05-03T00:00:00.000Z",
+    updated_at: "2026-05-03T00:01:00.000Z"
+  });
+  process.exit(0);
+}
+if (endpoint === "repos/acme/triage-fixture/issues/47") {
+  write({
+    number: 47,
+    title: "Malformed provider output fixture",
+    body: "## Fixture\\nThis realistic-looking issue intentionally drives a provider output validation failure in tests.",
+    html_url: "https://github.com/acme/triage-fixture/issues/47",
+    user: { login: "maintainer" },
+    labels: [{ name: "test-fixture" }],
     state: "open",
     created_at: "2026-05-03T00:00:00.000Z",
     updated_at: "2026-05-03T00:01:00.000Z"
@@ -204,7 +293,7 @@ if (endpoint === "repos/acme/triage-fixture/issues/42/comments?per_page=100") {
   }
   process.exit(0);
 }
-if (/^repos\\/acme\\/triage-fixture\\/issues\\/(43|44)\\/comments$/.test(endpoint)) {
+if (/^repos\\/acme\\/triage-fixture\\/issues\\/(43|44|45|46|47)\\/comments$/.test(endpoint)) {
   write([]);
   process.exit(0);
 }
@@ -220,7 +309,7 @@ if (endpoint === "repos/acme/triage-fixture/issues/42/labels?per_page=100") {
   write([{ name: "open-maintainer/needs-author-input" }]);
   process.exit(0);
 }
-if (/^repos\\/acme\\/triage-fixture\\/issues\\/(43|44)\\/labels\\?per_page=100$/.test(endpoint)) {
+if (/^repos\\/acme\\/triage-fixture\\/issues\\/(43|44|45|46|47)\\/labels\\?per_page=100$/.test(endpoint)) {
   write([]);
   process.exit(0);
 }
@@ -319,7 +408,8 @@ describe("CLI issue triage", () => {
     );
     expect(triage.commentPreview.body.toLowerCase()).not.toContain("used ai");
     const ghCalls = await readFile(fakeGh.callsPath, "utf8");
-    expect(ghCalls).not.toContain("--method");
+    expect(ghCalls).not.toContain('"POST"');
+    expect(ghCalls).not.toContain('"PATCH"');
   });
 
   it("requires label application before creating missing labels", async () => {
@@ -397,8 +487,92 @@ describe("CLI issue triage", () => {
     ).toBe(true);
     const ghCalls = await readFile(fakeGh.callsPath, "utf8");
     expect(ghCalls).toContain("repos/acme/triage-fixture/labels");
+    expect(ghCalls).toContain('"open-maintainer/needs-validation"');
     expect(ghCalls).toContain("repos/acme/triage-fixture/issues/42/labels");
+    expect(ghCalls).not.toContain('"issue","edit"');
     expect(ghCalls).not.toContain("/pulls/");
+  });
+
+  it("records issue label write failures without losing triage output", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--apply-labels",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "ready",
+        OPEN_MAINTAINER_FAKE_GH_LABEL_APPLY_FAIL: "1",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Classification: ready_for_review");
+    expect(result.stdout).toContain("Label actions: failed");
+    expect(result.stdout).toContain("GitHub writes: failed");
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    );
+    const triage = IssueTriageResultSchema.parse(artifact.result);
+    expect(
+      triage.writeActions.some(
+        (action) =>
+          action.type === "apply_label" &&
+          action.status === "failed" &&
+          action.reason.includes("Resource not accessible"),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not pass local GH_TOKEN to gh writes by default", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--apply-labels",
+        "--create-labels",
+        "--post-comment",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        GH_TOKEN: "read-only-env-token",
+        OPEN_MAINTAINER_FAKE_GH_REJECT_ENV_TOKEN: "1",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("GitHub writes: applied");
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).toContain("repos/acme/triage-fixture/issues/42/labels");
+    expect(ghCalls).toContain("repos/acme/triage-fixture/issues/42/comments");
   });
 
   it("posts a marked deterministic issue triage comment only when requested", async () => {
@@ -442,8 +616,60 @@ describe("CLI issue triage", () => {
     );
     const ghCalls = await readFile(fakeGh.callsPath, "utf8");
     expect(ghCalls).toContain("repos/acme/triage-fixture/issues/42/comments");
-    expect(ghCalls).toContain("--method");
-    expect(ghCalls).toContain("POST");
+    expect(ghCalls).not.toContain('"issue","comment"');
+  });
+
+  it("records issue comment write failures without losing batch triage output", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issues",
+        fixture,
+        "--state",
+        "open",
+        "--limit",
+        "2",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--post-comment",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_GH_COMMENT_FAIL: "1",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Issues: 2 (state=open, limit=2)");
+    expect(result.stdout).toContain("GitHub writes: failed");
+    expect(result.stdout).not.toContain("#42 Triage one issue locally: error:");
+    expect(result.stdout).not.toContain(
+      "#43 Bug: dashboard provider form accepts blank base URL: error:",
+    );
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    );
+    const triage = IssueTriageResultSchema.parse(artifact.result);
+    expect(
+      triage.writeActions.some(
+        (action) =>
+          action.type === "post_comment" &&
+          action.status === "failed" &&
+          action.reason.includes("Resource not accessible"),
+      ),
+    ).toBe(true);
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).toContain("repos/acme/triage-fixture/issues/42/comments");
   });
 
   it("updates an existing marked issue triage comment instead of duplicating", async () => {
@@ -543,9 +769,6 @@ describe("CLI issue triage", () => {
     );
     const ghCalls = await readFile(fakeGh.callsPath, "utf8");
     expect(ghCalls).not.toContain('"PATCH"');
-    expect(ghCalls).not.toContain(
-      'repos/acme/triage-fixture/issues/42","--method',
-    );
   });
 
   it("closes possible spam only after posting the configured public comment", async () => {
@@ -854,8 +1077,10 @@ describe("CLI issue triage", () => {
     expect(result.stdout.indexOf("## Ready for review")).toBeLessThan(
       result.stdout.indexOf("## Needs author input"),
     );
-    expect(result.stdout).toContain("#44 Ready batch issue");
-    expect(result.stdout).toContain("#43 Invalid model issue: error:");
+    expect(result.stdout).toContain("#44 Choose stale issue closure policy");
+    expect(result.stdout).toContain(
+      "#43 Bug: dashboard provider form accepts blank base URL: error:",
+    );
     const jsonPath = result.stdout
       .split("\n")
       .find((line) => line.startsWith("JSON report: "))
@@ -903,10 +1128,105 @@ describe("CLI issue triage", () => {
       ),
     ).rejects.toThrow();
     const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).toContain(
+      'repos/acme/triage-fixture/issues","--method","GET"',
+    );
     expect(ghCalls).toContain("state=open");
     expect(ghCalls).toContain("per_page=3");
     expect(ghCalls).toContain("labels=enhancement");
-    expect(ghCalls).not.toContain("--method");
+    expect(ghCalls).not.toContain('"POST"');
+    expect(ghCalls).not.toContain('"PATCH"');
+  });
+
+  it("covers every issue triage classification with realistic mock issues", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issues",
+        fixture,
+        "--state",
+        "open",
+        "--limit",
+        "6",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "all-classifications",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Issues: 6 (state=open, limit=6)");
+    expect(result.stdout).toContain(
+      "#42 Triage one issue locally: Generate an agent task brief for the scoped CLI change.",
+    );
+    expect(result.stdout).toContain(
+      "#43 Bug: dashboard provider form accepts blank base URL: Request author input before maintainer review.",
+    );
+    expect(result.stdout).toContain(
+      "#44 Choose stale issue closure policy: Get maintainer design direction before assigning implementation.",
+    );
+    expect(result.stdout).toContain(
+      "#45 Rotate GitHub App webhook credentials safely: Escalate to human maintainer review instead of agent handoff.",
+    );
+    expect(result.stdout).toContain(
+      "#46 Best crypto casino bonus partnership: Treat as possible spam under maintainer-configured guardrails.",
+    );
+    expect(result.stdout).toContain(
+      "#47 Malformed provider output fixture: error:",
+    );
+
+    const jsonPath = result.stdout
+      .split("\n")
+      .find((line) => line.startsWith("JSON report: "))
+      ?.replace("JSON report: ", "");
+    expect(jsonPath).toBeTruthy();
+    const report = JSON.parse(
+      await readFile(path.join(fixture, jsonPath as string), "utf8"),
+    );
+    expect(
+      report.issues
+        .filter((issue: { status: string }) => issue.status === "succeeded")
+        .map((issue: { classification: string }) => issue.classification)
+        .sort(),
+    ).toEqual([
+      "needs_author_input",
+      "needs_maintainer_design",
+      "not_agent_ready",
+      "possible_spam",
+      "ready_for_review",
+    ]);
+    expect(
+      report.issues.find(
+        (issue: { issueNumber: number }) => issue.issueNumber === 47,
+      ).status,
+    ).toBe("failed");
+    expect(
+      IssueTriageResultSchema.parse(
+        JSON.parse(
+          await readFile(
+            path.join(fixture, ".open-maintainer/triage/issues/45.json"),
+            "utf8",
+          ),
+        ).result,
+      ).riskFlags,
+    ).toEqual(["security_sensitive", "high_risk_path"]);
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).toContain(
+      'repos/acme/triage-fixture/issues","--method","GET"',
+    );
+    expect(ghCalls).toContain("per_page=6");
+    expect(ghCalls).not.toContain('"POST"');
+    expect(ghCalls).not.toContain('"PATCH"');
   });
 
   it("generates an agent-safe task brief from an agent-ready local artifact", async () => {

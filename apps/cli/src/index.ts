@@ -275,7 +275,10 @@ Batch options:
   --create-labels                        Create missing labels before applying them; requires --apply-labels
   --post-comment                         Post or update the marked Open Maintainer issue triage comment
   --close-allowed                        Allow config-gated selective issue closure
+
+Brief options:
   --allow-non-agent-ready                Generate a task brief despite non-agent-ready triage
+  --output-path <path>                   Write generated task brief markdown to a file
 
 Model required:
   --model codex|claude                  CLI backend used for model-backed triage
@@ -283,6 +286,9 @@ Model required:
 
 Model options:
   --llm-model <model>                   Optional backend model override
+
+Console options:
+  --json                                Print the machine-readable triage result or batch report JSON
 
 Output:
   .open-maintainer/triage/issues/<n>.json
@@ -1527,12 +1533,21 @@ async function issueTriageCloseAction(
   } else {
     return skipped(`Closure is unsupported for ${input.classification}.`);
   }
-  await ghApiWithJsonBody(
-    repoRoot,
-    issueEndpoint(input.owner, input.repo, input.issueNumber),
-    "PATCH",
-    { state: "closed", state_reason: "not_planned" },
-  );
+  try {
+    await ghApiWithJsonBody(
+      repoRoot,
+      issueEndpoint(input.owner, input.repo, input.issueNumber),
+      "PATCH",
+      { state: "closed", state_reason: "not_planned" },
+    );
+  } catch (error) {
+    return {
+      type: "close_issue",
+      status: "failed",
+      target: `issue:${input.issueNumber}`,
+      reason: `Could not close issue: ${cliErrorMessage(error)}`,
+    };
+  }
   return {
     type: "close_issue",
     status: "applied",
@@ -1560,22 +1575,41 @@ async function issueTriageCommentAction(
         "Issue triage is non-mutating by default; comment posting was not requested.",
     };
   }
-  const comments = await ghApiJson<
-    Array<{ id?: number | string | null; body?: string | null }>
-  >(
-    repoRoot,
-    `${issueEndpoint(input.owner, input.repo, input.issueNumber)}/comments?per_page=100`,
-  );
+  let comments: Array<{ id?: number | string | null; body?: string | null }>;
+  try {
+    comments = await ghApiJson<
+      Array<{ id?: number | string | null; body?: string | null }>
+    >(
+      repoRoot,
+      `${issueEndpoint(input.owner, input.repo, input.issueNumber)}/comments?per_page=100`,
+    );
+  } catch (error) {
+    return {
+      type: "post_comment",
+      status: "failed",
+      target: `issue:${input.issueNumber}`,
+      reason: `Could not inspect existing issue triage comments: ${cliErrorMessage(error)}`,
+    };
+  }
   const existing = comments.find((comment) =>
     comment.body?.includes(input.commentPreview.marker),
   );
   if (existing?.id) {
-    await ghApiWithJsonBody(
-      repoRoot,
-      `repos/${input.owner}/${input.repo}/issues/comments/${existing.id}`,
-      "PATCH",
-      { body: input.commentPreview.body },
-    );
+    try {
+      await ghApiWithJsonBody(
+        repoRoot,
+        `repos/${input.owner}/${input.repo}/issues/comments/${existing.id}`,
+        "PATCH",
+        { body: input.commentPreview.body },
+      );
+    } catch (error) {
+      return {
+        type: "update_comment",
+        status: "failed",
+        target: `comment:${existing.id}`,
+        reason: `Could not update issue triage comment: ${cliErrorMessage(error)}`,
+      };
+    }
     return {
       type: "update_comment",
       status: "applied",
@@ -1583,12 +1617,22 @@ async function issueTriageCommentAction(
       reason: "Updated existing marked issue triage comment.",
     };
   }
-  await ghApiWithJsonBody(
-    repoRoot,
-    `${issueEndpoint(input.owner, input.repo, input.issueNumber)}/comments`,
-    "POST",
-    { body: input.commentPreview.body },
-  );
+  try {
+    await postGitHubIssueComment(
+      repoRoot,
+      input.owner,
+      input.repo,
+      input.issueNumber,
+      input.commentPreview.body,
+    );
+  } catch (error) {
+    return {
+      type: "post_comment",
+      status: "failed",
+      target: `issue:${input.issueNumber}`,
+      reason: `Could not post issue triage comment: ${cliErrorMessage(error)}`,
+    };
+  }
   return {
     type: "post_comment",
     status: "applied",
@@ -1642,20 +1686,29 @@ async function issueTriageLabelActions(
   );
   if (missingLabels.length > 0 && input.createLabels) {
     for (const label of missingLabels) {
-      await createIssueTriageLabel(
-        repoRoot,
-        input.owner,
-        input.repo,
-        label.label,
-      );
-      repoLabels.add(label.label);
-      actions.push({
-        type: "create_label",
-        status: "applied",
-        target: label.label,
-        reason:
-          "Created missing issue triage label because --create-labels was set.",
-      });
+      try {
+        await createIssueTriageLabel(
+          repoRoot,
+          input.owner,
+          input.repo,
+          label.label,
+        );
+        repoLabels.add(label.label);
+        actions.push({
+          type: "create_label",
+          status: "applied",
+          target: label.label,
+          reason:
+            "Created missing issue triage label because --create-labels was set.",
+        });
+      } catch (error) {
+        actions.push({
+          type: "create_label",
+          status: "failed",
+          target: label.label,
+          reason: `Could not create issue triage label: ${cliErrorMessage(error)}`,
+        });
+      }
     }
   } else {
     for (const label of missingLabels) {
@@ -1695,23 +1748,36 @@ async function issueTriageLabelActions(
     }
   }
   if (labelsToApply.length > 0) {
-    await applyIssueLabels(
-      repoRoot,
-      input.owner,
-      input.repo,
-      input.issueNumber,
-      labelsToApply.map((label) => label.label),
-    );
     for (const label of labelsToApply) {
-      actions.push({
-        type: "apply_label",
-        status: "applied",
-        target: label.label,
-        reason: "Applied issue triage label because --apply-labels was set.",
-      });
+      try {
+        await applyIssueLabel(
+          repoRoot,
+          input.owner,
+          input.repo,
+          input.issueNumber,
+          label.label,
+        );
+        actions.push({
+          type: "apply_label",
+          status: "applied",
+          target: label.label,
+          reason: "Applied issue triage label because --apply-labels was set.",
+        });
+      } catch (error) {
+        actions.push({
+          type: "apply_label",
+          status: "failed",
+          target: label.label,
+          reason: `Could not apply issue triage label: ${cliErrorMessage(error)}`,
+        });
+      }
     }
   }
   return actions;
+}
+
+function cliErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 async function listRepoLabelNames(
@@ -1745,28 +1811,21 @@ async function createIssueTriageLabel(
   repo: string,
   label: string,
 ): Promise<void> {
-  await ghApiWithJsonBody(repoRoot, `repos/${owner}/${repo}/labels`, "POST", {
-    name: label,
-    color: "5319e7",
+  await createGitHubLabel(repoRoot, owner, repo, label, "5319e7", {
     description: "Open Maintainer issue triage label.",
   });
 }
 
-async function applyIssueLabels(
+async function applyIssueLabel(
   repoRoot: string,
   owner: string,
   repo: string,
   issueNumber: number,
-  labels: string[],
+  label: string,
 ): Promise<void> {
-  await ghApiWithJsonBody(
-    repoRoot,
-    `${issueEndpoint(owner, repo, issueNumber)}/labels`,
-    "POST",
-    {
-      labels,
-    },
-  );
+  await editGitHubIssueLabels(repoRoot, owner, repo, issueNumber, {
+    addLabel: label,
+  });
 }
 
 async function writeIssueTriageArtifact(
@@ -1867,6 +1926,12 @@ function formatGitHubWritesSummary(
   actions: IssueTriageResult["writeActions"],
 ): string {
   const applied = actions.filter((action) => action.status === "applied");
+  const failed = actions.filter((action) => action.status === "failed");
+  if (failed.length > 0) {
+    return `failed (${failed
+      .map((action) => `${action.type}:${action.target ?? "target"}`)
+      .join(", ")})`;
+  }
   if (applied.length === 0) {
     return "skipped (preview-only default)";
   }
@@ -1878,10 +1943,18 @@ function formatGitHubWritesSummary(
 function formatBatchGitHubWritesSummary(
   report: IssueTriageBatchReport,
 ): string {
-  const appliedCount = report.issues
+  const actions = report.issues
     .filter((record) => record.status === "succeeded")
-    .flatMap((record) => record.writeActions)
-    .filter((action) => action.status === "applied").length;
+    .flatMap((record) => record.writeActions);
+  const appliedCount = actions.filter(
+    (action) => action.status === "applied",
+  ).length;
+  const failedCount = actions.filter(
+    (action) => action.status === "failed",
+  ).length;
+  if (failedCount > 0) {
+    return `failed (${failedCount} action${failedCount === 1 ? "" : "s"}${appliedCount > 0 ? `, ${appliedCount} applied` : ""})`;
+  }
   if (appliedCount === 0) {
     return "skipped (preview-only default)";
   }
@@ -2373,6 +2446,11 @@ async function applyReviewTriageLabel(
       "--review-apply-triage-label requires an evaluated contribution-triage category.",
     );
   }
+  if (typeof review.prNumber !== "number") {
+    throw new Error(
+      "--review-apply-triage-label requires a pull request number.",
+    );
+  }
   const target = reviewTriageLabelDefinitions[category].name;
   const created = options.createMissingLabels
     ? await createMissingReviewTriageLabels(repoRoot, owner, repo)
@@ -2386,20 +2464,15 @@ async function applyReviewTriageLabel(
   );
   for (const existingName of existingNames) {
     if (reviewTriageLabelNames.has(existingName) && existingName !== target) {
-      await ghApiWithMethod(
-        repoRoot,
-        `repos/${owner}/${repo}/issues/${review.prNumber}/labels/${encodeURIComponent(existingName)}`,
-        "DELETE",
-      );
+      await editGitHubIssueLabels(repoRoot, owner, repo, review.prNumber, {
+        removeLabel: existingName,
+      });
     }
   }
   if (!existingNames.has(target)) {
-    await ghApiWithJsonBody(
-      repoRoot,
-      `repos/${owner}/${repo}/issues/${review.prNumber}/labels`,
-      "POST",
-      { labels: [target] },
-    );
+    await editGitHubIssueLabels(repoRoot, owner, repo, review.prNumber, {
+      addLabel: target,
+    });
   }
   return { label: target, created };
 }
@@ -2421,9 +2494,7 @@ async function createMissingReviewTriageLabels(
     if (existingNames.has(label.name)) {
       continue;
     }
-    await ghApiWithJsonBody(repoRoot, `repos/${owner}/${repo}/labels`, "POST", {
-      name: label.name,
-      color: label.color,
+    await createGitHubLabel(repoRoot, owner, repo, label.name, label.color, {
       description: label.description,
     });
     created += 1;
@@ -2572,12 +2643,72 @@ async function ghJson<T>(repoRoot: string, args: string[]): Promise<T> {
   return JSON.parse(output) as T;
 }
 
+async function createGitHubLabel(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+  label: string,
+  color: string,
+  options: { description: string },
+): Promise<void> {
+  await ghApiWithJsonBody(repoRoot, `repos/${owner}/${repo}/labels`, "POST", {
+    name: label,
+    color,
+    description: options.description,
+  });
+}
+
+async function editGitHubIssueLabels(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  options: { addLabel?: string; removeLabel?: string },
+): Promise<void> {
+  if (options.addLabel) {
+    await ghApiWithJsonBody(
+      repoRoot,
+      `repos/${owner}/${repo}/issues/${issueNumber}/labels`,
+      "POST",
+      { labels: [options.addLabel] },
+    );
+  }
+  if (options.removeLabel) {
+    await ghApiNoBody(
+      repoRoot,
+      `repos/${owner}/${repo}/issues/${issueNumber}/labels/${encodeURIComponent(options.removeLabel)}`,
+      "DELETE",
+    );
+  }
+}
+
+async function postGitHubIssueComment(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  body: string,
+): Promise<void> {
+  await ghApiWithJsonBody(
+    repoRoot,
+    `repos/${owner}/${repo}/issues/${issueNumber}/comments`,
+    "POST",
+    { body },
+  );
+}
+
 async function ghApiJson<T>(
   repoRoot: string,
   endpoint: string,
   args: string[] = [],
 ): Promise<T> {
-  const output = await execGh(repoRoot, ["api", endpoint, ...args]);
+  const output = await execGh(repoRoot, [
+    "api",
+    endpoint,
+    "--method",
+    "GET",
+    ...args,
+  ]);
   return JSON.parse(output || "null") as T;
 }
 
@@ -2604,7 +2735,7 @@ async function ghApiWithJsonBody(
   }
 }
 
-async function ghApiWithMethod(
+async function ghApiNoBody(
   repoRoot: string,
   endpoint: string,
   method: "DELETE",
@@ -2616,6 +2747,7 @@ async function execGh(repoRoot: string, args: string[]): Promise<string> {
   try {
     const { stdout } = await execFileAsync("gh", args, {
       cwd: repoRoot,
+      env: gitHubCliEnv(),
       maxBuffer: 8 * 1024 * 1024,
     });
     return stdout;
@@ -2625,6 +2757,19 @@ async function execGh(repoRoot: string, args: string[]): Promise<string> {
       `GitHub CLI command failed: gh ${args.join(" ")}. ${message}`,
     );
   }
+}
+
+function gitHubCliEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  if (
+    env.CI !== "true" &&
+    env.GITHUB_ACTIONS !== "true" &&
+    env.OPEN_MAINTAINER_USE_ENV_GH_TOKEN !== "1"
+  ) {
+    env.GH_TOKEN = undefined;
+    env.GITHUB_TOKEN = undefined;
+  }
+  return env;
 }
 
 async function ensureGitObject(repoRoot: string, sha: string): Promise<void> {
