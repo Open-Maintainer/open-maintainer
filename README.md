@@ -1,6 +1,27 @@
 # Open Maintainer
 
-Open Maintainer audits a repository for agent readiness, generates repo-specific context files, reviews pull requests against approved repo context, and can open a context PR through a GitHub App.
+Open Maintainer is an open-source, self-hostable control plane for AI coding
+agents working in GitHub repositories.
+
+It turns repository conventions into durable, reviewable context, then uses that
+context to help maintainers reduce low-context issues, unreviewable PRs, stale
+agent instructions, and unsafe automation.
+
+In practice, Open Maintainer helps you:
+
+- audit a repository and explain its agent-readiness gaps
+- generate `AGENTS.md`, `.open-maintainer.yml`, repo profiles, reports, and
+  repo-local skills
+- detect drift when repository behavior changes after context is generated
+- review pull requests against approved repo rules, validation expectations, and
+  changed files
+- triage issues into maintainer actions and agent-safe task briefs
+- run the workflow locally with a CLI, in CI with a GitHub Action, or through a
+  self-hosted dashboard and GitHub App foundation
+
+Open Maintainer suggests, drafts, reviews, and opens context PRs only through
+explicit user-controlled flows. Repository content is sent to model providers
+only after explicit consent, and GitHub writes are opt-in.
 
 The primary MVP demo is CLI-first and uses a local LLM CLI for generated context files:
 
