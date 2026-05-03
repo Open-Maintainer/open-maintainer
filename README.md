@@ -219,9 +219,20 @@ bun run cli triage issues "$TARGET_REPO" \
 
 Local issue artifacts are written under
 `.open-maintainer/triage/issues/<number>.json`; batch reports are written under
-`.open-maintainer/triage/runs/`. Opt-in writes use explicit flags:
-`--apply-labels`, `--create-labels`, `--post-comment`, and config-gated
+`.open-maintainer/triage/runs/`. Treat `.open-maintainer/triage/` as ignored
+local operational history for maintainer inspection. Opt-in writes use explicit
+flags: `--apply-labels`, `--create-labels`, `--post-comment`, and config-gated
 `--close-allowed`.
+
+Generate agent task briefs as a second step from an existing local triage
+artifact:
+
+```sh
+bun run cli triage brief "$TARGET_REPO" --number 82
+```
+
+Briefs are generated only for `agent_ready` issues unless a maintainer passes
+`--allow-non-agent-ready`.
 
 ## GitHub Action
 

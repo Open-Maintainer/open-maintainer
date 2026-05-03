@@ -62,7 +62,7 @@ AI tools have increased the volume of low-context issues and polished-looking bu
 | Self-hosted dashboard context workflow | Shipped foundation | Dashboard supports repository analysis, provider consent, artifacts, run history, and context PR workflows, but needs refinement, durable-state hardening, and extensive debugging. |
 | GitHub App and context PR flow | Foundation exists | Webhooks, installation metadata, auth helpers, and context PR helpers exist, but production install/admin polish and durable persistence need work. |
 | PR review product | Shipped beta | CLI, Action, and dashboard preview paths can generate rule-grounded PR reviews. GitHub summary and inline comments are opt-in in the Action; dashboard posting remains credential-gated. |
-| Issue triage product | Planned | No issue classification, label suggestion, or task brief workflow is shipped yet. |
+| Issue triage product | Shipped beta | CLI and Action issue triage support single-issue and batch runs, local artifacts, opt-in labels/comments/closure, and agent task briefs. |
 | Agent orchestration | Experimental | Planned as an explicit experimental track, not a v1.0 autonomous-coding promise. |
 | Hosted product | Planned | Committed after v1.0 as hosted private beta and later hosted scale milestones. |
 
@@ -214,6 +214,8 @@ Complete when:
 - Quality bar: contribution triage is not marketed or implemented as AI authorship detection.
 
 ## v0.5: Issue Triage and Agent-Safe Backlog
+
+Status: shipped beta.
 
 Goal: prepare GitHub issues for maintainers and AI agents through local-first Contribution Triage.
 

@@ -45,10 +45,12 @@ Implemented and testable:
   context PR plumbing.
 - GitHub App foundation: webhook signature verification, installation metadata,
   repository fetching helpers, branch naming, and context PR body rendering.
+- Issue triage beta for local CLI and explicit Action runs, including
+  single-issue triage, bounded batch reports, local artifacts, opt-in
+  labels/comments/closure, and second-step agent task briefs.
 
 Not implemented yet:
 
-- Issue triage product.
 - Agent orchestration.
 - Hosted product.
 
@@ -444,6 +446,14 @@ The action supports:
 - `refresh-branch`
 - `refresh-title`
 - `force`
+- `issue-number`
+- `issue-state`
+- `issue-limit`
+- `issue-label`
+- `issue-apply-labels`
+- `issue-create-labels`
+- `issue-post-comment`
+- `issue-close-allowed`
 
 Audit-only workflow shape:
 
@@ -543,6 +553,127 @@ steps:
 
 Without `allow-model-content-transfer: "true"`, `generation-provider: codex`
 or `generation-provider: claude` fails before generation starts.
+
+### Action Issue Triage
+
+Action issue triage is separate from PR review and does not run on pull request
+events. Use it from `issues`, `schedule`, or `workflow_dispatch` workflows.
+It requires explicit repository-content transfer consent because issue evidence
+and repository context are sent to the selected model CLI.
+
+Read-only single-issue example:
+
+```yaml
+permissions:
+  contents: read
+  issues: read
+
+steps:
+  - uses: actions/checkout@v6
+  - uses: open-maintainer/action@v1
+    with:
+      mode: issue-triage
+      issue-number: "82"
+      generation-provider: codex
+      allow-model-content-transfer: "true"
+```
+
+Opt-in write example:
+
+```yaml
+permissions:
+  contents: read
+  issues: write
+
+steps:
+  - uses: actions/checkout@v6
+  - uses: open-maintainer/action@v1
+    with:
+      mode: issue-triage
+      issue-state: open
+      issue-limit: "5"
+      generation-provider: codex
+      allow-model-content-transfer: "true"
+      issue-apply-labels: "true"
+      issue-create-labels: "true"
+      issue-post-comment: "true"
+```
+
+Expected behavior:
+
+- Default issue triage writes only console output, the Step Summary, and local
+  `.open-maintainer/triage` artifacts in the runner.
+- `issue-apply-labels`, `issue-create-labels`, `issue-post-comment`, and
+  `issue-close-allowed` are independent explicit write gates.
+- `issue-create-labels` fails unless `issue-apply-labels` is also true.
+- `issue-close-allowed` still requires repository closure config in
+  `.open-maintainer.yml`.
+- The action rejects `mode: issue-triage` on `pull_request` events.
+
+## v0.5 Issue Triage And Task Briefs
+
+The first useful local path is a single issue triage run. It requires a local
+model CLI and explicit repository-content transfer consent:
+
+```sh
+bun run cli triage issue . \
+  --number 82 \
+  --model codex \
+  --allow-model-content-transfer
+```
+
+The bounded batch path uses the same consent gate:
+
+```sh
+bun run cli triage issues . \
+  --state open \
+  --limit 5 \
+  --model codex \
+  --allow-model-content-transfer
+```
+
+Expected local outputs:
+
+- Per-issue artifacts: `.open-maintainer/triage/issues/<number>.json`
+- Batch reports: `.open-maintainer/triage/runs/<run-id>.json`
+- Batch Markdown reports: `.open-maintainer/triage/runs/<run-id>.md`
+- Console summaries for classification, agent readiness, label actions,
+  comment actions, closure actions, and artifact paths.
+
+Treat `.open-maintainer/triage/` as local operational history. The artifacts
+record model/provider metadata, evidence, recommended author actions, rendered
+comment previews, write actions, and task brief payloads. They are intended for
+maintainer inspection and release evidence, not for automatic GitHub writes.
+
+Default issue triage does not apply labels, create labels, post comments, close
+issues, dispatch agents, create branches, run validation, or open pull requests.
+GitHub writes require explicit flags:
+
+```sh
+bun run cli triage issue . \
+  --number 82 \
+  --model codex \
+  --allow-model-content-transfer \
+  --apply-labels \
+  --create-labels \
+  --post-comment
+```
+
+Selective closure is narrower: pass `--close-allowed` and configure supported
+`issueTriage.closure` keys in `.open-maintainer.yml`. Only `possible_spam` and
+stale `needs_author_input` issues are eligible, and closure caps plus comment
+requirements are recorded in each artifact's write actions.
+
+Agent task briefs are a second step from an existing local triage artifact. They
+do not refetch GitHub evidence or call the model provider:
+
+```sh
+bun run cli triage brief . --number 82
+```
+
+By default briefs are generated only for `agent_ready` issues. Use
+`--allow-non-agent-ready` only after a maintainer accepts the risks; the brief
+records the override and escalation boundaries.
 
 ## v0.4.x Rule-Grounded PR Review And Contribution Triage
 
