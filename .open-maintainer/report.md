@@ -20,6 +20,7 @@ Agent Readiness: 100/100
 - Evidence: packages/github/package.json (package manifest)
 - Evidence: packages/review/package.json (package manifest)
 - Evidence: packages/shared/package.json (package manifest)
+- Evidence: packages/triage/package.json (package manifest)
 - Evidence: tests/fixtures/high-readiness-ts/package.json (package manifest)
 - Evidence: tests/fixtures/low-context-ts/package.json (package manifest)
 - Evidence: tests/fixtures/missing-context-ts/package.json (package manifest)
@@ -33,10 +34,7 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/PRODUCT_PRD.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
-- Evidence: docs/V0_3_RELEASE_REVIEW.md (detected repository context)
-- Evidence: docs/V0_4_RELEASE_REVIEW.md (detected repository context)
-- Evidence: docs/V0_4_X_RELEASE_REVIEW.md (detected repository context)
-- Evidence: local-docs/V4_V5_ADDITIONS.md (detected repository context)
+- Evidence: docs/V0_5_RELEASE_REVIEW.md (detected repository context)
 - Evidence: README.md (detected repository context)
 - Evidence: .env.example (detected repository context)
 - Evidence: tests/fixtures/high-readiness-ts/.env.example (detected repository context)
@@ -61,6 +59,7 @@ Agent Readiness: 100/100
 - Evidence: packages/github/package.json (package manifest)
 - Evidence: packages/review/package.json (package manifest)
 - Evidence: packages/shared/package.json (package manifest)
+- Evidence: packages/triage/package.json (package manifest)
 - Evidence: tests/fixtures/high-readiness-ts/package.json (package manifest)
 - Evidence: tests/fixtures/low-context-ts/package.json (package manifest)
 - Evidence: tests/fixtures/missing-context-ts/package.json (package manifest)
@@ -72,9 +71,7 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/PRODUCT_PRD.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
-- Evidence: docs/V0_3_RELEASE_REVIEW.md (detected repository context)
-- Evidence: docs/V0_4_RELEASE_REVIEW.md (detected repository context)
-- Evidence: docs/V0_4_X_RELEASE_REVIEW.md (detected repository context)
+- Evidence: docs/V0_5_RELEASE_REVIEW.md (detected repository context)
 - Evidence: apps/api/tsconfig.json (detected repository context)
 - Evidence: apps/cli/tsconfig.json (detected repository context)
 - Evidence: apps/web/tsconfig.json (detected repository context)
@@ -89,6 +86,7 @@ Agent Readiness: 100/100
 - Evidence: packages/github/tsconfig.json (detected repository context)
 - Evidence: packages/review/tsconfig.json (detected repository context)
 - Evidence: packages/shared/tsconfig.json (detected repository context)
+- Evidence: packages/triage/tsconfig.json (detected repository context)
 - Evidence: tests/fixtures/high-readiness-ts/tsconfig.json (detected repository context)
 - Evidence: tests/fixtures/low-context-ts/tsconfig.json (detected repository context)
 - Evidence: tests/fixtures/missing-context-ts/tsconfig.json (detected repository context)
@@ -110,10 +108,12 @@ Agent Readiness: 100/100
 - Evidence: packages/review/tests/precheck.test.ts (detected repository context)
 - Evidence: packages/review/tests/render.test.ts (detected repository context)
 - Evidence: packages/shared/tests/schemas.test.ts (detected repository context)
+- Evidence: packages/triage/tests/index.test.ts (detected repository context)
 - Evidence: tests/action-mvp.test.ts (detected repository context)
 - Evidence: tests/cli-audit.test.ts (detected repository context)
 - Evidence: tests/cli-help.test.ts (detected repository context)
 - Evidence: tests/cli-review.test.ts (detected repository context)
+- Evidence: tests/cli-triage.test.ts (detected repository context)
 - Evidence: tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md (detected repository context)
 - Evidence: tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-start-task/SKILL.md (detected repository context)
 - Evidence: tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-testing-workflow/SKILL.md (detected repository context)
@@ -164,6 +164,7 @@ Agent Readiness: 100/100
 - Evidence: packages/github/package.json (package manifest)
 - Evidence: packages/review/package.json (package manifest)
 - Evidence: packages/shared/package.json (package manifest)
+- Evidence: packages/triage/package.json (package manifest)
 - Evidence: tests/fixtures/high-readiness-ts/package.json (package manifest)
 - Evidence: tests/fixtures/low-context-ts/package.json (package manifest)
 - Evidence: tests/fixtures/missing-context-ts/package.json (package manifest)
@@ -189,10 +190,12 @@ Agent Readiness: 100/100
 - Evidence: packages/review/tests/precheck.test.ts (detected repository context)
 - Evidence: packages/review/tests/render.test.ts (detected repository context)
 - Evidence: packages/shared/tests/schemas.test.ts (detected repository context)
+- Evidence: packages/triage/tests/index.test.ts (detected repository context)
 - Evidence: tests/action-mvp.test.ts (detected repository context)
 - Evidence: tests/cli-audit.test.ts (detected repository context)
 - Evidence: tests/cli-help.test.ts (detected repository context)
 - Evidence: tests/cli-review.test.ts (detected repository context)
+- Evidence: tests/cli-triage.test.ts (detected repository context)
 - Evidence: tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md (detected repository context)
 - Evidence: tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-start-task/SKILL.md (detected repository context)
 - Evidence: tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-testing-workflow/SKILL.md (detected repository context)
@@ -243,6 +246,7 @@ Agent Readiness: 100/100
 - Evidence: packages/github/package.json (package manifest)
 - Evidence: packages/review/package.json (package manifest)
 - Evidence: packages/shared/package.json (package manifest)
+- Evidence: packages/triage/package.json (package manifest)
 - Evidence: tests/fixtures/high-readiness-ts/package.json (package manifest)
 - Evidence: tests/fixtures/low-context-ts/package.json (package manifest)
 - Evidence: tests/fixtures/missing-context-ts/package.json (package manifest)
@@ -265,10 +269,7 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/PRODUCT_PRD.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
-- Evidence: docs/V0_3_RELEASE_REVIEW.md (detected repository context)
-- Evidence: docs/V0_4_RELEASE_REVIEW.md (detected repository context)
-- Evidence: docs/V0_4_X_RELEASE_REVIEW.md (detected repository context)
-- Evidence: local-docs/V4_V5_ADDITIONS.md (detected repository context)
+- Evidence: docs/V0_5_RELEASE_REVIEW.md (detected repository context)
 - Evidence: README.md (detected repository context)
 
 ### risk handling: 12/12
@@ -279,10 +280,7 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/PRODUCT_PRD.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
-- Evidence: docs/V0_3_RELEASE_REVIEW.md (detected repository context)
-- Evidence: docs/V0_4_RELEASE_REVIEW.md (detected repository context)
-- Evidence: docs/V0_4_X_RELEASE_REVIEW.md (detected repository context)
-- Evidence: local-docs/V4_V5_ADDITIONS.md (detected repository context)
+- Evidence: docs/V0_5_RELEASE_REVIEW.md (detected repository context)
 - Evidence: README.md (detected repository context)
 
 ### generated-file handling: 12/12
@@ -327,12 +325,22 @@ Agent Readiness: 100/100
 
 ## Drift
 
+- Package boundaries: packages/triage was added. Evidence: packages/triage. Next action: review package/app context for the changed boundary.
+- Commands: package.json script build was changed. Evidence: package.json. Next action: review the changed command and refresh generated context if validation expectations changed.
+- Commands: packages/triage/package.json script build was added. Evidence: packages/triage/package.json. Next action: review the changed command and refresh generated context if validation expectations changed.
 - Documentation: docs/DEMO_RUNBOOK.md was changed. Evidence: docs/DEMO_RUNBOOK.md. Next action: review generated context against the changed docs.
-- Documentation: docs/PRODUCT_PRD.md was changed. Evidence: docs/PRODUCT_PRD.md. Next action: review generated context against the changed docs.
 - Documentation: docs/ROADMAP.md was changed. Evidence: docs/ROADMAP.md. Next action: review generated context against the changed docs.
-- Documentation: docs/V0_4_RELEASE_REVIEW.md was changed. Evidence: docs/V0_4_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
-- Documentation: docs/V0_4_X_RELEASE_REVIEW.md was changed. Evidence: docs/V0_4_X_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
+- Documentation: docs/V0_3_RELEASE_REVIEW.md was removed. Evidence: docs/V0_3_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
+- Documentation: docs/V0_4_RELEASE_REVIEW.md was removed. Evidence: docs/V0_4_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
+- Documentation: docs/V0_4_X_RELEASE_REVIEW.md was removed. Evidence: docs/V0_4_X_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
+- Documentation: docs/V0_5_RELEASE_REVIEW.md was added. Evidence: docs/V0_5_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
+- Documentation: local-docs/V4_V5_ADDITIONS.md was removed. Evidence: local-docs/V4_V5_ADDITIONS.md. Next action: review generated context against the changed docs.
 - Documentation: README.md was changed. Evidence: README.md. Next action: review generated context against the changed docs.
+- Lockfiles and config: apps/cli/tsconfig.json was changed. Evidence: apps/cli/tsconfig.json. Next action: review setup and validation context for the changed file.
+- Lockfiles and config: bun.lock was changed. Evidence: bun.lock. Next action: review setup and validation context for the changed file.
+- Lockfiles and config: packages/github/tsconfig.json was changed. Evidence: packages/github/tsconfig.json. Next action: review setup and validation context for the changed file.
+- Lockfiles and config: packages/triage/tsconfig.json was added. Evidence: packages/triage/tsconfig.json. Next action: review setup and validation context for the changed file.
+- Lockfiles and config: tsconfig.json was changed. Evidence: tsconfig.json. Next action: review setup and validation context for the changed file.
 
 ## Commands
 
@@ -347,7 +355,7 @@ Agent Readiness: 100/100
 - format: biome format --write . (package.json)
 - typecheck: tsc -b (package.json)
 - test: vitest run (package.json)
-- build: bun run --cwd packages/shared build && bun run --cwd packages/ai build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build (package.json)
+- build: bun run --cwd packages/shared build && bun run --cwd packages/triage build && bun run --cwd packages/ai build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build (package.json)
 - diagnostics: bun run tests/smoke/local-health.ts (package.json)
 - smoke:compose: bun run tests/smoke/compose-smoke.ts (package.json)
 - smoke:mvp: bun run tests/smoke/mvp-demo.ts (package.json)
@@ -359,6 +367,7 @@ Agent Readiness: 100/100
 - build: cd packages/github && tsc -p tsconfig.json (packages/github/package.json)
 - build: cd packages/review && tsc -p tsconfig.json (packages/review/package.json)
 - build: cd packages/shared && tsc -p tsconfig.json (packages/shared/package.json)
+- build: cd packages/triage && tsc -p tsconfig.json (packages/triage/package.json)
 - test: cd tests/fixtures/high-readiness-ts && vitest run (tests/fixtures/high-readiness-ts/package.json)
 - lint: cd tests/fixtures/high-readiness-ts && biome check . (tests/fixtures/high-readiness-ts/package.json)
 - build: cd tests/fixtures/high-readiness-ts && tsc -b (tests/fixtures/high-readiness-ts/package.json)
@@ -386,6 +395,7 @@ Agent Readiness: 100/100
 - packages/github
 - packages/review
 - packages/shared
+- packages/triage
 - tests
 
 ## Risk Hints

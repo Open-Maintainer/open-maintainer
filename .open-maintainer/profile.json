@@ -1,11 +1,13 @@
 {
-  "id": "repo_profile_0ad7c623-57f8-4edb-84aa-5789f9e7c161",
+  "id": "repo_profile_33cb55dd-debc-4f8a-8deb-635297624d4c",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
   "name": "open-maintainer",
   "defaultBranch": "main",
-  "primaryLanguages": ["TypeScript"],
+  "primaryLanguages": [
+    "TypeScript"
+  ],
   "frameworks": [
     "next",
     "react",
@@ -74,7 +76,7 @@
     },
     {
       "name": "build",
-      "command": "bun run --cwd packages/shared build && bun run --cwd packages/ai build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build",
+      "command": "bun run --cwd packages/shared build && bun run --cwd packages/triage build && bun run --cwd packages/ai build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build",
       "source": "package.json"
     },
     {
@@ -131,6 +133,11 @@
       "name": "build",
       "command": "cd packages/shared && tsc -p tsconfig.json",
       "source": "packages/shared/package.json"
+    },
+    {
+      "name": "build",
+      "command": "cd packages/triage && tsc -p tsconfig.json",
+      "source": "packages/triage/package.json"
     },
     {
       "name": "test",
@@ -201,10 +208,7 @@
     "docs/MVP_RELEASE_REVIEW.md",
     "docs/PRODUCT_PRD.md",
     "docs/ROADMAP.md",
-    "docs/V0_3_RELEASE_REVIEW.md",
-    "docs/V0_4_RELEASE_REVIEW.md",
-    "docs/V0_4_X_RELEASE_REVIEW.md",
-    "local-docs/V4_V5_ADDITIONS.md",
+    "docs/V0_5_RELEASE_REVIEW.md",
     "README.md"
   ],
   "repoTemplates": [],
@@ -222,6 +226,7 @@
     "packages/github",
     "packages/review",
     "packages/shared",
+    "packages/triage",
     "tests"
   ],
   "generatedFileHints": [
@@ -292,7 +297,10 @@
     "OPEN_MAINTAINER_DASHBOARD_REPO_ROOT",
     "OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS",
     "OPEN_MAINTAINER_FAKE_CODEX_FINDING",
+    "OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE",
+    "OPEN_MAINTAINER_FAKE_EXISTING_TRIAGE_COMMENT",
     "OPEN_MAINTAINER_FAKE_GH_CALLS",
+    "OPEN_MAINTAINER_FAKE_ISSUE_42_UPDATED_AT",
     "OPEN_MAINTAINER_GH_COMMAND",
     "OPEN_MAINTAINER_GIT_AUTHOR_EMAIL",
     "OPEN_MAINTAINER_GIT_AUTHOR_NAME",
@@ -326,11 +334,13 @@
     "packages/review/tests/precheck.test.ts",
     "packages/review/tests/render.test.ts",
     "packages/shared/tests/schemas.test.ts",
+    "packages/triage/tests/index.test.ts",
     "tests/action-mvp.test.ts",
     "tests/cli-audit.test.ts",
     "tests/cli-doctor.test.ts",
     "tests/cli-help.test.ts",
     "tests/cli-review.test.ts",
+    "tests/cli-triage.test.ts",
     "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
     "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-start-task/SKILL.md",
     "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-testing-workflow/SKILL.md",
@@ -383,7 +393,7 @@
     "Run `biome check .` before finishing changes that affect lint.",
     "Run `tsc -b` before finishing changes that affect typecheck.",
     "Run `vitest run` before finishing changes that affect test.",
-    "Run `bun run --cwd packages/shared build && bun run --cwd packages/ai build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build` before finishing changes that affect build.",
+    "Run `bun run --cwd packages/shared build && bun run --cwd packages/triage build && bun run --cwd packages/ai build && bun run --cwd packages/review build && bun run --cwd packages/db build && bun run --cwd packages/config build && bun run --cwd packages/github build && bun run --cwd packages/analyzer build && bun run --cwd packages/context build && bun run --cwd apps/cli build && bun run --cwd apps/api build && bun run --cwd apps/worker build && bun run --cwd apps/web build` before finishing changes that affect build.",
     "Run `cd packages/ai && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd packages/analyzer && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd packages/config && tsc -p tsconfig.json` before finishing changes that affect build.",
@@ -392,6 +402,7 @@
     "Run `cd packages/github && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd packages/review && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd packages/shared && tsc -p tsconfig.json` before finishing changes that affect build.",
+    "Run `cd packages/triage && tsc -p tsconfig.json` before finishing changes that affect build.",
     "Run `cd tests/fixtures/high-readiness-ts && vitest run` before finishing changes that affect test.",
     "Run `cd tests/fixtures/high-readiness-ts && biome check .` before finishing changes that affect lint.",
     "Run `cd tests/fixtures/high-readiness-ts && tsc -b` before finishing changes that affect build.",
@@ -454,6 +465,10 @@
     },
     {
       "path": "packages/shared/package.json",
+      "reason": "package manifest"
+    },
+    {
+      "path": "packages/triage/package.json",
       "reason": "package manifest"
     },
     {
@@ -529,19 +544,7 @@
       "reason": "detected repository context"
     },
     {
-      "path": "docs/V0_3_RELEASE_REVIEW.md",
-      "reason": "detected repository context"
-    },
-    {
-      "path": "docs/V0_4_RELEASE_REVIEW.md",
-      "reason": "detected repository context"
-    },
-    {
-      "path": "docs/V0_4_X_RELEASE_REVIEW.md",
-      "reason": "detected repository context"
-    },
-    {
-      "path": "local-docs/V4_V5_ADDITIONS.md",
+      "path": "docs/V0_5_RELEASE_REVIEW.md",
       "reason": "detected repository context"
     },
     {
@@ -653,6 +656,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "packages/triage/tsconfig.json",
+      "reason": "detected repository context"
+    },
+    {
       "path": "tests/fixtures/high-readiness-ts/tsconfig.json",
       "reason": "detected repository context"
     },
@@ -749,6 +756,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "packages/triage/tests/index.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "tests/action-mvp.test.ts",
       "reason": "detected repository context"
     },
@@ -762,6 +773,10 @@
     },
     {
       "path": "tests/cli-review.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/cli-triage.test.ts",
       "reason": "detected repository context"
     },
     {
@@ -897,7 +912,9 @@
       "reason": "detected repository context"
     }
   ],
-  "workspaceManifests": ["package.json"],
+  "workspaceManifests": [
+    "package.json"
+  ],
   "lockfiles": [
     "bun.lock",
     "tests/fixtures/high-readiness-ts/bun.lock",
@@ -919,6 +936,7 @@
     "packages/github/tsconfig.json",
     "packages/review/tsconfig.json",
     "packages/shared/tsconfig.json",
+    "packages/triage/tsconfig.json",
     "tests/fixtures/high-readiness-ts/tsconfig.json",
     "tests/fixtures/low-context-ts/tsconfig.json",
     "tests/fixtures/missing-context-ts/tsconfig.json",
@@ -988,7 +1006,7 @@
     },
     {
       "path": ".gitignore",
-      "hash": "35bdfa519b014ee5"
+      "hash": "84d9e598d72e730b"
     },
     {
       "path": ".open-maintainer.yml",
@@ -996,7 +1014,7 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "c5d715c08897e503"
+      "hash": "3f55a0d47208792e"
     },
     {
       "path": ".open-maintainer/report.md",
@@ -1020,11 +1038,11 @@
     },
     {
       "path": "apps/cli/package.json",
-      "hash": "c4c535853428131b"
+      "hash": "b712ba85c8c7f961"
     },
     {
       "path": "apps/cli/tsconfig.json",
-      "hash": "8c9bcdcd376e91bd"
+      "hash": "0199b0e14414f4b3"
     },
     {
       "path": "apps/web/next-env.d.ts",
@@ -1052,7 +1070,7 @@
     },
     {
       "path": "bun.lock",
-      "hash": "d1fff68d7ca2c931"
+      "hash": "12edfb2c7e921ccf"
     },
     {
       "path": "CONTRIBUTING.md",
@@ -1064,7 +1082,7 @@
     },
     {
       "path": "docs/DEMO_RUNBOOK.md",
-      "hash": "ef0fb9bb2722f7cf"
+      "hash": "153954dfbbe686a3"
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
@@ -1076,27 +1094,15 @@
     },
     {
       "path": "docs/ROADMAP.md",
-      "hash": "7586a86d376872a8"
+      "hash": "563437472bf07785"
     },
     {
-      "path": "docs/V0_3_RELEASE_REVIEW.md",
-      "hash": "d3dee7529c477ef7"
-    },
-    {
-      "path": "docs/V0_4_RELEASE_REVIEW.md",
-      "hash": "c3a4b8704bd75133"
-    },
-    {
-      "path": "docs/V0_4_X_RELEASE_REVIEW.md",
-      "hash": "05d4c00e5bc92aba"
-    },
-    {
-      "path": "local-docs/V4_V5_ADDITIONS.md",
-      "hash": "c17075df7ffe0dad"
+      "path": "docs/V0_5_RELEASE_REVIEW.md",
+      "hash": "22aabdf82aad027d"
     },
     {
       "path": "package.json",
-      "hash": "9186cbe1b4518571"
+      "hash": "aebf5ac7518d5cb2"
     },
     {
       "path": "packages/ai/package.json",
@@ -1128,7 +1134,7 @@
     },
     {
       "path": "packages/config/tests/config.test.ts",
-      "hash": "8cf62e295ab9fced"
+      "hash": "d62455b99a49f9a3"
     },
     {
       "path": "packages/config/tsconfig.json",
@@ -1156,15 +1162,15 @@
     },
     {
       "path": "packages/github/package.json",
-      "hash": "9d0df47d69186d91"
+      "hash": "7ad5ccbb56b886cb"
     },
     {
       "path": "packages/github/tests/webhook.test.ts",
-      "hash": "191d9f0b55a1cc6c"
+      "hash": "64bff346c1f8c42c"
     },
     {
       "path": "packages/github/tsconfig.json",
-      "hash": "c7b76c9a19c1c830"
+      "hash": "585a7215a757640f"
     },
     {
       "path": "packages/review/package.json",
@@ -1196,19 +1202,31 @@
     },
     {
       "path": "packages/shared/tests/schemas.test.ts",
-      "hash": "045578d59ceb0359"
+      "hash": "b88765ca4b2108c2"
     },
     {
       "path": "packages/shared/tsconfig.json",
       "hash": "7a491b0e22b402c7"
     },
     {
+      "path": "packages/triage/package.json",
+      "hash": "3e7863959a8e73bb"
+    },
+    {
+      "path": "packages/triage/tests/index.test.ts",
+      "hash": "26a53addd7c4ef89"
+    },
+    {
+      "path": "packages/triage/tsconfig.json",
+      "hash": "c7b76c9a19c1c830"
+    },
+    {
       "path": "README.md",
-      "hash": "156c3bdf599ae8bb"
+      "hash": "14bb32c6878ad804"
     },
     {
       "path": "tests/action-mvp.test.ts",
-      "hash": "14d1d7b1e2754e47"
+      "hash": "9b3cb42d83f57bc8"
     },
     {
       "path": "tests/cli-audit.test.ts",
@@ -1220,11 +1238,15 @@
     },
     {
       "path": "tests/cli-help.test.ts",
-      "hash": "30b8d6c3750b07d6"
+      "hash": "f2202f6d8c0c7b3c"
     },
     {
       "path": "tests/cli-review.test.ts",
       "hash": "bcad16a6adca3389"
+    },
+    {
+      "path": "tests/cli-triage.test.ts",
+      "hash": "538887c9ad066596"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1368,7 +1390,7 @@
     },
     {
       "path": "tests/helpers/fake-model-cli.ts",
-      "hash": "aac25ad956fdd71e"
+      "hash": "36f5b6d755e5d2ae"
     },
     {
       "path": "tests/mvp-golden.test.ts",
@@ -1400,11 +1422,11 @@
     },
     {
       "path": "tsconfig.json",
-      "hash": "6b20deced71879d8"
+      "hash": "99ca59ff5a2feaf8"
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-03T00:29:56.027Z",
+  "createdAt": "2026-05-03T05:03:31.218Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1467,6 +1489,10 @@
             "reason": "package manifest"
           },
           {
+            "path": "packages/triage/package.json",
+            "reason": "package manifest"
+          },
+          {
             "path": "tests/fixtures/high-readiness-ts/package.json",
             "reason": "package manifest"
           },
@@ -1519,19 +1545,7 @@
             "reason": "detected repository context"
           },
           {
-            "path": "docs/V0_3_RELEASE_REVIEW.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "docs/V0_4_RELEASE_REVIEW.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "docs/V0_4_X_RELEASE_REVIEW.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "local-docs/V4_V5_ADDITIONS.md",
+            "path": "docs/V0_5_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
           {
@@ -1623,6 +1637,10 @@
             "reason": "package manifest"
           },
           {
+            "path": "packages/triage/package.json",
+            "reason": "package manifest"
+          },
+          {
             "path": "tests/fixtures/high-readiness-ts/package.json",
             "reason": "package manifest"
           },
@@ -1667,15 +1685,7 @@
             "reason": "detected repository context"
           },
           {
-            "path": "docs/V0_3_RELEASE_REVIEW.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "docs/V0_4_RELEASE_REVIEW.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "docs/V0_4_X_RELEASE_REVIEW.md",
+            "path": "docs/V0_5_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
           {
@@ -1732,6 +1742,10 @@
           },
           {
             "path": "packages/shared/tsconfig.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/triage/tsconfig.json",
             "reason": "detected repository context"
           },
           {
@@ -1819,6 +1833,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "packages/triage/tests/index.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/action-mvp.test.ts",
             "reason": "detected repository context"
           },
@@ -1832,6 +1850,10 @@
           },
           {
             "path": "tests/cli-review.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/cli-triage.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2027,6 +2049,10 @@
             "reason": "package manifest"
           },
           {
+            "path": "packages/triage/package.json",
+            "reason": "package manifest"
+          },
+          {
             "path": "tests/fixtures/high-readiness-ts/package.json",
             "reason": "package manifest"
           },
@@ -2127,6 +2153,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "packages/triage/tests/index.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/action-mvp.test.ts",
             "reason": "detected repository context"
           },
@@ -2140,6 +2170,10 @@
           },
           {
             "path": "tests/cli-review.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/cli-triage.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2335,6 +2369,10 @@
             "reason": "package manifest"
           },
           {
+            "path": "packages/triage/package.json",
+            "reason": "package manifest"
+          },
+          {
             "path": "tests/fixtures/high-readiness-ts/package.json",
             "reason": "package manifest"
           },
@@ -2415,19 +2453,7 @@
             "reason": "detected repository context"
           },
           {
-            "path": "docs/V0_3_RELEASE_REVIEW.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "docs/V0_4_RELEASE_REVIEW.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "docs/V0_4_X_RELEASE_REVIEW.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "local-docs/V4_V5_ADDITIONS.md",
+            "path": "docs/V0_5_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
           {
@@ -2463,19 +2489,7 @@
             "reason": "detected repository context"
           },
           {
-            "path": "docs/V0_3_RELEASE_REVIEW.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "docs/V0_4_RELEASE_REVIEW.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "docs/V0_4_X_RELEASE_REVIEW.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "local-docs/V4_V5_ADDITIONS.md",
+            "path": "docs/V0_5_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
           {
@@ -2630,7 +2644,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-03T00:29:56.028Z"
+    "generatedAt": "2026-05-03T05:03:31.219Z"
   },
-  "openMaintainerProfileHash": "7025b75561f8a733"
+  "openMaintainerProfileHash": "b97518ff8f0ebd9d"
 }
