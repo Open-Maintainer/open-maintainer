@@ -2,9 +2,9 @@ import { execFile } from "node:child_process";
 import { cp, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { repoRoot, runCli } from "./helpers/cli";
 import {
   codexGenerateArgs,
   createFakeCodexCli,
@@ -12,26 +12,7 @@ import {
 
 const execFileAsync = promisify(execFile);
 
-const repoRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..",
-);
 const fixtureRoot = path.join(repoRoot, "tests/fixtures/low-context-ts");
-
-async function runCli(args: string[], env: Record<string, string> = {}) {
-  const process = Bun.spawn(["bun", "apps/cli/src/index.ts", ...args], {
-    cwd: repoRoot,
-    env: { ...Bun.env, ...env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ]);
-  return { stdout, stderr, exitCode };
-}
 
 describe("CLI audit", () => {
   it("prints concrete next steps for missing readiness items", async () => {

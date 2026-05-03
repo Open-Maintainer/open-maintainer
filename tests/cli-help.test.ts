@@ -1,26 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-
-const repoRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "..",
-);
-
-async function runCli(args: string[]) {
-  const process = Bun.spawn(["bun", "apps/cli/src/index.ts", ...args], {
-    cwd: repoRoot,
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ]);
-  return { stdout, stderr, exitCode };
-}
+import { repoRoot, runCli } from "./helpers/cli";
 
 describe("CLI help", () => {
   it("prints root help without requiring a repository path", async () => {

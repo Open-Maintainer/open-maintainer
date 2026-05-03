@@ -1,35 +1,29 @@
+import { execFile } from "node:child_process";
 import { chmod, mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { IssueTriageResultSchema } from "@open-maintainer/shared";
 import { describe, expect, it } from "vitest";
+import { repoRoot, runCli } from "./helpers/cli";
 import { createFakeCodexCli } from "./helpers/fake-model-cli";
 
-const repoRoot = path.resolve(import.meta.dir, "..");
-
-async function runCli(args: string[], env: Record<string, string> = {}) {
-  const process = Bun.spawn(["bun", "apps/cli/src/index.ts", ...args], {
-    cwd: repoRoot,
-    env: { ...Bun.env, ...env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ]);
-  return { stdout, stderr, exitCode };
-}
+const execFileAsync = promisify(execFile);
 
 async function createTriageRepo(): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "om-cli-triage-"));
-  await Bun.$`git init -b main`.cwd(directory).quiet();
-  await Bun.$`git config user.email test@example.com`.cwd(directory).quiet();
-  await Bun.$`git config user.name "Test User"`.cwd(directory).quiet();
-  await Bun.$`git remote add origin https://github.com/acme/triage-fixture.git`
-    .cwd(directory)
-    .quiet();
+  await execFileAsync("git", ["init", "-b", "main"], { cwd: directory });
+  await execFileAsync("git", ["config", "user.email", "test@example.com"], {
+    cwd: directory,
+  });
+  await execFileAsync("git", ["config", "user.name", "Test User"], {
+    cwd: directory,
+  });
+  await execFileAsync(
+    "git",
+    ["remote", "add", "origin", "https://github.com/acme/triage-fixture.git"],
+    { cwd: directory },
+  );
   await mkdir(path.join(directory, "src"), { recursive: true });
   await writeFile(
     path.join(directory, "package.json"),
@@ -51,8 +45,10 @@ async function createTriageRepo(): Promise<string> {
     path.join(directory, "src", "index.ts"),
     "export function value() {\n  return 1;\n}\n",
   );
-  await Bun.$`git add .`.cwd(directory).quiet();
-  await Bun.$`git commit -m initial`.cwd(directory).quiet();
+  await execFileAsync("git", ["add", "."], { cwd: directory });
+  await execFileAsync("git", ["commit", "-m", "initial"], {
+    cwd: directory,
+  });
   return directory;
 }
 

@@ -5,25 +5,10 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { ReviewResultSchema } from "@open-maintainer/shared";
 import { describe, expect, it } from "vitest";
+import { repoRoot, runCli } from "./helpers/cli";
 import { createFakeCodexCli } from "./helpers/fake-model-cli";
 
 const execFileAsync = promisify(execFile);
-const repoRoot = path.resolve(import.meta.dir, "..");
-
-async function runCli(args: string[], env: Record<string, string> = {}) {
-  const process = Bun.spawn(["bun", "apps/cli/src/index.ts", ...args], {
-    cwd: repoRoot,
-    env: { ...Bun.env, ...env },
-    stdout: "pipe",
-    stderr: "pipe",
-  });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(process.stdout).text(),
-    new Response(process.stderr).text(),
-    process.exited,
-  ]);
-  return { stdout, stderr, exitCode };
-}
 
 async function createReviewRepo(): Promise<string> {
   const directory = await mkdtemp(path.join(tmpdir(), "om-cli-review-"));
@@ -461,22 +446,24 @@ describe("CLI review", () => {
             input: { labels?: string[]; name?: string } | null;
           },
       );
-    expect(calls.filter((call) => call.kind === "label_create")).toHaveLength(
-      5,
-    );
+    expect(
+      calls.filter(
+        (call) =>
+          call.kind === "POST" &&
+          call.endpoint === "repos/Open-Maintainer/cli-review-fixture/labels",
+      ),
+    ).toHaveLength(5);
     expect(
       calls.some(
         (call) =>
-          call.kind === "issue_edit" &&
-          call.args?.includes("--add-label") &&
-          call.args?.includes("open-maintainer/ready-for-review"),
+          call.kind === "POST" &&
+          call.endpoint ===
+            "repos/Open-Maintainer/cli-review-fixture/issues/12/labels" &&
+          call.input?.labels?.includes("open-maintainer/ready-for-review"),
       ),
     ).toBe(true);
-    expect(
-      JSON.stringify(calls.filter((call) => call.kind !== "api")),
-    ).not.toContain(
-      "repos/Open-Maintainer/cli-review-fixture/issues/12/labels",
-    );
+    expect(calls.some((call) => call.kind === "label_create")).toBe(false);
+    expect(calls.some((call) => call.kind === "issue_edit")).toBe(false);
   });
 
   it("refuses to apply a ready triage label when GitHub reports the PR is blocked", async () => {
