@@ -94,6 +94,9 @@ type CliOptions = {
   reviewApplyTriageLabel: boolean;
   reviewCreateTriageLabels: boolean;
   issueNumber: number | null;
+  triageState: "open" | "closed" | "all";
+  triageLimit: number | null;
+  triageLabel: string | null;
 };
 
 type ArtifactSelection = "codex" | "claude" | "both";
@@ -109,7 +112,8 @@ Commands:
   init <repo>                           Run audit, then generate missing artifacts
   doctor <repo>                         Report missing or stale generated context
   review <repo>                         Produce or post a rule-grounded PR review
-  triage issue <repo>                   Preview model-backed issue triage locally
+  triage issue <repo>                   Preview model-backed triage for one issue
+  triage issues <repo>                  Preview model-backed triage for a bounded issue batch
   pr <repo> --create                    Print a dry-run PR summary for generated artifacts
 
 Help:
@@ -239,11 +243,19 @@ Examples:
   open-maintainer review . --pr 123 --model claude --allow-model-content-transfer --dry-run
 `,
   triage: `open-maintainer triage issue <repo> --number <n>
+open-maintainer triage issues <repo> --state open --limit <n>
 
-Run local, non-mutating model-backed triage for one GitHub issue and write a JSON artifact.
+Run local, non-mutating model-backed triage for one GitHub issue or a bounded issue batch.
 
-Required:
+Single-issue required:
   --number <n>                          GitHub issue number to triage
+
+Batch options:
+  --state open|closed|all                Issue state to list (default: open)
+  --limit <n>                            Maximum issues to triage before model calls (default: 10, max: 50)
+  --label <name>                         Optional label filter for the issue list
+
+Model required:
   --model codex|claude                  CLI backend used for model-backed triage
   --allow-model-content-transfer        Required; sends issue evidence and repo context to the backend
 
@@ -252,9 +264,12 @@ Model options:
 
 Output:
   .open-maintainer/triage/issues/<n>.json
+  .open-maintainer/triage/runs/<run-id>.json
+  .open-maintainer/triage/runs/<run-id>.md
 
 Examples:
   open-maintainer triage issue . --number 82 --model codex --allow-model-content-transfer
+  open-maintainer triage issues . --state open --limit 5 --model codex --allow-model-content-transfer
   open-maintainer triage issue . --number 82 --model claude --allow-model-content-transfer
 `,
   pr: `open-maintainer pr <repo> --create
@@ -298,8 +313,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   if (command === "triage") {
     const [subcommand, repoArg, ...rawOptions] = rest;
-    if (subcommand !== "issue") {
-      console.error("Unknown triage command. Expected: triage issue\n");
+    if (subcommand !== "issue" && subcommand !== "issues") {
+      console.error(
+        "Unknown triage command. Expected: triage issue or triage issues\n",
+      );
       console.error(commandUsages.triage);
       return 2;
     }
@@ -311,7 +328,11 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     const repoRoot = path.resolve(repoArg);
     try {
       const options = parseOptions(rawOptions);
-      await triageIssue(repoRoot, options);
+      if (subcommand === "issue") {
+        await triageIssue(repoRoot, options);
+      } else {
+        await triageIssues(repoRoot, options);
+      }
       return 0;
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
@@ -797,6 +818,38 @@ async function triageIssue(
   if (options.issueNumber === null) {
     throw new Error("triage issue requires --number <n>.");
   }
+  const context = await prepareIssueTriageContext(repoRoot, options);
+  const { evidence, result, artifactPath } = await runIssueTriagePreview({
+    repoRoot,
+    context,
+    issueNumber: options.issueNumber,
+  });
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  for (const line of formatIssueTriageSummary(result, evidence, artifactPath)) {
+    console.log(line);
+  }
+}
+
+type IssueTriageContext = {
+  profile: Awaited<ReturnType<typeof createProfileFromFiles>>;
+  providerConfig: ModelProviderConfig;
+  provider: ModelProvider;
+  client: GitHubRepositoryClient;
+};
+
+type IssueTriagePreview = {
+  evidence: IssueTriageEvidence;
+  result: IssueTriageResult;
+  artifactPath: string;
+};
+
+async function prepareIssueTriageContext(
+  repoRoot: string,
+  options: CliOptions,
+): Promise<IssueTriageContext> {
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
   const profile = await createProfileFromFiles(repoRoot, files);
   const provider = buildIssueTriageProvider({
@@ -805,26 +858,40 @@ async function triageIssue(
     model: options.llmModel,
     allowModelContentTransfer: options.allowModelContentTransfer,
   });
+  return {
+    profile,
+    providerConfig: provider.providerConfig,
+    provider: provider.provider,
+    client: buildGhIssueTriageClient(repoRoot),
+  };
+}
+
+async function runIssueTriagePreview(input: {
+  repoRoot: string;
+  context: IssueTriageContext;
+  issueNumber: number;
+}): Promise<IssueTriagePreview> {
+  const { profile, providerConfig, provider, client } = input.context;
   const evidence = await fetchIssueTriageEvidence({
     repoId: profile.repoId,
     owner: profile.owner,
     repo: profile.name,
-    issueNumber: options.issueNumber,
+    issueNumber: input.issueNumber,
     sourceProfileVersion: profile.version,
-    client: buildGhIssueTriageClient(repoRoot),
+    client,
   });
   const triageInput = {
     repoId: profile.repoId,
     owner: profile.owner,
     repo: profile.name,
-    issueNumber: options.issueNumber,
+    issueNumber: input.issueNumber,
     evidence,
-    modelProvider: provider.providerConfig.displayName,
-    model: provider.providerConfig.model,
+    modelProvider: providerConfig.displayName,
+    model: providerConfig.model,
     consentMode: "explicit_repository_content_transfer" as const,
     createdAt: nowIso(),
   };
-  const completion = await provider.provider.complete(
+  const completion = await provider.complete(
     buildIssueTriageModelPrompt(triageInput),
     { outputSchema: issueTriageModelOutputJsonSchema },
   );
@@ -833,9 +900,9 @@ async function triageIssue(
     ...modelResult,
     id: newId("issue_triage"),
     repoId: profile.repoId,
-    issueNumber: options.issueNumber,
-    writeActions: previewOnlyIssueTriageWriteActions(options.issueNumber),
-    modelProvider: provider.providerConfig.displayName,
+    issueNumber: input.issueNumber,
+    writeActions: previewOnlyIssueTriageWriteActions(input.issueNumber),
+    modelProvider: providerConfig.displayName,
     model: completion.model,
     consentMode: "explicit_repository_content_transfer",
     sourceProfileVersion: profile.version,
@@ -846,20 +913,267 @@ async function triageIssue(
     ".open-maintainer",
     "triage",
     "issues",
-    `${options.issueNumber}.json`,
+    `${input.issueNumber}.json`,
   );
-  await writeIssueTriageArtifact(repoRoot, artifactPath, {
+  await writeIssueTriageArtifact(input.repoRoot, artifactPath, {
     input: triageInput,
     result,
   });
+  return { evidence, result, artifactPath };
+}
+
+async function triageIssues(
+  repoRoot: string,
+  options: CliOptions,
+): Promise<void> {
+  const limit = options.triageLimit ?? 10;
+  const context = await prepareIssueTriageContext(repoRoot, options);
+  const issues = await listIssuesForTriage(repoRoot, {
+    owner: context.profile.owner,
+    repo: context.profile.name,
+    state: options.triageState,
+    limit,
+    label: options.triageLabel,
+  });
+  const runId = newId("triage_run");
+  const records: IssueTriageBatchRecord[] = [];
+  for (const issue of issues) {
+    try {
+      const preview = await runIssueTriagePreview({
+        repoRoot,
+        context,
+        issueNumber: issue.number,
+      });
+      records.push({
+        status: "succeeded",
+        issueNumber: issue.number,
+        title: preview.evidence.issue.title,
+        artifactPath: preview.artifactPath,
+        classification: preview.result.classification,
+        agentReadiness: preview.result.agentReadiness,
+        nextAction: preview.result.nextAction,
+      });
+    } catch (error) {
+      records.push({
+        status: "failed",
+        issueNumber: issue.number,
+        title: issue.title,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  const report = {
+    runId,
+    owner: context.profile.owner,
+    repo: context.profile.name,
+    state: options.triageState,
+    limit,
+    label: options.triageLabel,
+    issueCount: issues.length,
+    provider: context.providerConfig.displayName,
+    model: context.providerConfig.model,
+    consentMode: "explicit_repository_content_transfer" as const,
+    issues: records,
+    createdAt: nowIso(),
+  };
+  const jsonPath = path.join(
+    ".open-maintainer",
+    "triage",
+    "runs",
+    `${runId}.json`,
+  );
+  const markdownPath = path.join(
+    ".open-maintainer",
+    "triage",
+    "runs",
+    `${runId}.md`,
+  );
+  await writeTriageRunReports(repoRoot, {
+    jsonPath,
+    markdownPath,
+    report,
+    markdown: renderTriageBatchMarkdown(report),
+  });
   if (options.json) {
-    console.log(JSON.stringify(result, null, 2));
+    console.log(JSON.stringify(report, null, 2));
     return;
   }
-  for (const line of formatIssueTriageSummary(result, evidence, artifactPath)) {
-    console.log(line);
-  }
+  console.log(renderTriageBatchConsole(report, { jsonPath, markdownPath }));
 }
+
+type ListedIssueForTriage = {
+  number: number;
+  title: string;
+};
+
+type IssueTriageBatchRecord =
+  | {
+      status: "succeeded";
+      issueNumber: number;
+      title: string;
+      artifactPath: string;
+      classification: IssueTriageResult["classification"];
+      agentReadiness: IssueTriageResult["agentReadiness"];
+      nextAction: string;
+    }
+  | {
+      status: "failed";
+      issueNumber: number;
+      title: string;
+      error: string;
+    };
+
+type IssueTriageBatchReport = {
+  runId: string;
+  owner: string;
+  repo: string;
+  state: "open" | "closed" | "all";
+  limit: number;
+  label: string | null;
+  issueCount: number;
+  provider: string;
+  model: string;
+  consentMode: "explicit_repository_content_transfer";
+  issues: IssueTriageBatchRecord[];
+  createdAt: string;
+};
+
+async function listIssuesForTriage(
+  repoRoot: string,
+  input: {
+    owner: string;
+    repo: string;
+    state: "open" | "closed" | "all";
+    limit: number;
+    label: string | null;
+  },
+): Promise<ListedIssueForTriage[]> {
+  const issues: ListedIssueForTriage[] = [];
+  for (let page = 1; issues.length < input.limit; page += 1) {
+    const pageSize = Math.min(100, input.limit - issues.length);
+    const args = [
+      "-F",
+      `state=${input.state}`,
+      "-F",
+      `per_page=${pageSize}`,
+      "-F",
+      `page=${page}`,
+      ...(input.label ? ["-F", `labels=${input.label}`] : []),
+    ];
+    const pageItems = await ghApiJson<
+      Array<{
+        number?: number | null;
+        title?: string | null;
+        pull_request?: unknown;
+      }>
+    >(repoRoot, `repos/${input.owner}/${input.repo}/issues`, args);
+    for (const item of pageItems) {
+      if (issues.length >= input.limit) {
+        break;
+      }
+      if (item.pull_request || !item.number || !item.title) {
+        continue;
+      }
+      issues.push({ number: item.number, title: item.title });
+    }
+    if (pageItems.length < pageSize) {
+      break;
+    }
+  }
+  return issues;
+}
+
+async function writeTriageRunReports(
+  repoRoot: string,
+  input: {
+    jsonPath: string;
+    markdownPath: string;
+    report: IssueTriageBatchReport;
+    markdown: string;
+  },
+): Promise<void> {
+  const absoluteJsonPath = path.join(repoRoot, input.jsonPath);
+  const absoluteMarkdownPath = path.join(repoRoot, input.markdownPath);
+  await mkdir(path.dirname(absoluteJsonPath), { recursive: true });
+  await writeFile(
+    absoluteJsonPath,
+    `${JSON.stringify(input.report, null, 2)}\n`,
+  );
+  await writeFile(absoluteMarkdownPath, input.markdown);
+}
+
+function renderTriageBatchConsole(
+  report: IssueTriageBatchReport,
+  paths: { jsonPath: string; markdownPath: string },
+): string {
+  return [
+    `Issue triage run: ${report.runId}`,
+    `Issues: ${report.issueCount} (state=${report.state}, limit=${report.limit})`,
+    renderTriageBatchGroups(report),
+    `JSON report: ${paths.jsonPath}`,
+    `Markdown report: ${paths.markdownPath}`,
+    "GitHub writes: skipped (preview-only default)",
+  ].join("\n");
+}
+
+function renderTriageBatchMarkdown(report: IssueTriageBatchReport): string {
+  return [
+    `# Open Maintainer Issue Triage Run ${report.runId}`,
+    "",
+    `Repository: ${report.owner}/${report.repo}`,
+    `State: ${report.state}`,
+    `Limit: ${report.limit}`,
+    `Provider: ${report.provider}`,
+    `Model: ${report.model}`,
+    `Consent: ${report.consentMode}`,
+    "",
+    renderTriageBatchGroups(report),
+    "",
+  ].join("\n");
+}
+
+function renderTriageBatchGroups(report: IssueTriageBatchReport): string {
+  const lines: string[] = [];
+  for (const group of TRIAGE_BATCH_GROUPS) {
+    const records = report.issues.filter((record) =>
+      group.classification
+        ? record.status === "succeeded" &&
+          record.classification === group.classification
+        : record.status === "failed",
+    );
+    lines.push(`## ${group.title}`);
+    if (records.length === 0) {
+      lines.push("- none");
+      lines.push("");
+      continue;
+    }
+    for (const record of records) {
+      if (record.status === "failed") {
+        lines.push(
+          `- #${record.issueNumber} ${record.title}: error: ${record.error}`,
+        );
+      } else {
+        lines.push(
+          `- #${record.issueNumber} ${record.title}: ${record.nextAction} (${record.artifactPath})`,
+        );
+      }
+    }
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+
+const TRIAGE_BATCH_GROUPS: Array<{
+  title: string;
+  classification: IssueTriageResult["classification"] | null;
+}> = [
+  { title: "Ready for review", classification: "ready_for_review" },
+  { title: "Needs author input", classification: "needs_author_input" },
+  { title: "Needs human design", classification: "needs_maintainer_design" },
+  { title: "Not agent-ready", classification: "not_agent_ready" },
+  { title: "Possible spam", classification: "possible_spam" },
+  { title: "Errors", classification: null },
+];
 
 function buildIssueTriageProvider(input: {
   repoRoot: string;
@@ -2209,6 +2523,9 @@ function parseOptions(rawOptions: string[]): CliOptions {
     reviewApplyTriageLabel: false,
     reviewCreateTriageLabels: false,
     issueNumber: null,
+    triageState: "open",
+    triageLimit: null,
+    triageLabel: null,
   };
   for (let index = 0; index < rawOptions.length; index += 1) {
     const option = rawOptions[index];
@@ -2292,6 +2609,28 @@ function parseOptions(rawOptions: string[]): CliOptions {
         );
       }
       options.issueNumber = issueNumber;
+      index += 1;
+    } else if (option === "--state") {
+      const value = requireOptionValue(rawOptions, index, option);
+      if (value !== "open" && value !== "closed" && value !== "all") {
+        throw new Error(
+          "Invalid value for --state. Expected open, closed, or all.",
+        );
+      }
+      options.triageState = value;
+      index += 1;
+    } else if (option === "--limit") {
+      const value = requireOptionValue(rawOptions, index, option);
+      const limit = Number(value);
+      if (!Number.isInteger(limit) || limit <= 0 || limit > 50) {
+        throw new Error(
+          "Invalid value for --limit. Expected a positive integer up to 50.",
+        );
+      }
+      options.triageLimit = limit;
+      index += 1;
+    } else if (option === "--label") {
+      options.triageLabel = requireOptionValue(rawOptions, index, option);
       index += 1;
     } else if (option === "--output-path") {
       options.outputPath = requireOptionValue(rawOptions, index, option);

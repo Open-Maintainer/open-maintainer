@@ -60,7 +60,10 @@ describe("CLI help", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("open-maintainer triage issue <repo>");
+    expect(result.stdout).toContain("open-maintainer triage issues <repo>");
     expect(result.stdout).toContain("--number <n>");
+    expect(result.stdout).toContain("--state open|closed|all");
+    expect(result.stdout).toContain("--limit <n>");
     expect(result.stdout).toContain("--model codex|claude");
     expect(result.stdout).toContain("--allow-model-content-transfer");
     expect(result.stdout).toContain("non-mutating");

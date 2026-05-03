@@ -82,12 +82,49 @@ if (args.includes("--method")) {
   process.exit(1);
 }
 const endpoint = args[1];
+if (endpoint === "repos/acme/triage-fixture/issues") {
+  write([
+    { number: 42, title: "Triage one issue locally", pull_request: null },
+    { number: 43, title: "Invalid model issue", pull_request: null },
+    { number: 44, title: "Ready batch issue", pull_request: null },
+    { number: 45, title: "Beyond requested limit", pull_request: null }
+  ]);
+  process.exit(0);
+}
 if (endpoint === "repos/acme/triage-fixture/issues/42") {
   write({
     number: 42,
     title: "Triage one issue locally",
     body: "## Feature request\\nThe command should triage one issue locally and inspect \`apps/cli/src/index.ts\`.\\n\\n## Acceptance criteria\\n- The command is non-mutating by default",
     html_url: "https://github.com/acme/triage-fixture/issues/42",
+    user: { login: "author" },
+    labels: [{ name: "enhancement" }],
+    state: "open",
+    created_at: "2026-05-03T00:00:00.000Z",
+    updated_at: "2026-05-03T00:01:00.000Z"
+  });
+  process.exit(0);
+}
+if (endpoint === "repos/acme/triage-fixture/issues/43") {
+  write({
+    number: 43,
+    title: "Invalid model issue",
+    body: "## Feature request\\nThis issue is used to exercise per-issue batch errors.",
+    html_url: "https://github.com/acme/triage-fixture/issues/43",
+    user: { login: "author" },
+    labels: [{ name: "enhancement" }],
+    state: "open",
+    created_at: "2026-05-03T00:00:00.000Z",
+    updated_at: "2026-05-03T00:01:00.000Z"
+  });
+  process.exit(0);
+}
+if (endpoint === "repos/acme/triage-fixture/issues/44") {
+  write({
+    number: 44,
+    title: "Ready batch issue",
+    body: "## Feature request\\nThis issue includes enough scope.\\n\\n## Acceptance criteria\\n- Batch output records the next action",
+    html_url: "https://github.com/acme/triage-fixture/issues/44",
     user: { login: "author" },
     labels: [{ name: "enhancement" }],
     state: "open",
@@ -105,6 +142,10 @@ if (endpoint === "repos/acme/triage-fixture/issues/42/comments") {
     created_at: "2026-05-03T00:02:00.000Z",
     updated_at: "2026-05-03T00:02:00.000Z"
   }]);
+  process.exit(0);
+}
+if (/^repos\\/acme\\/triage-fixture\\/issues\\/(43|44)\\/comments$/.test(endpoint)) {
+  write([]);
   process.exit(0);
 }
 if (endpoint === "search/issues") {
@@ -186,6 +227,94 @@ describe("CLI issue triage", () => {
       "apps/cli/src/index.ts",
     );
     const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).not.toContain("--method");
+  });
+
+  it("runs bounded batch triage with grouped reports and per-issue errors", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issues",
+        fixture,
+        "--state",
+        "open",
+        "--limit",
+        "3",
+        "--label",
+        "enhancement",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "mixed",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Issues: 3 (state=open, limit=3)");
+    expect(result.stdout.indexOf("## Ready for review")).toBeLessThan(
+      result.stdout.indexOf("## Needs author input"),
+    );
+    expect(result.stdout).toContain("#44 Ready batch issue");
+    expect(result.stdout).toContain("#43 Invalid model issue: error:");
+    const jsonPath = result.stdout
+      .split("\n")
+      .find((line) => line.startsWith("JSON report: "))
+      ?.replace("JSON report: ", "");
+    const markdownPath = result.stdout
+      .split("\n")
+      .find((line) => line.startsWith("Markdown report: "))
+      ?.replace("Markdown report: ", "");
+    expect(jsonPath).toBeTruthy();
+    expect(markdownPath).toBeTruthy();
+    const report = JSON.parse(
+      await readFile(path.join(fixture, jsonPath as string), "utf8"),
+    );
+    expect(report.limit).toBe(3);
+    expect(report.label).toBe("enhancement");
+    expect(
+      report.issues.map((issue: { issueNumber: number }) => issue.issueNumber),
+    ).toEqual([42, 43, 44]);
+    expect(
+      report.issues.find(
+        (issue: { issueNumber: number }) => issue.issueNumber === 43,
+      ).status,
+    ).toBe("failed");
+    expect(
+      report.issues.find(
+        (issue: { issueNumber: number }) => issue.issueNumber === 44,
+      ).classification,
+    ).toBe("ready_for_review");
+    const markdown = await readFile(
+      path.join(fixture, markdownPath as string),
+      "utf8",
+    );
+    expect(markdown).toContain("## Ready for review");
+    expect(markdown).toContain("## Errors");
+    expect(
+      await readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    ).toContain("needs_author_input");
+    await expect(
+      readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/45.json"),
+        "utf8",
+      ),
+    ).rejects.toThrow();
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).toContain("state=open");
+    expect(ghCalls).toContain("per_page=3");
+    expect(ghCalls).toContain("labels=enhancement");
     expect(ghCalls).not.toContain("--method");
   });
 

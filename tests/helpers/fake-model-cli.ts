@@ -28,6 +28,7 @@ const outputPath = process.argv[outputIndex + 1];
 const repoName = path.basename(repoRoot);
 const slug = repoName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "repo";
 const repeated = "Use repository evidence, run the detected validation command, and keep generated context scoped. ";
+let promptText = "";
 let output;
 
 if (schema.required.includes("classification")) {
@@ -145,8 +146,42 @@ if (schema.required.includes("classification")) {
 }
 
 process.stdin.resume();
-process.stdin.on("data", () => {});
+process.stdin.on("data", (chunk) => {
+  promptText += chunk.toString();
+});
 process.stdin.on("end", () => {
+  if (
+    schema.required.includes("classification") &&
+    process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "mixed"
+  ) {
+    if (promptText.includes('"issueNumber": 43')) {
+      output = {
+        ...output,
+        evidence: [],
+      };
+    }
+    if (promptText.includes('"issueNumber": 44')) {
+      output = {
+        ...output,
+        classification: "ready_for_review",
+        agentReadiness: "agent_ready",
+        confidence: 0.88,
+        riskFlags: [],
+        labelIntents: ["ready_for_review", "agent_ready"],
+        recommendation: "Ready for maintainer review.",
+        rationale: "The issue includes enough scope and acceptance evidence for the fake provider.",
+        missingInformation: [],
+        requiredAuthorActions: [],
+        nextAction: "Proceed to maintainer review.",
+        commentPreview: {
+          marker: "<!-- open-maintainer:issue-triage -->",
+          summary: "Ready for review.",
+          body: "This issue appears ready for maintainer review.",
+          artifactPath: ".open-maintainer/triage/issues/44.json"
+        }
+      };
+    }
+  }
   fs.writeFileSync(outputPath, JSON.stringify(output));
 });
 `,
