@@ -47,6 +47,37 @@ describe("CLI audit", () => {
     );
   });
 
+  it("previews audit outputs without writing files in dry-run mode", async () => {
+    const workdir = await mkdtemp(
+      path.join(tmpdir(), "open-maintainer-audit-dry-run-"),
+    );
+    await cp(fixtureRoot, workdir, { recursive: true });
+
+    const result = await runCli(["audit", workdir, "--dry-run"], {
+      OPEN_MAINTAINER_FORCE_COLOR: "1",
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("\x1b[");
+    expect(result.stdout).toContain("+");
+    expect(result.stdout).toContain("Open Maintainer audit");
+    expect(result.stdout).toContain("Mode: dry-run");
+    expect(result.stdout).toContain(
+      "Profile: .open-maintainer/profile.json (planned)",
+    );
+    expect(result.stdout).toContain(
+      "Report: .open-maintainer/report.md (planned)",
+    );
+    expect(result.stdout).toContain("Dry run: no audit files written.");
+    await expect(
+      readFile(path.join(workdir, ".open-maintainer/profile.json"), "utf8"),
+    ).rejects.toThrow();
+    await expect(
+      readFile(path.join(workdir, ".open-maintainer/report.md"), "utf8"),
+    ).rejects.toThrow();
+  });
+
   it("re-audits after init generates context artifacts", async () => {
     const workdir = await mkdtemp(path.join(tmpdir(), "open-maintainer-init-"));
     await cp(fixtureRoot, workdir, { recursive: true });
@@ -75,6 +106,41 @@ describe("CLI audit", () => {
     ) as { existingContextFiles: string[] };
     expect(profile.existingContextFiles).toContain("AGENTS.md");
     expect(profile.existingContextFiles).toContain(".open-maintainer.yml");
+  });
+
+  it("previews init without writing audit or generated context artifacts", async () => {
+    const workdir = await mkdtemp(
+      path.join(tmpdir(), "open-maintainer-init-dry-run-"),
+    );
+    await cp(fixtureRoot, workdir, { recursive: true });
+    const fakeCodex = await createFakeCodexCli();
+
+    const result = await runCli(
+      [
+        "init",
+        workdir,
+        ...codexGenerateArgs,
+        "--context",
+        "codex",
+        "--skills",
+        "codex",
+        "--dry-run",
+      ],
+      fakeCodex.env,
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Open Maintainer init");
+    expect(result.stdout).toContain("Open Maintainer generate");
+    expect(result.stdout).toContain("Dry run: no context artifacts written.");
+    expect(result.stdout).toContain("Dry run: no init files written.");
+    await expect(
+      readFile(path.join(workdir, "AGENTS.md"), "utf8"),
+    ).rejects.toThrow();
+    await expect(
+      readFile(path.join(workdir, ".open-maintainer/profile.json"), "utf8"),
+    ).rejects.toThrow();
   });
 
   it("uses Git remote identity instead of checkout path identity", async () => {
@@ -151,18 +217,71 @@ describe("CLI audit", () => {
 
     expect(refresh.exitCode).toBe(0);
     expect(refresh.stderr).toBe("");
+    expect(refresh.stdout).toContain("skip: AGENTS.md");
     expect(refresh.stdout).toContain(
-      "skip: AGENTS.md (existing maintainer-owned file preserved",
+      "existing maintainer-owned file preserved",
     );
-    expect(refresh.stdout).toContain(
-      "overwrite: .open-maintainer.yml (existing generated file)",
-    );
+    expect(refresh.stdout).toContain("overwrite: .open-maintainer.yml");
+    expect(refresh.stdout).toContain("existing generated file");
     expect(await readFile(agentsPath, "utf8")).toBe(
       "# Maintainer-owned instructions\n",
     );
     expect(await readFile(configPath, "utf8")).not.toContain(
       "# stale generated note",
     );
+  });
+
+  it("previews generate without writing context artifacts", async () => {
+    const workdir = await mkdtemp(
+      path.join(tmpdir(), "open-maintainer-generate-dry-run-"),
+    );
+    await cp(fixtureRoot, workdir, { recursive: true });
+    const fakeCodex = await createFakeCodexCli();
+
+    const result = await runCli(
+      [
+        "generate",
+        workdir,
+        ...codexGenerateArgs,
+        "--context",
+        "codex",
+        "--skills",
+        "codex",
+        "--dry-run",
+      ],
+      fakeCodex.env,
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Open Maintainer generate");
+    expect(result.stdout).toContain("Mode: dry-run");
+    expect(result.stdout).toContain("Artifact write plan");
+    expect(result.stdout).toContain("planned actions:");
+    expect(result.stdout).toContain("write: AGENTS.md");
+    expect(result.stdout).toContain("file is absent");
+    expect(result.stdout).not.toContain("| Action | Target");
+    expect(result.stdout).toContain("Dry run: no context artifacts written.");
+    await expect(
+      readFile(path.join(workdir, "AGENTS.md"), "utf8"),
+    ).rejects.toThrow();
+    await expect(
+      readFile(path.join(workdir, ".open-maintainer.yml"), "utf8"),
+    ).rejects.toThrow();
+  });
+
+  it("prints the context PR dry-run summary with explicit dry-run mode", async () => {
+    const workdir = await mkdtemp(path.join(tmpdir(), "open-maintainer-pr-"));
+    await cp(fixtureRoot, workdir, { recursive: true });
+
+    const result = await runCli(["pr", workdir, "--create", "--dry-run"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Open Maintainer context PR");
+    expect(result.stdout).toContain("Mode: dry-run");
+    expect(result.stdout).toContain("Dry-run context PR summary");
+    expect(result.stdout).toContain("Agent Readiness:");
   });
 
   it("includes drift findings and remediation in the report", async () => {

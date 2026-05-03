@@ -74,6 +74,10 @@ bun run cli pr "$TARGET_REPO" --create
 Run `bun run cli help <command>` for terminal help. The supported commands and
 flags are:
 
+Human-readable CLI output uses colored section banners, boxed summaries, and
+action tables. Pass `NO_COLOR=1` or `OPEN_MAINTAINER_NO_COLOR=1` to disable ANSI
+styling in logs; JSON output remains unstyled.
+
 ### `audit <repo>`
 
 Analyzes a repository and writes readiness artifacts.
@@ -83,6 +87,7 @@ Analyzes a repository and writes readiness artifacts.
 | `--fail-on-score-below <number>` | Exit non-zero when the audit score is below the threshold. |
 | `--report-path <path>` | Write the audit report to a custom path. |
 | `--no-profile-write` | Skip `.open-maintainer/profile.json` writes. |
+| `--dry-run` | Print planned audit outputs without writing files. |
 
 ### `generate <repo>`
 
@@ -125,6 +130,7 @@ Checks required generated context and stored profile drift.
 | Flag | Meaning |
 | --- | --- |
 | `--fix` | Remove obsolete generated context artifacts. |
+| `--dry-run` | With `--fix`, print planned fixes without writing files. |
 
 ### `review <repo>`
 
@@ -141,7 +147,7 @@ write paths run.
 | `--pr-number <number>` | Include PR number metadata for local diff review. |
 | `--output-path <path>` | Write markdown review output to a file. |
 | `--json` | Print the machine-readable `ReviewResult` JSON. |
-| `--dry-run` | With `--pr`, fetch and review without posting to GitHub. |
+| `--dry-run` | Preview writes; with `--pr`, fetch and review without posting to GitHub. |
 | `--model codex|claude` | Select the CLI backend for model-backed review. |
 | `--llm-model <model>` | Override the backend model. |
 | `--allow-model-content-transfer` | Required with `--model`; sends repo content to the selected backend. |
@@ -179,6 +185,7 @@ does not label, comment, or close GitHub issues unless write flags are present.
 | `--create-missing-preset-labels` / `--create-labels` | Create missing preset labels before applying them; requires `--apply` or `--apply-labels`. |
 | `--post-comment` | Post or update the marked Open Maintainer issue triage comment. |
 | `--close-allowed` | Allow config-gated selective issue closure. |
+| `--dry-run` | Preview local artifacts and GitHub writes without applying them. |
 | `--allow-non-agent-ready` | Generate a task brief despite non-agent-ready triage. |
 | `--output-path <path>` | Write generated task brief markdown to a file. |
 
@@ -189,6 +196,7 @@ Prints a dry-run context PR summary for generated artifacts.
 | Flag | Meaning |
 | --- | --- |
 | `--create` | Required; print the dry-run PR summary. |
+| `--dry-run` | Accepted for consistency; this command is always non-mutating. |
 
 Generation uses three separate choices:
 

@@ -139,6 +139,10 @@ missing-context reports should include concrete missing items and evidence.
 
 ## CLI Audit And Report
 
+Human-readable CLI commands render colored banners, boxed summaries, and action
+tables. Use `NO_COLOR=1` or `OPEN_MAINTAINER_NO_COLOR=1` when copying output to
+plain logs. `--json` output stays machine-readable and unstyled.
+
 Use a disposable copy when testing write behavior:
 
 ```sh
@@ -177,6 +181,15 @@ bun run cli audit "$TARGET_REPO" --fail-on-score-below 100
 Expected result: non-zero exit because the low-context fixture is intentionally
 below 100 before context generation.
 
+Preview the same command without writing profile or report files:
+
+```sh
+bun run cli audit "$TARGET_REPO" --dry-run
+```
+
+Expected output includes `Mode: dry-run`, planned profile/report paths, and a
+`Dry run: no audit files written.` safety line.
+
 ## LLM Context Generation
 
 Generate the Codex artifact family with explicit model-write consent:
@@ -188,6 +201,20 @@ bun run cli generate "$TARGET_REPO" \
   --context codex \
   --skills codex
 ```
+
+Preview context generation before writing artifacts:
+
+```sh
+bun run cli generate "$TARGET_REPO" \
+  --model codex \
+  --allow-write \
+  --context codex \
+  --skills codex \
+  --dry-run
+```
+
+Expected output lists the planned `write`, `overwrite`, `skip`, or `remove`
+actions and ends with `Dry run: no context artifacts written.`.
 
 List generated files:
 
@@ -233,6 +260,13 @@ Expected output:
 
 ```text
 all required artifacts are present
+```
+
+When using `--fix`, add `--dry-run` first to preview removable obsolete
+generated artifacts and profile refreshes without changing the checkout:
+
+```sh
+bun run cli doctor "$TARGET_REPO" --fix --dry-run
 ```
 
 Print the dry-run context PR summary:
@@ -659,6 +693,22 @@ bun run cli triage issue . \
   --post-comment
 ```
 
+Add `--dry-run` to preview both local artifact writes and any requested GitHub
+label/comment/closure actions without applying them:
+
+```sh
+bun run cli triage issue . \
+  --number 82 \
+  --model codex \
+  --allow-model-content-transfer \
+  --apply-labels \
+  --post-comment \
+  --dry-run
+```
+
+For batch triage, `--dry-run` also suppresses `.open-maintainer/triage/runs/`
+report writes while still printing planned report paths.
+
 Selective closure is narrower: pass `--close-allowed` and configure supported
 `issueTriage.closure` keys in `.open-maintainer.yml`. Only `possible_spam` and
 stale `needs_author_input` issues are eligible, and closure caps plus comment
@@ -674,6 +724,8 @@ bun run cli triage brief . --number 82
 By default briefs are generated only for `agent_ready` issues. Use
 `--allow-non-agent-ready` only after a maintainer accepts the risks; the brief
 records the override and escalation boundaries.
+Add `--dry-run` to preview the brief markdown without updating the local triage
+artifact or writing `--output-path`.
 
 ## v0.4.x Rule-Grounded PR Review And Contribution Triage
 

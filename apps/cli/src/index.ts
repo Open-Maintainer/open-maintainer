@@ -159,10 +159,12 @@ Options:
   --fail-on-score-below <number>        Exit non-zero when audit score is below threshold
   --report-path <path>                  Write audit report to a custom path
   --no-profile-write                    Skip .open-maintainer/profile.json writes
+  --dry-run                             Print planned audit outputs without writing files
 
 Examples:
   open-maintainer audit .
   open-maintainer audit ./repo --fail-on-score-below 60
+  open-maintainer audit ./repo --dry-run
   open-maintainer audit ./repo --report-path .open-maintainer/report.md --no-profile-write
 `,
   generate: `open-maintainer generate <repo>
@@ -216,6 +218,7 @@ Check that required generated context artifacts are present and that the stored 
 
 Options:
   --fix                                Remove obsolete generated context artifacts
+  --dry-run                            With --fix, print planned fixes without writing files
 
 Outputs:
   Agent readiness score
@@ -225,6 +228,7 @@ Outputs:
 Examples:
   open-maintainer doctor .
   open-maintainer doctor . --fix
+  open-maintainer doctor . --fix --dry-run
   open-maintainer doctor ./repo
 `,
   review: `open-maintainer review <repo>
@@ -240,7 +244,7 @@ Diff options:
 Output options:
   --output-path <path>                  Write markdown review output to a file
   --json                                Print the machine-readable ReviewResult JSON
-  --dry-run                             With --pr, fetch and review without posting to GitHub
+  --dry-run                             Preview writes; with --pr, review without posting to GitHub
 
 Model review options:
   --model codex|claude                  Required CLI backend for model-backed review
@@ -291,6 +295,7 @@ Batch options:
   --create-labels                        Alias for --create-missing-preset-labels
   --post-comment                         Post or update the marked Open Maintainer issue triage comment
   --close-allowed                        Allow config-gated selective issue closure
+  --dry-run                              Preview local artifacts and GitHub writes without applying them
 
 Brief options:
   --allow-non-agent-ready                Generate a task brief despite non-agent-ready triage
@@ -323,6 +328,7 @@ Print a dry-run context PR summary for generated artifacts.
 
 Options:
   --create                              Required; print the dry-run PR summary
+  --dry-run                             Accepted for consistency; this command is always non-mutating
 
 Examples:
   open-maintainer pr ./repo --create
@@ -331,18 +337,221 @@ Examples:
 
 type CommandName = keyof typeof commandUsages;
 
+const ansi = {
+  reset: "\x1b[0m",
+  bold: "\x1b[1m",
+  dim: "\x1b[2m",
+  red: "\x1b[31m",
+  green: "\x1b[32m",
+  yellow: "\x1b[33m",
+  cyan: "\x1b[36m",
+  magenta: "\x1b[35m",
+} as const;
+
+function color(value: string, ...codes: string[]): string {
+  if (process.env.OPEN_MAINTAINER_FORCE_COLOR === "1") {
+    return `${codes.join("")}${value}${ansi.reset}`;
+  }
+  if (
+    process.env.NO_COLOR ||
+    process.env.OPEN_MAINTAINER_NO_COLOR === "1" ||
+    !process.stdout.isTTY
+  ) {
+    return value;
+  }
+  return `${codes.join("")}${value}${ansi.reset}`;
+}
+
+function visibleLength(value: string): number {
+  let length = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    if (value.charCodeAt(index) === 27 && value[index + 1] === "[") {
+      index += 2;
+      while (index < value.length && value[index] !== "m") {
+        index += 1;
+      }
+      continue;
+    }
+    length += 1;
+  }
+  return length;
+}
+
+function padVisible(value: string, width: number): string {
+  return `${value}${" ".repeat(Math.max(0, width - visibleLength(value)))}`;
+}
+
+function printLines(lines: string[]): void {
+  for (const line of lines) {
+    console.log(line);
+  }
+}
+
+function commandHeader(input: {
+  title: string;
+  repoRoot?: string;
+  dryRun?: boolean;
+}): string[] {
+  const title = color(`Open Maintainer ${input.title}`, ansi.bold, ansi.cyan);
+  const details = [
+    ...(input.repoRoot ? [`Repository: ${input.repoRoot}`] : []),
+    ...(input.dryRun
+      ? ["Mode: dry-run (planned changes only; no files or GitHub writes)"]
+      : []),
+  ];
+  const width = Math.max(
+    visibleLength(title),
+    ...details.map(visibleLength),
+    32,
+  );
+  const border = color(`+${"=".repeat(width + 2)}+`, ansi.cyan);
+  return [
+    border,
+    `| ${padVisible(title, width)} |`,
+    ...details.map((detail) =>
+      detail.startsWith("Mode:")
+        ? `| ${padVisible(color(detail, ansi.yellow), width)} |`
+        : `| ${padVisible(color(detail, ansi.dim), width)} |`,
+    ),
+    border,
+    "",
+  ];
+}
+
+function renderBox(title: string, lines: string[]): string[] {
+  const styledTitle = color(title, ansi.bold, ansi.magenta);
+  const width = Math.max(
+    visibleLength(styledTitle),
+    ...lines.map(visibleLength),
+    20,
+  );
+  return [
+    color(`+${"-".repeat(width + 2)}+`, ansi.dim),
+    `| ${padVisible(styledTitle, width)} |`,
+    color(`+${"-".repeat(width + 2)}+`, ansi.dim),
+    ...lines.map((line) => `| ${padVisible(styleStatusLine(line), width)} |`),
+    color(`+${"-".repeat(width + 2)}+`, ansi.dim),
+  ];
+}
+
+function renderActionPlan(
+  title: string,
+  rows: Array<{ action: string; target: string; reason: string }>,
+): string[] {
+  if (rows.length === 0) {
+    return renderBox(title, ["No actions planned."]);
+  }
+  const actionOrder = ["write", "overwrite", "remove", "skip", "failed"];
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    counts.set(row.action, (counts.get(row.action) ?? 0) + 1);
+  }
+  const summary = [...counts.entries()]
+    .sort(
+      ([left], [right]) =>
+        actionOrder.indexOf(left) - actionOrder.indexOf(right),
+    )
+    .map(([action, count]) => `${styleAction(action)} ${count}`)
+    .join(", ");
+  const lines = [
+    color(title, ansi.bold, ansi.magenta),
+    `${color(`${rows.length} planned actions:`, ansi.dim)} ${summary}`,
+  ];
+  for (const action of actionOrder) {
+    const group = rows.filter((row) => row.action === action);
+    if (group.length === 0) {
+      continue;
+    }
+    lines.push("");
+    lines.push(`${styleAction(action)} (${group.length})`);
+    for (const row of group) {
+      lines.push(`  - ${styleAction(row.action)}: ${row.target}`);
+      lines.push(`    ${color(row.reason, ansi.dim)}`);
+    }
+  }
+  return lines;
+}
+
+function styleAction(action: string): string {
+  if (action === "write" || action === "overwrite" || action === "applied") {
+    return color(action, ansi.green);
+  }
+  if (action === "remove" || action === "failed") {
+    return color(action, ansi.red);
+  }
+  if (action === "skip" || action === "skipped") {
+    return color(action, ansi.yellow);
+  }
+  return color(action, ansi.cyan);
+}
+
+function styleStatusLine(line: string): string {
+  if (
+    line.includes("failed") ||
+    line.startsWith("missing:") ||
+    line.startsWith("drift:") ||
+    line.startsWith("obsolete:")
+  ) {
+    return color(line, ansi.red);
+  }
+  if (
+    line.includes("Dry run:") ||
+    line.includes("(planned)") ||
+    line.startsWith("Mode:")
+  ) {
+    return color(line, ansi.yellow);
+  }
+  if (
+    line.includes("all required artifacts are present") ||
+    line.includes("applied") ||
+    line.includes("Agent Readiness: 100/")
+  ) {
+    return color(line, ansi.green);
+  }
+  return line;
+}
+
+function renderAuditSummary(input: {
+  repoRoot: string;
+  profile: ReturnType<typeof analyzeRepo>;
+  reportPath: string;
+  options: CliOptions;
+}): string[] {
+  const profilePath = ".open-maintainer/profile.json";
+  const reportPath = path.relative(input.repoRoot, input.reportPath);
+  return [
+    ...commandHeader({
+      title: "audit",
+      repoRoot: input.repoRoot,
+      dryRun: input.options.dryRun,
+    }),
+    ...renderBox("Readiness", [
+      `Agent Readiness: ${input.profile.agentReadiness.score}/100`,
+      input.options.noProfileWrite
+        ? "Profile: skipped (--no-profile-write)"
+        : `Profile: ${profilePath}${input.options.dryRun ? " (planned)" : ""}`,
+      `Report: ${reportPath}${input.options.dryRun ? " (planned)" : ""}`,
+      ...(input.options.dryRun ? ["Dry run: no audit files written."] : []),
+    ]),
+    ...formatReadinessSuggestions(input.profile),
+  ];
+}
+
 export async function main(argv = process.argv.slice(2)): Promise<number> {
   const [command, ...rest] = argv;
   if (!command || command === "--help" || command === "-h") {
+    printLines(commandHeader({ title: "help" }));
     console.log(rootUsage);
     return 0;
   }
   if (command === "help") {
     const helpCommand = rest[0];
     if (isCommandName(helpCommand)) {
+      printLines(commandHeader({ title: `${helpCommand} help` }));
       console.log(commandUsages[helpCommand]);
       return 0;
     }
+    printLines(commandHeader({ title: "help" }));
     console.log(rootUsage);
     return 0;
   }
@@ -352,6 +561,7 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     return 2;
   }
   if (rest.some(isHelpToken)) {
+    printLines(commandHeader({ title: `${command} help` }));
     console.log(commandUsages[command]);
     return 0;
   }
@@ -404,38 +614,62 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
     switch (command) {
       case "audit": {
         const { profile, reportPath } = await audit(repoRoot, options);
-        console.log(`Agent Readiness: ${profile.agentReadiness.score}/100`);
-        console.log(
-          options.noProfileWrite
-            ? "Profile: skipped (--no-profile-write)"
-            : "Profile: .open-maintainer/profile.json",
+        printLines(
+          renderAuditSummary({ repoRoot, profile, reportPath, options }),
         );
-        console.log(`Report: ${path.relative(repoRoot, reportPath)}`);
-        for (const line of formatReadinessSuggestions(profile)) {
-          console.log(line);
-        }
         return thresholdExit(profile.agentReadiness.score, options);
       }
       case "generate":
         await generate(repoRoot, options);
         return 0;
       case "init": {
+        printLines(
+          commandHeader({
+            title: "init",
+            repoRoot,
+            dryRun: options.dryRun,
+          }),
+        );
         await audit(repoRoot, options);
         await generate(repoRoot, options);
         const { profile } = await audit(repoRoot, options);
         console.log(
           `Initialized Open Maintainer context at score ${profile.agentReadiness.score}/100.`,
         );
+        if (options.dryRun) {
+          console.log("Dry run: no init files written.");
+        }
         return thresholdExit(profile.agentReadiness.score, options);
       }
       case "doctor": {
+        printLines(
+          commandHeader({
+            title: "doctor",
+            repoRoot,
+            dryRun: options.dryRun,
+          }),
+        );
         let result = await doctor(repoRoot, repoArg);
-        for (const line of result.messages) {
-          console.log(line);
-        }
+        printLines(renderBox("Context health", result.messages));
         if (!result.ok && options.doctorFix) {
+          const fixActions: Array<{
+            action: string;
+            target: string;
+            reason: string;
+          }> = [];
           if (result.fixablePaths.length > 0) {
-            await removeDoctorFixableArtifacts(repoRoot, result.fixablePaths);
+            fixActions.push(
+              ...result.fixablePaths.map((item) => ({
+                action: "remove",
+                target: item,
+                reason: "obsolete generated artifact",
+              })),
+            );
+            await removeDoctorFixableArtifacts(
+              repoRoot,
+              result.fixablePaths,
+              options,
+            );
           }
           if (result.profileNeedsRefresh) {
             await audit(repoRoot, {
@@ -444,13 +678,28 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
               reportPath: null,
             });
             console.log(
-              "fix: refreshed .open-maintainer/profile.json and .open-maintainer/report.md",
+              options.dryRun
+                ? "fix: would refresh .open-maintainer/profile.json and .open-maintainer/report.md"
+                : "fix: refreshed .open-maintainer/profile.json and .open-maintainer/report.md",
             );
+            fixActions.push({
+              action: options.dryRun ? "skip" : "overwrite",
+              target:
+                ".open-maintainer/profile.json, .open-maintainer/report.md",
+              reason: options.dryRun
+                ? "profile/report refresh planned"
+                : "profile/report refreshed",
+            });
+          }
+          if (fixActions.length > 0) {
+            printLines(renderActionPlan("Doctor fix plan", fixActions));
+          }
+          if (options.dryRun) {
+            console.log("Dry run: no doctor fixes applied.");
+            return 1;
           }
           result = await doctor(repoRoot, repoArg);
-          for (const line of result.messages) {
-            console.log(line);
-          }
+          printLines(renderBox("Context health after fix", result.messages));
         }
         return result.ok ? 0 : 1;
       }
@@ -482,7 +731,7 @@ async function audit(
   const driftFindings = storedProfile
     ? compareProfileDrift({ stored: storedProfile, current: profile })
     : [];
-  if (!options.noProfileWrite) {
+  if (!options.noProfileWrite && !options.dryRun) {
     await mkdir(openMaintainerDir, { recursive: true });
     await writeFile(
       path.join(openMaintainerDir, "profile.json"),
@@ -499,15 +748,24 @@ async function audit(
   const reportPath = options.reportPath
     ? path.resolve(repoRoot, options.reportPath)
     : path.join(openMaintainerDir, "report.md");
-  await mkdir(path.dirname(reportPath), { recursive: true });
-  await writeFile(
-    reportPath,
-    renderReadinessReport(profile, { driftFindings }),
-  );
+  if (!options.dryRun) {
+    await mkdir(path.dirname(reportPath), { recursive: true });
+    await writeFile(
+      reportPath,
+      renderReadinessReport(profile, { driftFindings }),
+    );
+  }
   return { profile, reportPath };
 }
 
 async function generate(repoRoot: string, options: CliOptions): Promise<void> {
+  printLines(
+    commandHeader({
+      title: "generate",
+      repoRoot,
+      dryRun: options.dryRun,
+    }),
+  );
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
   const profile = await createProfileFromFiles(repoRoot, files);
   const targets = resolveTargets(options);
@@ -553,20 +811,34 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
         targets,
       })
     : [];
+  const actionRows: Array<{ action: string; target: string; reason: string }> =
+    [];
   for (const item of obsoleteGeneratedPaths) {
-    console.log(`remove: ${item} (obsolete generated artifact)`);
+    actionRows.push({
+      action: "remove",
+      target: item,
+      reason: "obsolete generated artifact",
+    });
     if (!options.dryRun) {
       await rm(path.join(repoRoot, item), { force: true });
     }
   }
   for (const item of plan) {
-    console.log(`${item.action}: ${item.path} (${item.reason})`);
+    actionRows.push({
+      action: item.action,
+      target: item.path,
+      reason: item.reason,
+    });
     if (options.dryRun || item.action === "skip") {
       continue;
     }
     const absolutePath = path.join(repoRoot, item.path);
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, item.artifact.content);
+  }
+  printLines(renderActionPlan("Artifact write plan", actionRows));
+  if (options.dryRun) {
+    console.log("Dry run: no context artifacts written.");
   }
 }
 
@@ -744,6 +1016,7 @@ function isGeneratedContextArtifactPath(repoPath: string): boolean {
 async function removeDoctorFixableArtifacts(
   repoRoot: string,
   fixablePaths: string[],
+  options: CliOptions,
 ): Promise<void> {
   if (fixablePaths.length === 0) {
     console.log(
@@ -752,8 +1025,9 @@ async function removeDoctorFixableArtifacts(
     return;
   }
   for (const item of fixablePaths) {
-    console.log(`remove: ${item} (obsolete generated artifact)`);
-    await rm(path.join(repoRoot, item), { force: true });
+    if (!options.dryRun) {
+      await rm(path.join(repoRoot, item), { force: true });
+    }
   }
 }
 
@@ -854,11 +1128,19 @@ async function pr(repoRoot: string, options: CliOptions): Promise<void> {
     throw new Error("PR command requires --create.");
   }
   const profile = await createProfile(repoRoot);
-  console.log("Dry-run context PR summary");
-  console.log(`Branch: open-maintainer/context-${profile.version}`);
-  console.log(`Agent Readiness: ${profile.agentReadiness.score}/100`);
-  console.log(
-    "Use the GitHub App API flow to create a real remote PR with installation credentials.",
+  printLines(
+    commandHeader({
+      title: "context PR",
+      repoRoot,
+      dryRun: true,
+    }),
+  );
+  printLines(
+    renderBox("Dry-run context PR summary", [
+      `Branch: open-maintainer/context-${profile.version}`,
+      `Agent Readiness: ${profile.agentReadiness.score}/100`,
+      "Use the GitHub App API flow to create a real remote PR with installation credentials.",
+    ]),
   );
 }
 
@@ -881,9 +1163,19 @@ async function triageIssue(
     console.log(JSON.stringify(result, null, 2));
     return;
   }
-  for (const line of formatIssueTriageSummary(result, evidence, artifactPath)) {
-    console.log(line);
-  }
+  printLines(
+    commandHeader({
+      title: "issue triage",
+      repoRoot,
+      dryRun: options.dryRun,
+    }),
+  );
+  printLines(
+    renderBox(
+      "Issue summary",
+      formatIssueTriageSummary(result, evidence, artifactPath, options.dryRun),
+    ),
+  );
 }
 
 async function triageBrief(
@@ -918,21 +1210,41 @@ async function triageBrief(
       taskBrief: brief,
     },
   };
-  await writeIssueTriageArtifact(repoRoot, artifactPath, updated);
+  if (!options.dryRun) {
+    await writeIssueTriageArtifact(repoRoot, artifactPath, updated);
+  }
   if (options.outputPath && brief.markdown) {
     const outputPath = path.resolve(repoRoot, options.outputPath);
-    await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, brief.markdown);
+    if (!options.dryRun) {
+      await mkdir(path.dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, brief.markdown);
+    }
   }
   if (options.json) {
     console.log(JSON.stringify(brief, null, 2));
     return;
   }
-  console.log(`Task brief: ${brief.status}`);
-  console.log(`Artifact: ${artifactPath}`);
-  if (options.outputPath) {
-    console.log(`Markdown: ${options.outputPath}`);
-  }
+  printLines(
+    commandHeader({
+      title: "triage brief",
+      repoRoot,
+      dryRun: options.dryRun,
+    }),
+  );
+  printLines(
+    renderBox("Task brief", [
+      `Task brief: ${brief.status}`,
+      `Artifact: ${artifactPath}${options.dryRun ? " (unchanged)" : ""}`,
+      ...(options.outputPath
+        ? [
+            `Markdown: ${options.outputPath}${options.dryRun ? " (planned)" : ""}`,
+          ]
+        : []),
+      ...(options.dryRun
+        ? ["Dry run: no task brief artifact or markdown file written."]
+        : []),
+    ]),
+  );
   if (brief.markdown) {
     console.log(brief.markdown);
   }
@@ -1052,6 +1364,7 @@ async function runIssueTriagePreview(input: {
     closeAllowed: input.options.issueCloseAllowed,
     closureConfig: input.context.config?.issueTriage?.closure ?? null,
     closuresApplied: input.context.closuresApplied,
+    dryRun: input.options.dryRun,
   });
   if (
     writeActions.some(
@@ -1075,10 +1388,12 @@ async function runIssueTriagePreview(input: {
     contextArtifactVersion: null,
     createdAt: nowIso(),
   } satisfies IssueTriageResult);
-  await writeIssueTriageArtifact(input.repoRoot, artifactPath, {
-    input: triageInput,
-    result,
-  });
+  if (!input.options.dryRun) {
+    await writeIssueTriageArtifact(input.repoRoot, artifactPath, {
+      input: triageInput,
+      result,
+    });
+  }
   return { evidence, result, artifactPath };
 }
 
@@ -1191,31 +1506,54 @@ async function triageIssues(
     "runs",
     `${runId}.md`,
   );
-  await writeTriageRunReports(repoRoot, {
-    jsonPath,
-    markdownPath,
-    report,
-    markdown: renderTriageBatchMarkdown(report),
-  });
+  if (!options.dryRun) {
+    await writeTriageRunReports(repoRoot, {
+      jsonPath,
+      markdownPath,
+      report,
+      markdown: renderTriageBatchMarkdown(report),
+    });
+  }
   if (options.json) {
     console.log(JSON.stringify(report, null, 2));
     return;
   }
   if (options.outputPath) {
     const outputPath = path.resolve(repoRoot, options.outputPath);
-    await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(
-      outputPath,
-      options.triageFormat === "json"
-        ? `${JSON.stringify(report, null, 2)}\n`
-        : renderTriageBatchMarkdown(report),
-    );
+    if (!options.dryRun) {
+      await mkdir(path.dirname(outputPath), { recursive: true });
+      await writeFile(
+        outputPath,
+        options.triageFormat === "json"
+          ? `${JSON.stringify(report, null, 2)}\n`
+          : renderTriageBatchMarkdown(report),
+      );
+    }
   }
+  printLines(
+    commandHeader({
+      title: "issue triage batch",
+      repoRoot,
+      dryRun: options.dryRun,
+    }),
+  );
   console.log(
     options.triageFormat === "markdown"
       ? renderTriageBatchMarkdown(report)
-      : renderTriageBatchConsole(report, { jsonPath, markdownPath }),
+      : renderTriageBatchConsole(report, {
+          jsonPath,
+          markdownPath,
+          dryRun: options.dryRun,
+        }),
   );
+  if (options.outputPath && options.dryRun) {
+    console.log(`Output: ${options.outputPath} (planned)`);
+  }
+  if (options.dryRun) {
+    console.log(
+      "Dry run: no triage artifacts, reports, or GitHub writes applied.",
+    );
+  }
 }
 
 type ListedIssueForTriage = {
@@ -1349,17 +1687,18 @@ async function writeTriageRunReports(
 
 function renderTriageBatchConsole(
   report: IssueTriageBatchReport,
-  paths: { jsonPath: string; markdownPath: string },
+  paths: { jsonPath: string; markdownPath: string; dryRun?: boolean },
 ): string {
   return [
-    `Issue triage run: ${report.runId}`,
-    `Scanned ${report.issueCount} ${report.state} issues`,
-    "",
-    renderTriageBatchSummary(report),
+    ...renderBox("Batch summary", [
+      `Issue triage run: ${report.runId}`,
+      `Scanned ${report.issueCount} ${report.state} issues`,
+      ...renderTriageBatchSummary(report).split("\n"),
+    ]),
     "",
     renderTriageBatchGroups(report),
-    `JSON report: ${paths.jsonPath}`,
-    `Markdown report: ${paths.markdownPath}`,
+    `JSON report: ${paths.jsonPath}${paths.dryRun ? " (planned)" : ""}`,
+    `Markdown report: ${paths.markdownPath}${paths.dryRun ? " (planned)" : ""}`,
     `GitHub writes: ${formatBatchGitHubWritesSummary(report)}`,
   ].join("\n");
 }
@@ -1614,6 +1953,7 @@ async function issueTriageWriteActions(
     postComment: boolean;
     onlySignals: string[];
     closeAllowed: boolean;
+    dryRun: boolean;
     closureConfig: NonNullable<
       NonNullable<OpenMaintainerConfig["issueTriage"]>["closure"]
     > | null;
@@ -1638,6 +1978,7 @@ async function issueTriageCloseAction(
     issueUpdatedAt: string;
     classification: IssueTriageResult["classification"];
     closeAllowed: boolean;
+    dryRun: boolean;
     closureConfig: NonNullable<
       NonNullable<OpenMaintainerConfig["issueTriage"]>["closure"]
     > | null;
@@ -1655,6 +1996,9 @@ async function issueTriageCloseAction(
   });
   if (!input.closeAllowed) {
     return skipped("Closure requires explicit --close-allowed.");
+  }
+  if (input.dryRun) {
+    return skipped("Dry run: no issue closure applied.");
   }
   const config = input.closureConfig;
   if (!config) {
@@ -1720,6 +2064,7 @@ async function issueTriageCommentAction(
     issueNumber: number;
     commentPreview: IssueTriageResult["commentPreview"];
     postComment: boolean;
+    dryRun: boolean;
   },
 ): Promise<IssueTriageResult["writeActions"][number]> {
   if (!input.postComment) {
@@ -1729,6 +2074,14 @@ async function issueTriageCommentAction(
       target: `issue:${input.issueNumber}`,
       reason:
         "Issue triage is non-mutating by default; comment posting was not requested.",
+    };
+  }
+  if (input.dryRun) {
+    return {
+      type: "post_comment",
+      status: "skipped",
+      target: `issue:${input.issueNumber}`,
+      reason: "Dry run: no issue triage comment posted.",
     };
   }
   let comments: Array<{ id?: number | string | null; body?: string | null }>;
@@ -1807,6 +2160,7 @@ async function issueTriageLabelActions(
     resolvedLabels: IssueTriageResolvedLabel[];
     applyLabels: boolean;
     createLabels: boolean;
+    dryRun: boolean;
     onlySignals?: string[];
   },
 ): Promise<IssueTriageResult["writeActions"]> {
@@ -1841,6 +2195,26 @@ async function issueTriageLabelActions(
         ? "Label exists; pass --apply-labels to apply it."
         : "Label is missing; pass --apply-labels --create-labels to create and apply it.",
     }));
+  }
+  if (input.dryRun) {
+    return mappedLabels.flatMap((label) => [
+      ...(input.createLabels
+        ? [
+            {
+              type: "create_label" as const,
+              status: "skipped" as const,
+              target: label.label,
+              reason: "Dry run: no issue labels created.",
+            },
+          ]
+        : []),
+      {
+        type: "apply_label" as const,
+        status: "skipped" as const,
+        target: label.label,
+        reason: "Dry run: no issue labels applied.",
+      },
+    ]);
   }
 
   const actions: IssueTriageResult["writeActions"] = [];
@@ -2070,6 +2444,7 @@ function formatIssueTriageSummary(
   result: IssueTriageResult,
   evidence: IssueTriageEvidence,
   artifactPath: string,
+  dryRun: boolean,
 ): string[] {
   const missing =
     result.missingInfo.length > 0 ? result.missingInfo.join("; ") : "none";
@@ -2096,8 +2471,11 @@ function formatIssueTriageSummary(
     `Comment preview: ${result.commentPreview.summary}`,
     `Comment action: ${formatCommentActionSummary(result.writeActions)}`,
     `Closure action: ${formatWriteActionSummary(result.writeActions, "close_issue")}`,
-    `Artifact: ${artifactPath}`,
+    `Artifact: ${artifactPath}${dryRun ? " (planned)" : ""}`,
     `GitHub writes: ${formatGitHubWritesSummary(result.writeActions)}`,
+    ...(dryRun
+      ? ["Dry run: no triage artifact or GitHub writes applied."]
+      : []),
   ];
 }
 
@@ -2303,12 +2681,28 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
     provider: providerReview.provider,
     ...(Object.keys(promptContext).length > 0 ? { promptContext } : {}),
   });
+  if (!options.json && (options.outputPath || pullRequest)) {
+    printLines(
+      commandHeader({
+        title: "review",
+        repoRoot,
+        dryRun: options.dryRun,
+      }),
+    );
+  }
   if (options.outputPath) {
     const outputPath = path.resolve(repoRoot, options.outputPath);
-    await mkdir(path.dirname(outputPath), { recursive: true });
-    await writeFile(outputPath, renderReviewMarkdown(result));
+    if (!options.dryRun) {
+      await mkdir(path.dirname(outputPath), { recursive: true });
+      await writeFile(outputPath, renderReviewMarkdown(result));
+    }
     if (!options.json) {
-      console.log(`Review: ${path.relative(repoRoot, outputPath)}`);
+      printLines(
+        renderBox("Review output", [
+          `Review: ${path.relative(repoRoot, outputPath)}${options.dryRun ? " (planned)" : ""}`,
+          ...(options.dryRun ? ["Dry run: no review file written."] : []),
+        ]),
+      );
     }
   }
   if (options.json) {
@@ -2317,8 +2711,12 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
     console.log(renderReviewMarkdown(result));
   }
   if (pullRequest && options.dryRun && !options.json) {
-    console.log(`Review generated for pull request #${pullRequest.number}.`);
-    console.log("Dry run: no PR comments posted.");
+    printLines(
+      renderBox("Pull request review", [
+        `Review generated for pull request #${pullRequest.number}.`,
+        "Dry run: no PR comments posted.",
+      ]),
+    );
   }
   if (pullRequest && !options.dryRun) {
     const explicitPosting =
@@ -2333,8 +2731,12 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
       pullRequestState: pullRequest,
     });
     if (!options.json) {
-      console.log(`Review generated for pull request #${pullRequest.number}.`);
-      console.log(formatPullRequestPostStatus(posted));
+      printLines(
+        renderBox("Pull request review", [
+          `Review generated for pull request #${pullRequest.number}.`,
+          formatPullRequestPostStatus(posted),
+        ]),
+      );
     }
   }
 }

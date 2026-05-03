@@ -426,6 +426,55 @@ describe("CLI issue triage", () => {
     expect(ghCalls).not.toContain('"PATCH"');
   });
 
+  it("previews single-issue triage without local artifacts or GitHub writes", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--apply-labels",
+        "--create-labels",
+        "--post-comment",
+        "--close-allowed",
+        "--dry-run",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "ready",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Open Maintainer issue triage");
+    expect(result.stdout).toContain("Mode: dry-run");
+    expect(result.stdout).toContain(
+      "Artifact: .open-maintainer/triage/issues/42.json (planned)",
+    );
+    expect(result.stdout).toContain("Dry run: no issue labels applied.");
+    expect(result.stdout).toContain("Dry run: no issue triage comment posted.");
+    expect(result.stdout).toContain("Dry run: no issue closure applied.");
+    await expect(
+      readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    ).rejects.toThrow();
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).not.toContain('"POST"');
+    expect(ghCalls).not.toContain('"PATCH"');
+  });
+
   it("requires label application before creating missing labels", async () => {
     const fixture = await createTriageRepo();
 
@@ -1156,6 +1205,57 @@ describe("CLI issue triage", () => {
     expect(ghCalls).not.toContain('"PATCH"');
   });
 
+  it("previews batch triage without run reports or GitHub writes", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issues",
+        fixture,
+        "--state",
+        "open",
+        "--limit",
+        "2",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--apply-labels",
+        "--post-comment",
+        "--dry-run",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "ready",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Open Maintainer issue triage batch");
+    expect(result.stdout).toContain("Mode: dry-run");
+    expect(result.stdout).toContain("Scanned 2 open issues");
+    expect(result.stdout).toContain(
+      "JSON report: .open-maintainer/triage/runs/",
+    );
+    expect(result.stdout).toContain("(planned)");
+    expect(result.stdout).toContain(
+      "Dry run: no triage artifacts, reports, or GitHub writes applied.",
+    );
+    await expect(
+      readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    ).rejects.toThrow();
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).not.toContain('"POST"');
+    expect(ghCalls).not.toContain('"PATCH"');
+  });
+
   it("skips already labelled issues and keeps paging until the batch limit is filled", async () => {
     const fixture = await createTriageRepo();
     const fakeCodex = await createFakeCodexCli();
@@ -1350,6 +1450,71 @@ describe("CLI issue triage", () => {
       "utf8",
     );
     expect(markdown).toContain("Open Maintainer Agent Task Brief");
+  });
+
+  it("previews task briefs without updating artifacts or writing markdown", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const triage = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "ready",
+      },
+    );
+    expect(triage.exitCode).toBe(0);
+
+    const before = await readFile(
+      path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+      "utf8",
+    );
+    const result = await runCli([
+      "triage",
+      "brief",
+      fixture,
+      "--number",
+      "42",
+      "--output-path",
+      ".open-maintainer/triage/issues/42-brief.md",
+      "--dry-run",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Open Maintainer triage brief");
+    expect(result.stdout).toContain("Mode: dry-run");
+    expect(result.stdout).toContain(
+      "Artifact: .open-maintainer/triage/issues/42.json (unchanged)",
+    );
+    expect(result.stdout).toContain(
+      "Markdown: .open-maintainer/triage/issues/42-brief.md (planned)",
+    );
+    expect(result.stdout).toContain(
+      "Dry run: no task brief artifact or markdown file written.",
+    );
+    const after = await readFile(
+      path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+      "utf8",
+    );
+    expect(after).toBe(before);
+    await expect(
+      readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42-brief.md"),
+        "utf8",
+      ),
+    ).rejects.toThrow();
   });
 
   it("requires an override before briefing non-agent-ready issues", async () => {

@@ -205,6 +205,41 @@ describe("CLI review", () => {
     expect(markdown).toContain("src/index.ts");
   });
 
+  it("previews review output files without writing them in dry-run mode", async () => {
+    const fixture = await createReviewRepo();
+    const outputPath = ".open-maintainer/review.md";
+    const fakeCodex = await createFakeCodexCli();
+
+    const result = await runCli(
+      [
+        "review",
+        fixture,
+        "--base-ref",
+        "HEAD~1",
+        "--head-ref",
+        "HEAD",
+        "--output-path",
+        outputPath,
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--dry-run",
+      ],
+      fakeCodex.env,
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Open Maintainer review");
+    expect(result.stdout).toContain(
+      "Review: .open-maintainer/review.md (planned)",
+    );
+    expect(result.stdout).toContain("Dry run: no review file written.");
+    await expect(
+      readFile(path.join(fixture, outputPath), "utf8"),
+    ).rejects.toThrow();
+  });
+
   it("prints ReviewResult JSON", async () => {
     const fixture = await createReviewRepo();
     const fakeCodex = await createFakeCodexCli();
@@ -398,6 +433,46 @@ describe("CLI review", () => {
     );
     expect(JSON.stringify(calls[1].input)).toContain(
       "Add or adjust tests and confirm the changed value is intended.",
+    );
+  });
+
+  it("previews pull request reviews without posting GitHub comments", async () => {
+    const fixture = await createReviewRepo();
+    const prNumber = 12;
+    const refs = await attachPullRequestRemote(fixture, prNumber);
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli({ prNumber, ...refs });
+
+    const result = await runCli(
+      [
+        "review",
+        fixture,
+        "--pr",
+        String(prNumber),
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--dry-run",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_FINDING: "1",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Open Maintainer review");
+    expect(result.stdout).toContain("Mode: dry-run");
+    expect(result.stdout).toContain("Review generated for pull request #12.");
+    expect(result.stdout).toContain("Dry run: no PR comments posted.");
+    const calls = await readFile(fakeGh.callsPath, "utf8").catch(() => "");
+    expect(calls).not.toContain(
+      "repos/Open-Maintainer/cli-review-fixture/issues/12/comments",
+    );
+    expect(calls).not.toContain(
+      "repos/Open-Maintainer/cli-review-fixture/pulls/12/reviews",
     );
   });
 
