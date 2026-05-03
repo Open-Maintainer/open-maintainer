@@ -2,7 +2,7 @@ name: Open Maintainer
 description: Run Open Maintainer audit checks and optional context refresh PRs.
 inputs:
   mode:
-    description: Action mode. Use audit for non-mutating checks or refresh to open/update a context refresh PR.
+    description: Action mode. Use audit for non-mutating checks, refresh to open/update a context refresh PR, or issue-triage for model-backed issue triage.
     required: false
     default: audit
   fail-on-score-below:
@@ -57,6 +57,38 @@ inputs:
     description: Overwrite maintainer-owned context files during refresh. Defaults to preserving them.
     required: false
     default: "false"
+  issue-number:
+    description: Optional GitHub issue number for issue-triage mode. When omitted, issue-triage runs a bounded batch.
+    required: false
+    default: ""
+  issue-state:
+    description: Issue state for issue-triage batch mode. One of open, closed, or all.
+    required: false
+    default: open
+  issue-limit:
+    description: Maximum issues to triage in issue-triage batch mode.
+    required: false
+    default: "10"
+  issue-label:
+    description: Optional label filter for issue-triage batch mode.
+    required: false
+    default: ""
+  issue-apply-labels:
+    description: Apply mapped Open Maintainer issue labels during issue-triage mode.
+    required: false
+    default: "false"
+  issue-create-labels:
+    description: Create missing Open Maintainer issue labels during issue-triage mode. Requires issue-apply-labels.
+    required: false
+    default: "false"
+  issue-post-comment:
+    description: Post or update the marked Open Maintainer issue triage comment during issue-triage mode.
+    required: false
+    default: "false"
+  issue-close-allowed:
+    description: Allow config-gated selective issue closure during issue-triage mode.
+    required: false
+    default: "false"
 outputs:
   readiness-score:
     description: Current agent readiness score.
@@ -67,6 +99,9 @@ outputs:
   refresh-pr-url:
     description: Pull request URL created or updated by refresh mode.
     value: ${{ steps.refresh-pr.outputs.pr-url }}
+  issue-triage-output:
+    description: Path to issue triage console output captured during issue-triage mode.
+    value: ${{ steps.issue-triage.outputs.output-path }}
 runs:
   using: composite
   steps:
@@ -74,9 +109,9 @@ runs:
       shell: bash
       run: |
         case "${{ inputs.mode }}" in
-          audit|refresh) ;;
+          audit|refresh|issue-triage) ;;
           *)
-            echo "::error title=Open Maintainer::Unsupported mode '${{ inputs.mode }}'. Use 'audit' or 'refresh'."
+            echo "::error title=Open Maintainer::Unsupported mode '${{ inputs.mode }}'. Use 'audit', 'refresh', or 'issue-triage'."
             exit 2
             ;;
         esac
@@ -104,6 +139,28 @@ runs:
         if [ "${{ inputs.mode }}" = "refresh" ] &&
           [ "${{ inputs.allow-model-content-transfer }}" != "true" ]; then
           echo "::error title=Open Maintainer::Refresh requires allow-model-content-transfer: 'true'."
+          exit 2
+        fi
+        if [ "${{ inputs.mode }}" = "issue-triage" ] &&
+          [ "${{ inputs.allow-model-content-transfer }}" != "true" ]; then
+          echo "::error title=Open Maintainer::Issue triage requires allow-model-content-transfer: 'true'."
+          exit 2
+        fi
+        if [ "${{ inputs.mode }}" = "issue-triage" ] &&
+          [ "${{ github.event_name }}" = "pull_request" ]; then
+          echo "::error title=Open Maintainer::Issue triage mode is for issue, schedule, or workflow_dispatch events; use review workflows for pull requests."
+          exit 2
+        fi
+        case "${{ inputs.issue-state }}" in
+          open|closed|all) ;;
+          *)
+            echo "::error title=Open Maintainer::Unsupported issue-state '${{ inputs.issue-state }}'. Use 'open', 'closed', or 'all'."
+            exit 2
+            ;;
+        esac
+        if [ "${{ inputs.issue-create-labels }}" = "true" ] &&
+          [ "${{ inputs.issue-apply-labels }}" != "true" ]; then
+          echo "::error title=Open Maintainer::issue-create-labels requires issue-apply-labels: 'true'."
           exit 2
         fi
     - name: Set up Bun
@@ -358,6 +415,54 @@ runs:
           args+=("--refresh-generated")
         fi
         bun run --cwd "$GITHUB_ACTION_PATH" cli "${args[@]}"
+    - name: Run issue triage
+      id: issue-triage
+      if: ${{ inputs.mode == 'issue-triage' }}
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token || github.token }}
+      run: |
+        set -euo pipefail
+        output_path="$RUNNER_TEMP/open-maintainer-issue-triage-output.txt"
+        args=("triage")
+        if [ -n "${{ inputs.issue-number }}" ]; then
+          args+=("issue" "$GITHUB_WORKSPACE" "--number" "${{ inputs.issue-number }}")
+        else
+          args+=("issues" "$GITHUB_WORKSPACE" "--state" "${{ inputs.issue-state }}" "--limit" "${{ inputs.issue-limit }}")
+          if [ -n "${{ inputs.issue-label }}" ]; then
+            args+=("--label" "${{ inputs.issue-label }}")
+          fi
+        fi
+        args+=("--model" "${{ inputs.generation-provider }}" "--allow-model-content-transfer")
+        if [ -n "${{ inputs.generation-model }}" ]; then
+          args+=("--llm-model" "${{ inputs.generation-model }}")
+        fi
+        if [ "${{ inputs.issue-apply-labels }}" = "true" ]; then
+          args+=("--apply-labels")
+        fi
+        if [ "${{ inputs.issue-create-labels }}" = "true" ]; then
+          args+=("--create-labels")
+        fi
+        if [ "${{ inputs.issue-post-comment }}" = "true" ]; then
+          args+=("--post-comment")
+        fi
+        if [ "${{ inputs.issue-close-allowed }}" = "true" ]; then
+          args+=("--close-allowed")
+        fi
+        bun run --cwd "$GITHUB_ACTION_PATH" cli "${args[@]}" >"$output_path" 2>&1
+        cat "$output_path"
+        {
+          echo "## Open Maintainer Issue Triage"
+          echo
+          echo "Mode: ${{ inputs.mode }}"
+          echo "Provider: ${{ inputs.generation-provider }}"
+          echo "GitHub writes: labels=${{ inputs.issue-apply-labels }}, create-labels=${{ inputs.issue-create-labels }}, comments=${{ inputs.issue-post-comment }}, closure=${{ inputs.issue-close-allowed }}"
+          echo
+          echo '```text'
+          cat "$output_path"
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+        echo "output-path=$output_path" >> "$GITHUB_OUTPUT"
     - name: Open refresh pull request
       id: refresh-pr
       if: ${{ inputs.mode == 'refresh' }}

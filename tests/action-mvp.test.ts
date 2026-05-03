@@ -30,6 +30,9 @@ describe("GitHub Action MVP", () => {
     expect(action.inputs["allow-review-content-transfer"]).toBeUndefined();
     expect(action.inputs["review-comment-on-pr"]).toBeUndefined();
     expect(action.inputs["review-inline-comments"]).toBeUndefined();
+    expect(action.inputs["issue-apply-labels"].default).toBe("false");
+    expect(action.inputs["issue-post-comment"].default).toBe("false");
+    expect(action.inputs["issue-close-allowed"].default).toBe("false");
 
     expect(steps).toContainEqual(
       expect.objectContaining({
@@ -109,7 +112,7 @@ describe("GitHub Action MVP", () => {
     const validateStep = steps.find(
       (step: { name?: string }) => step.name === "Validate inputs",
     );
-    expect(validateStep.run).toContain("audit|refresh");
+    expect(validateStep.run).toContain("audit|refresh|issue-triage");
     expect(validateStep.run).toContain("Unsupported mode");
     expect(validateStep.run).toContain(
       "Refresh requires allow-model-content-transfer",
@@ -117,6 +120,15 @@ describe("GitHub Action MVP", () => {
     expect(validateStep.run).not.toContain("Review requires");
     expect(validateStep.run).not.toContain(
       "Review inline comments are not implemented yet",
+    );
+    expect(validateStep.run).toContain(
+      "Issue triage requires allow-model-content-transfer",
+    );
+    expect(validateStep.run).toContain(
+      "Issue triage mode is for issue, schedule, or workflow_dispatch events",
+    );
+    expect(validateStep.run).toContain(
+      "issue-create-labels requires issue-apply-labels",
     );
 
     const refreshStep = steps.find(
@@ -134,6 +146,33 @@ describe("GitHub Action MVP", () => {
     expect(prStep.run).toContain("git push --force-with-lease");
     expect(prStep.run).toContain("gh pr create");
     expect(prStep.run).not.toContain("git push origin main");
+  });
+
+  it("adds explicit issue triage mode with read-only defaults and opt-in writes", async () => {
+    const action = await readYaml("action.yml");
+    const steps = action.runs.steps;
+
+    expect(action.inputs["issue-number"].default).toBe("");
+    expect(action.inputs["issue-state"].default).toBe("open");
+    expect(action.inputs["issue-limit"].default).toBe("10");
+    expect(action.inputs["issue-label"].default).toBe("");
+    expect(action.outputs["issue-triage-output"].value).toBe(
+      "${{ steps.issue-triage.outputs.output-path }}",
+    );
+
+    const triageStep = steps.find(
+      (step: { name?: string }) => step.name === "Run issue triage",
+    );
+    expect(triageStep.if).toBe("${{ inputs.mode == 'issue-triage' }}");
+    expect(triageStep.run).toContain('args=("triage")');
+    expect(triageStep.run).toContain('"issue" "$GITHUB_WORKSPACE"');
+    expect(triageStep.run).toContain('"issues" "$GITHUB_WORKSPACE"');
+    expect(triageStep.run).toContain("--allow-model-content-transfer");
+    expect(triageStep.run).toContain("--apply-labels");
+    expect(triageStep.run).toContain("--create-labels");
+    expect(triageStep.run).toContain("--post-comment");
+    expect(triageStep.run).toContain("--close-allowed");
+    expect(triageStep.run).toContain("$GITHUB_STEP_SUMMARY");
   });
 
   it("keeps the public workflow audit-only for release dogfooding", async () => {
