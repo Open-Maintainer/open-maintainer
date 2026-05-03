@@ -327,11 +327,11 @@ Agent Readiness: 100/100
 
 ## Drift
 
-- Documentation: docs/PRODUCT_PRD.md was added. Evidence: docs/PRODUCT_PRD.md. Next action: review generated context against the changed docs.
+- Documentation: docs/DEMO_RUNBOOK.md was changed. Evidence: docs/DEMO_RUNBOOK.md. Next action: review generated context against the changed docs.
+- Documentation: docs/PRODUCT_PRD.md was changed. Evidence: docs/PRODUCT_PRD.md. Next action: review generated context against the changed docs.
 - Documentation: docs/ROADMAP.md was changed. Evidence: docs/ROADMAP.md. Next action: review generated context against the changed docs.
-- Documentation: docs/V0_4_X_RELEASE_REVIEW.md was added. Evidence: docs/V0_4_X_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
-- Documentation: local-docs/PRODUCT_PRD.md was removed. Evidence: local-docs/PRODUCT_PRD.md. Next action: review generated context against the changed docs.
-- Documentation: local-docs/V4_V5_ADDITIONS.md was added. Evidence: local-docs/V4_V5_ADDITIONS.md. Next action: review generated context against the changed docs.
+- Documentation: docs/V0_4_RELEASE_REVIEW.md was changed. Evidence: docs/V0_4_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
+- Documentation: docs/V0_4_X_RELEASE_REVIEW.md was changed. Evidence: docs/V0_4_X_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
 - Documentation: README.md was changed. Evidence: README.md. Next action: review generated context against the changed docs.
 
 ## Commands

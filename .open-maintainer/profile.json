@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_f728376a-f874-4cdd-bbd2-59d3401326f2",
+  "id": "repo_profile_0ad7c623-57f8-4edb-84aa-5789f9e7c161",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -996,11 +996,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "eadba1daac0b9f3e"
+      "hash": "c5d715c08897e503"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "8ada714e1f6d787a"
+      "hash": "a3e14263b2c64780"
     },
     {
       "path": "AGENTS.md",
@@ -1012,7 +1012,7 @@
     },
     {
       "path": "apps/api/tests/api.test.ts",
-      "hash": "51a9c5295eb5277d"
+      "hash": "4f15c810162f8fe1"
     },
     {
       "path": "apps/api/tsconfig.json",
@@ -1064,7 +1064,7 @@
     },
     {
       "path": "docs/DEMO_RUNBOOK.md",
-      "hash": "c2da896289a741b3"
+      "hash": "ef0fb9bb2722f7cf"
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
@@ -1072,11 +1072,11 @@
     },
     {
       "path": "docs/PRODUCT_PRD.md",
-      "hash": "ca22471762dcd1f9"
+      "hash": "6d59853083852f89"
     },
     {
       "path": "docs/ROADMAP.md",
-      "hash": "b3cd63e1825a80fa"
+      "hash": "7586a86d376872a8"
     },
     {
       "path": "docs/V0_3_RELEASE_REVIEW.md",
@@ -1084,11 +1084,11 @@
     },
     {
       "path": "docs/V0_4_RELEASE_REVIEW.md",
-      "hash": "5d2ca9e331883892"
+      "hash": "c3a4b8704bd75133"
     },
     {
       "path": "docs/V0_4_X_RELEASE_REVIEW.md",
-      "hash": "fe94dce74ac96f0d"
+      "hash": "05d4c00e5bc92aba"
     },
     {
       "path": "local-docs/V4_V5_ADDITIONS.md",
@@ -1176,11 +1176,11 @@
     },
     {
       "path": "packages/review/tests/model.test.ts",
-      "hash": "2d2f2b5dc78c9ce1"
+      "hash": "feb04cb78728c179"
     },
     {
       "path": "packages/review/tests/precheck.test.ts",
-      "hash": "b55b6615ae701253"
+      "hash": "bc202b9a6f0da581"
     },
     {
       "path": "packages/review/tests/render.test.ts",
@@ -1204,7 +1204,7 @@
     },
     {
       "path": "README.md",
-      "hash": "d49cb0318da78da0"
+      "hash": "156c3bdf599ae8bb"
     },
     {
       "path": "tests/action-mvp.test.ts",
@@ -1220,11 +1220,11 @@
     },
     {
       "path": "tests/cli-help.test.ts",
-      "hash": "4331ca4a54ae4d0c"
+      "hash": "30b8d6c3750b07d6"
     },
     {
       "path": "tests/cli-review.test.ts",
-      "hash": "41f22ebbb62256f2"
+      "hash": "bcad16a6adca3389"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1404,7 +1404,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-02T21:38:17.471Z",
+  "createdAt": "2026-05-03T00:29:56.027Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2630,7 +2630,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-02T21:38:17.472Z"
+    "generatedAt": "2026-05-03T00:29:56.028Z"
   },
-  "openMaintainerProfileHash": "7c69e19eb59d4f37"
+  "openMaintainerProfileHash": "7025b75561f8a733"
 }
