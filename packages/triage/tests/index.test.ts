@@ -9,6 +9,7 @@ import {
   mapIssueTriageLabelIntents,
   parseIssueTriageModelCompletion,
   parseIssueTriageModelResult,
+  renderIssueTriageCommentPreview,
   safeParseIssueTriageModelResult,
 } from "../src";
 import * as triage from "../src";
@@ -213,5 +214,19 @@ describe("issue triage package", () => {
     expect(() => parseIssueTriageModelCompletion("not json")).toThrow(
       "Invalid issue triage model output",
     );
+  });
+
+  it("renders deterministic issue triage comments without authorship language", () => {
+    const comment = renderIssueTriageCommentPreview(
+      parseIssueTriageModelResult(validModelResult),
+      ".open-maintainer/triage/issues/10.json",
+    );
+
+    expect(comment.body).toContain("<!-- open-maintainer:issue-triage -->");
+    expect(comment.body).toContain("Maintainer-approved desired behavior");
+    expect(comment.body).toContain("Needs Maintainer Design");
+    expect(comment.body.toLowerCase()).not.toContain("used ai");
+    expect(comment.body.toLowerCase()).not.toContain("authorship");
+    expect(comment.artifactPath).toBe(".open-maintainer/triage/issues/10.json");
   });
 });

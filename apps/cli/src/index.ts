@@ -64,6 +64,7 @@ import {
   issueTriageModelOutputJsonSchema,
   mapIssueTriageLabelIntents,
   parseIssueTriageModelCompletion,
+  renderIssueTriageCommentPreview,
 } from "@open-maintainer/triage";
 
 type CliOptions = {
@@ -100,6 +101,7 @@ type CliOptions = {
   triageLabel: string | null;
   issueApplyLabels: boolean;
   issueCreateLabels: boolean;
+  issuePostComment: boolean;
 };
 
 type ArtifactSelection = "codex" | "claude" | "both";
@@ -259,6 +261,7 @@ Batch options:
   --label <name>                         Optional label filter for the issue list
   --apply-labels                         Apply mapped Open Maintainer issue labels
   --create-labels                        Create missing labels before applying them; requires --apply-labels
+  --post-comment                         Post or update the marked Open Maintainer issue triage comment
 
 Model required:
   --model codex|claude                  CLI backend used for model-backed triage
@@ -904,16 +907,29 @@ async function runIssueTriagePreview(input: {
     { outputSchema: issueTriageModelOutputJsonSchema },
   );
   const modelResult = parseIssueTriageModelCompletion(completion.text);
+  const artifactPath = path.join(
+    ".open-maintainer",
+    "triage",
+    "issues",
+    `${input.issueNumber}.json`,
+  );
+  const commentPreview = renderIssueTriageCommentPreview(
+    modelResult,
+    artifactPath,
+  );
   const writeActions = await issueTriageWriteActions(input.repoRoot, {
     owner: profile.owner,
     repo: profile.name,
     issueNumber: input.issueNumber,
     labelIntents: modelResult.labelIntents,
+    commentPreview,
     applyLabels: input.options.issueApplyLabels,
     createLabels: input.options.issueCreateLabels,
+    postComment: input.options.issuePostComment,
   });
   const result = IssueTriageResultSchema.parse({
     ...modelResult,
+    commentPreview,
     id: newId("issue_triage"),
     repoId: profile.repoId,
     issueNumber: input.issueNumber,
@@ -925,12 +941,6 @@ async function runIssueTriagePreview(input: {
     contextArtifactVersion: null,
     createdAt: nowIso(),
   } satisfies IssueTriageResult);
-  const artifactPath = path.join(
-    ".open-maintainer",
-    "triage",
-    "issues",
-    `${input.issueNumber}.json`,
-  );
   await writeIssueTriageArtifact(input.repoRoot, artifactPath, {
     input: triageInput,
     result,
@@ -1349,20 +1359,17 @@ async function issueTriageWriteActions(
     repo: string;
     issueNumber: number;
     labelIntents: IssueTriageResult["labelIntents"];
+    commentPreview: IssueTriageResult["commentPreview"];
     applyLabels: boolean;
     createLabels: boolean;
+    postComment: boolean;
   },
 ): Promise<IssueTriageResult["writeActions"]> {
   const labelActions = await issueTriageLabelActions(repoRoot, input);
+  const commentAction = await issueTriageCommentAction(repoRoot, input);
   return [
     ...labelActions,
-    {
-      type: "post_comment",
-      status: "skipped",
-      target: `issue:${input.issueNumber}`,
-      reason:
-        "Issue triage is non-mutating by default; comment posting was not requested.",
-    },
+    commentAction,
     {
       type: "close_issue",
       status: "skipped",
@@ -1371,6 +1378,63 @@ async function issueTriageWriteActions(
         "Issue triage is non-mutating by default; closure was not requested.",
     },
   ];
+}
+
+async function issueTriageCommentAction(
+  repoRoot: string,
+  input: {
+    owner: string;
+    repo: string;
+    issueNumber: number;
+    commentPreview: IssueTriageResult["commentPreview"];
+    postComment: boolean;
+  },
+): Promise<IssueTriageResult["writeActions"][number]> {
+  if (!input.postComment) {
+    return {
+      type: "post_comment",
+      status: "skipped",
+      target: `issue:${input.issueNumber}`,
+      reason:
+        "Issue triage is non-mutating by default; comment posting was not requested.",
+    };
+  }
+  const comments = await ghApiJson<
+    Array<{ id?: number | string | null; body?: string | null }>
+  >(
+    repoRoot,
+    `${issueEndpoint(input.owner, input.repo, input.issueNumber)}/comments?per_page=100`,
+  );
+  const existing = comments.find((comment) =>
+    comment.body?.includes(input.commentPreview.marker),
+  );
+  if (existing?.id) {
+    await ghApiWithJsonBody(
+      repoRoot,
+      `repos/${input.owner}/${input.repo}/issues/comments/${existing.id}`,
+      "PATCH",
+      { body: input.commentPreview.body },
+    );
+    return {
+      type: "update_comment",
+      status: "applied",
+      target: `comment:${existing.id}`,
+      reason: "Updated existing marked issue triage comment.",
+    };
+  }
+  await ghApiWithJsonBody(
+    repoRoot,
+    `${issueEndpoint(input.owner, input.repo, input.issueNumber)}/comments`,
+    "POST",
+    { body: input.commentPreview.body },
+  );
+  return {
+    type: "post_comment",
+    status: "applied",
+    target: `issue:${input.issueNumber}`,
+    reason:
+      "Posted marked issue triage comment because --post-comment was set.",
+  };
 }
 
 async function issueTriageLabelActions(
@@ -1583,6 +1647,7 @@ function formatIssueTriageSummary(
     `Label actions: ${formatWriteActionSummary(result.writeActions, "apply_label")}`,
     `Next action: ${result.nextAction}`,
     `Comment preview: ${result.commentPreview.summary}`,
+    `Comment action: ${formatCommentActionSummary(result.writeActions)}`,
     `Artifact: ${artifactPath}`,
     "GitHub writes: skipped (preview-only default)",
   ];
@@ -1593,6 +1658,24 @@ function formatWriteActionSummary(
   type: IssueTriageResult["writeActions"][number]["type"],
 ): string {
   const matching = actions.filter((action) => action.type === type);
+  if (matching.length === 0) {
+    return "none";
+  }
+  return matching
+    .map(
+      (action) =>
+        `${action.status} ${action.target ?? "target"} (${action.reason})`,
+    )
+    .join("; ");
+}
+
+function formatCommentActionSummary(
+  actions: IssueTriageResult["writeActions"],
+): string {
+  const matching = actions.filter(
+    (action) =>
+      action.type === "post_comment" || action.type === "update_comment",
+  );
   if (matching.length === 0) {
     return "none";
   }
@@ -2745,6 +2828,7 @@ function parseOptions(rawOptions: string[]): CliOptions {
     triageLabel: null,
     issueApplyLabels: false,
     issueCreateLabels: false,
+    issuePostComment: false,
   };
   for (let index = 0; index < rawOptions.length; index += 1) {
     const option = rawOptions[index];
@@ -2855,6 +2939,8 @@ function parseOptions(rawOptions: string[]): CliOptions {
       options.issueApplyLabels = true;
     } else if (option === "--create-labels") {
       options.issueCreateLabels = true;
+    } else if (option === "--post-comment") {
+      options.issuePostComment = true;
     } else if (option === "--output-path") {
       options.outputPath = requireOptionValue(rawOptions, index, option);
       index += 1;

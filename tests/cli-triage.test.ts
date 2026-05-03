@@ -90,6 +90,14 @@ if (method === "POST" && /^repos\\/acme\\/triage-fixture\\/issues\\/\\d+\\/label
   write(input.labels.map((name) => ({ name })));
   process.exit(0);
 }
+if (method === "POST" && /^repos\\/acme\\/triage-fixture\\/issues\\/\\d+\\/comments$/.test(endpoint)) {
+  write({ id: 900, html_url: "https://github.com/acme/triage-fixture/issues/42#issuecomment-900" });
+  process.exit(0);
+}
+if (method === "PATCH" && endpoint === "repos/acme/triage-fixture/issues/comments/901") {
+  write({ id: 901, html_url: "https://github.com/acme/triage-fixture/issues/42#issuecomment-901" });
+  process.exit(0);
+}
 if (method !== "GET") {
   console.error("unexpected mutation: " + args.join(" "));
   process.exit(1);
@@ -154,6 +162,17 @@ if (endpoint === "repos/acme/triage-fixture/issues/42/comments") {
     created_at: "2026-05-03T00:02:00.000Z",
     updated_at: "2026-05-03T00:02:00.000Z"
   }]);
+  process.exit(0);
+}
+if (endpoint === "repos/acme/triage-fixture/issues/42/comments?per_page=100") {
+  if (process.env.OPEN_MAINTAINER_FAKE_EXISTING_TRIAGE_COMMENT === "1") {
+    write([{
+      id: 901,
+      body: "<!-- open-maintainer:issue-triage -->\\nOld triage comment"
+    }]);
+  } else {
+    write([]);
+  }
   process.exit(0);
 }
 if (/^repos\\/acme\\/triage-fixture\\/issues\\/(43|44)\\/comments$/.test(endpoint)) {
@@ -263,6 +282,13 @@ describe("CLI issue triage", () => {
           action.reason.includes("Label is missing"),
       ),
     ).toBe(true);
+    expect(triage.commentPreview.body).toContain(
+      "<!-- open-maintainer:issue-triage -->",
+    );
+    expect(triage.commentPreview.body).toContain(
+      "Minimal reproduction or exact expected behavior",
+    );
+    expect(triage.commentPreview.body.toLowerCase()).not.toContain("used ai");
     const ghCalls = await readFile(fakeGh.callsPath, "utf8");
     expect(ghCalls).not.toContain("--method");
   });
@@ -344,6 +370,95 @@ describe("CLI issue triage", () => {
     expect(ghCalls).toContain("repos/acme/triage-fixture/labels");
     expect(ghCalls).toContain("repos/acme/triage-fixture/issues/42/labels");
     expect(ghCalls).not.toContain("/pulls/");
+  });
+
+  it("posts a marked deterministic issue triage comment only when requested", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--post-comment",
+      ],
+      { ...fakeCodex.env, ...fakeGh.env },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    );
+    const triage = IssueTriageResultSchema.parse(artifact.result);
+    expect(
+      triage.writeActions.some(
+        (action) =>
+          action.type === "post_comment" && action.status === "applied",
+      ),
+    ).toBe(true);
+    expect(triage.commentPreview.body).toContain("Requested Author Actions");
+    expect(triage.commentPreview.body.toLowerCase()).not.toContain(
+      "authorship",
+    );
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).toContain("repos/acme/triage-fixture/issues/42/comments");
+    expect(ghCalls).toContain("--method");
+    expect(ghCalls).toContain("POST");
+  });
+
+  it("updates an existing marked issue triage comment instead of duplicating", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--post-comment",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_EXISTING_TRIAGE_COMMENT: "1",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    );
+    const triage = IssueTriageResultSchema.parse(artifact.result);
+    expect(
+      triage.writeActions.some(
+        (action) =>
+          action.type === "update_comment" && action.status === "applied",
+      ),
+    ).toBe(true);
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).toContain("repos/acme/triage-fixture/issues/comments/901");
+    expect(ghCalls).toContain("PATCH");
   });
 
   it("runs bounded batch triage with grouped reports and per-issue errors", async () => {

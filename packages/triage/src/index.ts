@@ -1,5 +1,6 @@
 import {
   DefaultIssueTriageLabelMappings,
+  type IssueTriageCommentPreview,
   type IssueTriageEvidence,
   type IssueTriageEvidenceCitation,
   type IssueTriageInput,
@@ -12,6 +13,9 @@ import {
   type IssueTriageSkippedEvidence,
 } from "@open-maintainer/shared";
 import type { z } from "zod";
+
+export const ISSUE_TRIAGE_COMMENT_MARKER =
+  "<!-- open-maintainer:issue-triage -->";
 
 export type IssueTriageLabelMapping = Partial<
   Record<IssueTriageLabelIntent, string>
@@ -228,6 +232,45 @@ export function buildIssueTriageModelPrompt(input: IssueTriageInput): {
   };
 }
 
+export function renderIssueTriageCommentPreview(
+  result: IssueTriageModelResult,
+  artifactPath: string | null,
+): IssueTriageCommentPreview {
+  const title = humanizeTriageValue(result.classification);
+  const missingLines =
+    result.missingInformation.length > 0
+      ? result.missingInformation.map((item) => `- ${item}`)
+      : ["- No missing information was identified."];
+  const actionLines =
+    result.requiredAuthorActions.length > 0
+      ? result.requiredAuthorActions.map((item) => `- ${item}`)
+      : ["- No author action is required before maintainer review."];
+  const body = [
+    ISSUE_TRIAGE_COMMENT_MARKER,
+    "## Open Maintainer Issue Triage",
+    "",
+    `Status: **${title}**`,
+    "",
+    result.recommendation,
+    "",
+    "### Missing Information",
+    ...missingLines,
+    "",
+    "### Requested Author Actions",
+    ...actionLines,
+    "",
+    "### Next Step",
+    result.nextAction,
+  ].join("\n");
+
+  return {
+    marker: ISSUE_TRIAGE_COMMENT_MARKER,
+    summary: title,
+    body,
+    artifactPath,
+  };
+}
+
 export function mapIssueTriageLabelIntents(
   intents: readonly IssueTriageLabelIntent[],
   mappings: IssueTriageLabelMapping = {},
@@ -433,6 +476,13 @@ function normalizeWhitespace(text: string): string {
 
 function unique(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.length > 0))];
+}
+
+function humanizeTriageValue(value: string): string {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function parseJsonObjectFromModelText(text: string): unknown {
