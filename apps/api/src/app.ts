@@ -859,14 +859,14 @@ async function generateContextArtifactsForRun(input: {
       skills: input.skills,
     }),
   });
-  for (const artifact of artifacts) {
-    store.addArtifact(artifact);
-  }
   store.updateRun(input.runId, {
     status: "succeeded",
     artifactVersions: artifacts.map((artifact) => artifact.version),
     safeMessage: "Context artifacts generated for preview.",
   });
+  for (const artifact of artifacts) {
+    store.addArtifact(artifact);
+  }
   return artifacts;
 }
 
