@@ -325,22 +325,9 @@ Agent Readiness: 100/100
 
 ## Drift
 
-- Package boundaries: packages/triage was added. Evidence: packages/triage. Next action: review package/app context for the changed boundary.
-- Commands: package.json script build was changed. Evidence: package.json. Next action: review the changed command and refresh generated context if validation expectations changed.
-- Commands: packages/triage/package.json script build was added. Evidence: packages/triage/package.json. Next action: review the changed command and refresh generated context if validation expectations changed.
-- Documentation: docs/DEMO_RUNBOOK.md was changed. Evidence: docs/DEMO_RUNBOOK.md. Next action: review generated context against the changed docs.
-- Documentation: docs/ROADMAP.md was changed. Evidence: docs/ROADMAP.md. Next action: review generated context against the changed docs.
-- Documentation: docs/V0_3_RELEASE_REVIEW.md was removed. Evidence: docs/V0_3_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
-- Documentation: docs/V0_4_RELEASE_REVIEW.md was removed. Evidence: docs/V0_4_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
-- Documentation: docs/V0_4_X_RELEASE_REVIEW.md was removed. Evidence: docs/V0_4_X_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
-- Documentation: docs/V0_5_RELEASE_REVIEW.md was added. Evidence: docs/V0_5_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
-- Documentation: local-docs/V4_V5_ADDITIONS.md was removed. Evidence: local-docs/V4_V5_ADDITIONS.md. Next action: review generated context against the changed docs.
+- Documentation: docs/V0_5_RELEASE_REVIEW.md was changed. Evidence: docs/V0_5_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
 - Documentation: README.md was changed. Evidence: README.md. Next action: review generated context against the changed docs.
-- Lockfiles and config: apps/cli/tsconfig.json was changed. Evidence: apps/cli/tsconfig.json. Next action: review setup and validation context for the changed file.
-- Lockfiles and config: bun.lock was changed. Evidence: bun.lock. Next action: review setup and validation context for the changed file.
-- Lockfiles and config: packages/github/tsconfig.json was changed. Evidence: packages/github/tsconfig.json. Next action: review setup and validation context for the changed file.
-- Lockfiles and config: packages/triage/tsconfig.json was added. Evidence: packages/triage/tsconfig.json. Next action: review setup and validation context for the changed file.
-- Lockfiles and config: tsconfig.json was changed. Evidence: tsconfig.json. Next action: review setup and validation context for the changed file.
+- Lockfiles and config: biome.json was changed. Evidence: biome.json. Next action: review setup and validation context for the changed file.
 
 ## Commands
 

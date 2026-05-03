@@ -1,11 +1,13 @@
 {
-  "id": "repo_profile_33cb55dd-debc-4f8a-8deb-635297624d4c",
+  "id": "repo_profile_09b2f5ac-1252-4c03-ac24-e0629640486f",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
   "name": "open-maintainer",
   "defaultBranch": "main",
-  "primaryLanguages": ["TypeScript"],
+  "primaryLanguages": [
+    "TypeScript"
+  ],
   "frameworks": [
     "next",
     "react",
@@ -298,6 +300,9 @@
     "OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE",
     "OPEN_MAINTAINER_FAKE_EXISTING_TRIAGE_COMMENT",
     "OPEN_MAINTAINER_FAKE_GH_CALLS",
+    "OPEN_MAINTAINER_FAKE_GH_COMMENT_FAIL",
+    "OPEN_MAINTAINER_FAKE_GH_LABEL_APPLY_FAIL",
+    "OPEN_MAINTAINER_FAKE_GH_REJECT_ENV_TOKEN",
     "OPEN_MAINTAINER_FAKE_ISSUE_42_UPDATED_AT",
     "OPEN_MAINTAINER_GH_COMMAND",
     "OPEN_MAINTAINER_GIT_AUTHOR_EMAIL",
@@ -910,7 +915,9 @@
       "reason": "detected repository context"
     }
   ],
-  "workspaceManifests": ["package.json"],
+  "workspaceManifests": [
+    "package.json"
+  ],
   "lockfiles": [
     "bun.lock",
     "tests/fixtures/high-readiness-ts/bun.lock",
@@ -1002,7 +1009,7 @@
     },
     {
       "path": ".gitignore",
-      "hash": "84d9e598d72e730b"
+      "hash": "da3595ffac654bea"
     },
     {
       "path": ".open-maintainer.yml",
@@ -1010,11 +1017,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "3f55a0d47208792e"
+      "hash": "ad925ffd3e9d1043"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "a3e14263b2c64780"
+      "hash": "f33d77b14485038b"
     },
     {
       "path": "AGENTS.md",
@@ -1062,7 +1069,7 @@
     },
     {
       "path": "biome.json",
-      "hash": "3151caab6676ee21"
+      "hash": "24e4be3556c6b021"
     },
     {
       "path": "bun.lock",
@@ -1094,7 +1101,7 @@
     },
     {
       "path": "docs/V0_5_RELEASE_REVIEW.md",
-      "hash": "22aabdf82aad027d"
+      "hash": "17734751112381d2"
     },
     {
       "path": "package.json",
@@ -1218,7 +1225,7 @@
     },
     {
       "path": "README.md",
-      "hash": "14bb32c6878ad804"
+      "hash": "23bea47b2a14b0e2"
     },
     {
       "path": "tests/action-mvp.test.ts",
@@ -1234,15 +1241,15 @@
     },
     {
       "path": "tests/cli-help.test.ts",
-      "hash": "f2202f6d8c0c7b3c"
+      "hash": "5d00777f8f61bf42"
     },
     {
       "path": "tests/cli-review.test.ts",
-      "hash": "bcad16a6adca3389"
+      "hash": "f82231f529c36c38"
     },
     {
       "path": "tests/cli-triage.test.ts",
-      "hash": "538887c9ad066596"
+      "hash": "b83132254c265b4b"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1386,7 +1393,7 @@
     },
     {
       "path": "tests/helpers/fake-model-cli.ts",
-      "hash": "36f5b6d755e5d2ae"
+      "hash": "6e8788815681e337"
     },
     {
       "path": "tests/mvp-golden.test.ts",
@@ -1422,7 +1429,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-03T05:03:31.218Z",
+  "createdAt": "2026-05-03T07:20:05.874Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2640,7 +2647,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-03T05:03:31.219Z"
+    "generatedAt": "2026-05-03T07:20:05.875Z"
   },
-  "openMaintainerProfileHash": "b97518ff8f0ebd9d"
+  "openMaintainerProfileHash": "57d176c485f4f229"
 }
