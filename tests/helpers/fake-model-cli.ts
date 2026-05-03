@@ -37,14 +37,15 @@ if (schema.required.includes("classification")) {
   } else {
     const noEvidence = process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "no-evidence";
     const spam = process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "spam";
+    const ready = process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "ready";
     output = {
-      classification: spam ? "possible_spam" : "needs_author_input",
-      agentReadiness: "not_agent_ready",
-      confidence: spam ? 0.82 : 0.71,
-      riskFlags: spam ? ["unclear_scope"] : ["unclear_scope", "missing_validation"],
-      labelIntents: spam ? ["possible_spam"] : ["needs_author_input", "needs_validation"],
-      recommendation: spam ? "Close as policy-focused spam only if configured guardrails allow it." : "Ask the author for reproduction steps and validation expectations.",
-      rationale: spam ? "The fake provider is simulating a possible spam issue." : "The issue evidence is available, but the fake provider is configured to require more author detail.",
+      classification: spam ? "possible_spam" : ready ? "ready_for_review" : "needs_author_input",
+      agentReadiness: ready ? "agent_ready" : "not_agent_ready",
+      confidence: spam ? 0.82 : ready ? 0.9 : 0.71,
+      riskFlags: spam ? ["unclear_scope"] : ready ? [] : ["unclear_scope", "missing_validation"],
+      labelIntents: spam ? ["possible_spam"] : ready ? ["ready_for_review", "agent_ready"] : ["needs_author_input", "needs_validation"],
+      recommendation: spam ? "Close as policy-focused spam only if configured guardrails allow it." : ready ? "Proceed with a bounded implementation brief." : "Ask the author for reproduction steps and validation expectations.",
+      rationale: spam ? "The fake provider is simulating a possible spam issue." : ready ? "The fake provider is simulating an agent-ready issue." : "The issue evidence is available, but the fake provider is configured to require more author detail.",
       evidence: noEvidence ? [] : [{
         source: "github_issue",
         path: null,
@@ -52,9 +53,9 @@ if (schema.required.includes("classification")) {
         excerpt: "The command should triage one issue locally.",
         reason: "Primary issue text describes the requested local triage behavior."
       }],
-      missingInformation: ["Minimal reproduction or exact expected behavior"],
-      requiredAuthorActions: ["Add a concrete acceptance criterion and validation command."],
-      nextAction: "Request author input before agent handoff.",
+      missingInformation: ready ? [] : ["Minimal reproduction or exact expected behavior"],
+      requiredAuthorActions: ready ? [] : ["Add a concrete acceptance criterion and validation command."],
+      nextAction: ready ? "Generate a task brief for agent handoff." : "Request author input before agent handoff.",
       commentPreview: {
         marker: "<!-- open-maintainer:issue-triage -->",
         summary: "Needs author input before implementation.",

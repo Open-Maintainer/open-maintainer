@@ -909,6 +909,117 @@ describe("CLI issue triage", () => {
     expect(ghCalls).not.toContain("--method");
   });
 
+  it("generates an agent-safe task brief from an agent-ready local artifact", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const triage = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "ready",
+      },
+    );
+    expect(triage.exitCode).toBe(0);
+
+    const result = await runCli([
+      "triage",
+      "brief",
+      fixture,
+      "--number",
+      "42",
+      "--output-path",
+      ".open-maintainer/triage/issues/42-brief.md",
+    ]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Task brief: generated");
+    expect(result.stdout).toContain("## Validation");
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    );
+    const parsed = IssueTriageResultSchema.parse(artifact.result);
+    expect(parsed.taskBrief.status).toBe("generated");
+    expect(parsed.taskBrief.goal).toContain("#42");
+    expect(parsed.taskBrief.likelyFiles).toContain("apps/cli/src/index.ts");
+    expect(
+      parsed.taskBrief.validationCommands.map((command) => command.command),
+    ).toContain("vitest run");
+    const markdown = await readFile(
+      path.join(fixture, ".open-maintainer/triage/issues/42-brief.md"),
+      "utf8",
+    );
+    expect(markdown).toContain("Open Maintainer Agent Task Brief");
+  });
+
+  it("requires an override before briefing non-agent-ready issues", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const triage = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+      ],
+      { ...fakeCodex.env, ...fakeGh.env },
+    );
+    expect(triage.exitCode).toBe(0);
+
+    const withoutOverride = await runCli([
+      "triage",
+      "brief",
+      fixture,
+      "--number",
+      "42",
+    ]);
+
+    expect(withoutOverride.exitCode).toBe(1);
+    expect(withoutOverride.stderr).toContain("--allow-non-agent-ready");
+
+    const withOverride = await runCli([
+      "triage",
+      "brief",
+      fixture,
+      "--number",
+      "42",
+      "--allow-non-agent-ready",
+    ]);
+
+    expect(withOverride.exitCode).toBe(0);
+    expect(withOverride.stdout).toContain("Task brief: generated");
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    );
+    const parsed = IssueTriageResultSchema.parse(artifact.result);
+    expect(parsed.taskBrief.status).toBe("generated");
+    expect(parsed.taskBrief.safetyNotes.join(" ")).toContain("Override path");
+  });
+
   it("rejects invalid issue triage model JSON", async () => {
     const fixture = await createTriageRepo();
     const fakeCodex = await createFakeCodexCli();

@@ -1,5 +1,6 @@
 import {
   DefaultIssueTriageLabelMappings,
+  type DetectedCommand,
   type IssueTriageCommentPreview,
   type IssueTriageEvidence,
   type IssueTriageEvidenceCitation,
@@ -11,6 +12,7 @@ import {
   IssueTriageModelResultSchema,
   type IssueTriageRelatedIssue,
   type IssueTriageSkippedEvidence,
+  type IssueTriageTaskBrief,
 } from "@open-maintainer/shared";
 import type { z } from "zod";
 
@@ -45,6 +47,14 @@ export type BuildIssueTriageEvidenceInput = {
   sourceProfileVersion?: number | null;
   contextArtifactVersion?: number | null;
   skippedEvidence?: readonly IssueTriageSkippedEvidence[];
+};
+
+export type BuildIssueTriageTaskBriefInput = {
+  result: IssueTriageModelResult;
+  evidence: IssueTriageEvidence;
+  validationCommands: readonly DetectedCommand[];
+  readFirstPaths?: readonly string[];
+  allowNonAgentReady?: boolean;
 };
 
 export const issueTriageModelOutputJsonSchema = {
@@ -285,6 +295,186 @@ export function mapIssueTriageLabelIntents(
   });
 }
 
+export function buildIssueTriageTaskBrief(
+  input: BuildIssueTriageTaskBriefInput,
+): IssueTriageTaskBrief {
+  if (
+    input.result.agentReadiness !== "agent_ready" &&
+    !input.allowNonAgentReady
+  ) {
+    return {
+      status: "skipped",
+      goal: null,
+      userVisibleBehavior: [],
+      readFirst: [],
+      likelyFiles: [],
+      constraints: [],
+      safetyNotes: [],
+      validationCommands: [],
+      doneCriteria: [],
+      escalationRisks: [
+        `Triage marked this issue as ${humanizeTriageValue(input.result.agentReadiness)}.`,
+        `Classification is ${humanizeTriageValue(input.result.classification)}.`,
+        "Pass the explicit non-agent-ready override only after a maintainer accepts the risk.",
+      ],
+      markdown:
+        "Task brief was not generated because the issue is not agent-ready.",
+    };
+  }
+
+  const validationCommands = selectValidationCommands(input.validationCommands);
+  const userVisibleBehavior =
+    input.evidence.acceptanceCriteriaCandidates.length > 0
+      ? input.evidence.acceptanceCriteriaCandidates
+      : [input.result.recommendation];
+  const readFirst = unique([
+    ...(input.readFirstPaths ?? []),
+    ...input.evidence.referencedSurfaces.filter(isDocumentationSurface),
+  ]).slice(0, 12);
+  const likelyFiles = unique([
+    ...input.evidence.referencedSurfaces.filter(
+      (surface) => !isDocumentationSurface(surface),
+    ),
+    ...input.evidence.referencedSurfaces.filter(isDocumentationSurface),
+  ]).slice(0, 12);
+  const constraints = unique([
+    "Use the existing repository patterns and keep the change scoped to this issue.",
+    "Do not run agent dispatch, create branches, open pull requests, or mutate GitHub from this task brief.",
+    ...input.result.requiredAuthorActions.map(
+      (action) => `Do not proceed past missing author input: ${action}`,
+    ),
+  ]);
+  const safetyNotes = unique([
+    `Model rationale: ${input.result.rationale}`,
+    ...input.result.riskFlags.map(
+      (flag) => `Triage risk flag: ${humanizeTriageValue(flag)}.`,
+    ),
+    ...(input.result.agentReadiness === "agent_ready"
+      ? [
+          "Triage marked this issue agent-ready, but implementation still needs normal review.",
+        ]
+      : [
+          `Override path: triage marked this issue ${humanizeTriageValue(input.result.agentReadiness)}.`,
+        ]),
+  ]);
+  const doneCriteria = unique([
+    ...input.evidence.acceptanceCriteriaCandidates,
+    ...(validationCommands.length > 0
+      ? validationCommands.map(
+          (command) => `Run or explicitly skip: ${command.command}`,
+        )
+      : ["Document why no validation command was detected before handoff."]),
+    "Update relevant docs when public behavior or workflow changes.",
+  ]);
+  const escalationRisks = unique([
+    ...(input.result.agentReadiness === "agent_ready"
+      ? []
+      : [
+          `Non-agent-ready override: ${humanizeTriageValue(input.result.agentReadiness)}.`,
+        ]),
+    ...input.result.missingInformation.map(
+      (item) => `Missing information: ${item}`,
+    ),
+    ...input.result.riskFlags.map(
+      (flag) =>
+        `Escalate if implementation touches ${humanizeTriageValue(flag)} areas.`,
+    ),
+    "Escalate if the implementation requires product, security, data migration, or release policy decisions not already covered by the issue.",
+  ]);
+  const brief: Omit<IssueTriageTaskBrief, "markdown"> = {
+    status: "generated",
+    goal: `Resolve issue #${input.evidence.issue.number}: ${input.evidence.issue.title}`,
+    userVisibleBehavior,
+    readFirst,
+    likelyFiles,
+    constraints,
+    safetyNotes,
+    validationCommands,
+    doneCriteria,
+    escalationRisks,
+  };
+
+  return {
+    ...brief,
+    markdown: renderIssueTriageTaskBriefMarkdown(brief),
+  };
+}
+
+function renderIssueTriageTaskBriefMarkdown(
+  brief: Omit<IssueTriageTaskBrief, "markdown">,
+): string {
+  return [
+    "# Open Maintainer Agent Task Brief",
+    "",
+    `Goal: ${brief.goal}`,
+    "",
+    "## User-visible Behavior",
+    ...markdownList(brief.userVisibleBehavior),
+    "",
+    "## Read First",
+    ...markdownList(
+      brief.readFirst,
+      "No required read-first files were detected.",
+    ),
+    "",
+    "## Likely Files or Surfaces",
+    ...markdownList(
+      brief.likelyFiles,
+      "No likely files were detected from the issue evidence.",
+    ),
+    "",
+    "## Constraints",
+    ...markdownList(brief.constraints),
+    "",
+    "## Safety Notes",
+    ...markdownList(brief.safetyNotes),
+    "",
+    "## Validation",
+    ...markdownList(
+      brief.validationCommands.map((command) => command.command),
+      "No validation command was detected; document the validation gap.",
+    ),
+    "",
+    "## Done Criteria",
+    ...markdownList(brief.doneCriteria),
+    "",
+    "## Escalation Risks",
+    ...markdownList(
+      brief.escalationRisks,
+      "No specific escalation risks were detected beyond normal review.",
+    ),
+    "",
+  ].join("\n");
+}
+
+function markdownList(values: readonly string[], empty: string | null = null) {
+  const items = values.length > 0 ? values : empty ? [empty] : [];
+  return items.map((item) => `- ${item}`);
+}
+
+function selectValidationCommands(
+  commands: readonly DetectedCommand[],
+): DetectedCommand[] {
+  const preferred = ["lint", "typecheck", "test", "build", "smoke"];
+  return [...commands]
+    .sort((left, right) => {
+      const leftIndex = preferred.findIndex((name) =>
+        left.name.toLowerCase().includes(name),
+      );
+      const rightIndex = preferred.findIndex((name) =>
+        right.name.toLowerCase().includes(name),
+      );
+      return (
+        normalizeCommandIndex(leftIndex) - normalizeCommandIndex(rightIndex)
+      );
+    })
+    .slice(0, 5);
+}
+
+function normalizeCommandIndex(index: number): number {
+  return index === -1 ? Number.MAX_SAFE_INTEGER : index;
+}
+
 export function buildIssueTriageEvidence(
   input: BuildIssueTriageEvidenceInput,
 ): IssueTriageEvidence {
@@ -460,6 +650,14 @@ function isLikelyRepositorySurface(candidate: string): boolean {
     /^(README|AGENTS|CONTRIBUTING|package|tsconfig|biome|docker-compose)\.[A-Za-z0-9]+$/i.test(
       candidate,
     )
+  );
+}
+
+function isDocumentationSurface(candidate: string): boolean {
+  return (
+    /^(.+\/)?(README|AGENTS|CONTRIBUTING|CHANGELOG|CLAUDE)\.md$/i.test(
+      candidate,
+    ) || candidate.startsWith("docs/")
   );
 }
 

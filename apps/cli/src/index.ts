@@ -51,6 +51,7 @@ import {
 } from "@open-maintainer/review";
 import type {
   IssueTriageEvidence,
+  IssueTriageInput,
   IssueTriageResult,
   ModelProviderConfig,
   ReviewCheckStatus,
@@ -59,12 +60,14 @@ import type {
   ReviewResult,
 } from "@open-maintainer/shared";
 import {
+  IssueTriageInputSchema,
   IssueTriageResultSchema,
   newId,
   nowIso,
 } from "@open-maintainer/shared";
 import {
   buildIssueTriageModelPrompt,
+  buildIssueTriageTaskBrief,
   issueTriageModelOutputJsonSchema,
   mapIssueTriageLabelIntents,
   parseIssueTriageModelCompletion,
@@ -107,6 +110,7 @@ type CliOptions = {
   issueCreateLabels: boolean;
   issuePostComment: boolean;
   issueCloseAllowed: boolean;
+  issueBriefAllowNonAgentReady: boolean;
 };
 
 type ArtifactSelection = "codex" | "claude" | "both";
@@ -124,6 +128,7 @@ Commands:
   review <repo>                         Produce or post a rule-grounded PR review
   triage issue <repo>                   Preview model-backed triage for one issue
   triage issues <repo>                  Preview model-backed triage for a bounded issue batch
+  triage brief <repo>                   Generate an agent-safe task brief from a local triage artifact
   pr <repo> --create                    Print a dry-run PR summary for generated artifacts
 
 Help:
@@ -254,8 +259,10 @@ Examples:
 `,
   triage: `open-maintainer triage issue <repo> --number <n>
 open-maintainer triage issues <repo> --state open --limit <n>
+open-maintainer triage brief <repo> --number <n>
 
 Run local, non-mutating model-backed triage for one GitHub issue or a bounded issue batch.
+Generate agent task briefs from existing local triage artifacts without refetching GitHub evidence.
 
 Single-issue required:
   --number <n>                          GitHub issue number to triage
@@ -268,6 +275,7 @@ Batch options:
   --create-labels                        Create missing labels before applying them; requires --apply-labels
   --post-comment                         Post or update the marked Open Maintainer issue triage comment
   --close-allowed                        Allow config-gated selective issue closure
+  --allow-non-agent-ready                Generate a task brief despite non-agent-ready triage
 
 Model required:
   --model codex|claude                  CLI backend used for model-backed triage
@@ -284,6 +292,7 @@ Output:
 Examples:
   open-maintainer triage issue . --number 82 --model codex --allow-model-content-transfer
   open-maintainer triage issues . --state open --limit 5 --model codex --allow-model-content-transfer
+  open-maintainer triage brief . --number 82
   open-maintainer triage issue . --number 82 --model claude --allow-model-content-transfer
 `,
   pr: `open-maintainer pr <repo> --create
@@ -327,9 +336,13 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 
   if (command === "triage") {
     const [subcommand, repoArg, ...rawOptions] = rest;
-    if (subcommand !== "issue" && subcommand !== "issues") {
+    if (
+      subcommand !== "issue" &&
+      subcommand !== "issues" &&
+      subcommand !== "brief"
+    ) {
       console.error(
-        "Unknown triage command. Expected: triage issue or triage issues\n",
+        "Unknown triage command. Expected: triage issue, triage issues, or triage brief\n",
       );
       console.error(commandUsages.triage);
       return 2;
@@ -344,8 +357,10 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
       const options = parseOptions(rawOptions);
       if (subcommand === "issue") {
         await triageIssue(repoRoot, options);
-      } else {
+      } else if (subcommand === "issues") {
         await triageIssues(repoRoot, options);
+      } else {
+        await triageBrief(repoRoot, options);
       }
       return 0;
     } catch (error) {
@@ -849,6 +864,58 @@ async function triageIssue(
   }
 }
 
+async function triageBrief(
+  repoRoot: string,
+  options: CliOptions,
+): Promise<void> {
+  if (options.issueNumber === null) {
+    throw new Error("triage brief requires --number <n>.");
+  }
+  const artifactPath = issueTriageArtifactPath(options.issueNumber);
+  const artifact = await readIssueTriageArtifact(repoRoot, artifactPath);
+  if (
+    artifact.result.agentReadiness !== "agent_ready" &&
+    !options.issueBriefAllowNonAgentReady
+  ) {
+    throw new Error(
+      `Issue #${options.issueNumber} is ${artifact.result.agentReadiness}; pass --allow-non-agent-ready to generate an override brief.`,
+    );
+  }
+  const profile = await createProfile(repoRoot);
+  const brief = buildIssueTriageTaskBrief({
+    result: artifact.result,
+    evidence: artifact.input.evidence,
+    validationCommands: profile.commands,
+    readFirstPaths: issueBriefReadFirstPaths(profile),
+    allowNonAgentReady: options.issueBriefAllowNonAgentReady,
+  });
+  const updated = {
+    ...artifact,
+    result: {
+      ...artifact.result,
+      taskBrief: brief,
+    },
+  };
+  await writeIssueTriageArtifact(repoRoot, artifactPath, updated);
+  if (options.outputPath && brief.markdown) {
+    const outputPath = path.resolve(repoRoot, options.outputPath);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, brief.markdown);
+  }
+  if (options.json) {
+    console.log(JSON.stringify(brief, null, 2));
+    return;
+  }
+  console.log(`Task brief: ${brief.status}`);
+  console.log(`Artifact: ${artifactPath}`);
+  if (options.outputPath) {
+    console.log(`Markdown: ${options.outputPath}`);
+  }
+  if (brief.markdown) {
+    console.log(brief.markdown);
+  }
+}
+
 type IssueTriageContext = {
   profile: Awaited<ReturnType<typeof createProfileFromFiles>>;
   providerConfig: ModelProviderConfig;
@@ -919,12 +986,7 @@ async function runIssueTriagePreview(input: {
     { outputSchema: issueTriageModelOutputJsonSchema },
   );
   const modelResult = parseIssueTriageModelCompletion(completion.text);
-  const artifactPath = path.join(
-    ".open-maintainer",
-    "triage",
-    "issues",
-    `${input.issueNumber}.json`,
-  );
+  const artifactPath = issueTriageArtifactPath(input.issueNumber);
   const commentPreview = renderIssueTriageCommentPreview(
     modelResult,
     artifactPath,
@@ -1710,11 +1772,43 @@ async function applyIssueLabels(
 async function writeIssueTriageArtifact(
   repoRoot: string,
   artifactPath: string,
-  artifact: { input: unknown; result: IssueTriageResult },
+  artifact: { input: IssueTriageInput; result: IssueTriageResult },
 ): Promise<void> {
   const absolutePath = path.join(repoRoot, artifactPath);
   await mkdir(path.dirname(absolutePath), { recursive: true });
   await writeFile(absolutePath, `${JSON.stringify(artifact, null, 2)}\n`);
+}
+
+function issueTriageArtifactPath(issueNumber: number): string {
+  return path.join(
+    ".open-maintainer",
+    "triage",
+    "issues",
+    `${issueNumber}.json`,
+  );
+}
+
+async function readIssueTriageArtifact(
+  repoRoot: string,
+  artifactPath: string,
+): Promise<{ input: IssueTriageInput; result: IssueTriageResult }> {
+  const raw = JSON.parse(
+    await readFile(path.join(repoRoot, artifactPath), "utf8"),
+  ) as { input?: unknown; result?: unknown };
+  return {
+    input: IssueTriageInputSchema.parse(raw.input),
+    result: IssueTriageResultSchema.parse(raw.result),
+  };
+}
+
+function issueBriefReadFirstPaths(
+  profile: Awaited<ReturnType<typeof createProfile>>,
+): string[] {
+  return [
+    ...profile.existingContextFiles,
+    ...profile.importantDocs,
+    ...profile.repoTemplates,
+  ].slice(0, 12);
 }
 
 function formatIssueTriageSummary(
@@ -2955,6 +3049,7 @@ function parseOptions(rawOptions: string[]): CliOptions {
     issueCreateLabels: false,
     issuePostComment: false,
     issueCloseAllowed: false,
+    issueBriefAllowNonAgentReady: false,
   };
   for (let index = 0; index < rawOptions.length; index += 1) {
     const option = rawOptions[index];
@@ -3069,6 +3164,8 @@ function parseOptions(rawOptions: string[]): CliOptions {
       options.issuePostComment = true;
     } else if (option === "--close-allowed") {
       options.issueCloseAllowed = true;
+    } else if (option === "--allow-non-agent-ready") {
+      options.issueBriefAllowNonAgentReady = true;
     } else if (option === "--output-path") {
       options.outputPath = requireOptionValue(rawOptions, index, option);
       index += 1;

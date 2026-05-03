@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildIssueTriageEvidence,
   buildIssueTriageModelPrompt,
+  buildIssueTriageTaskBrief,
   extractAcceptanceCriteriaCandidates,
   extractReferencedIssueNumbers,
   extractReferencedSurfaces,
@@ -228,5 +229,120 @@ describe("issue triage package", () => {
     expect(comment.body.toLowerCase()).not.toContain("used ai");
     expect(comment.body.toLowerCase()).not.toContain("authorship");
     expect(comment.artifactPath).toBe(".open-maintainer/triage/issues/10.json");
+  });
+
+  it("renders agent task briefs for agent-ready triage results", () => {
+    const evidence = buildIssueTriageEvidence({
+      repoId: "repo_1",
+      owner: "Open-Maintainer",
+      repo: "open-maintainer",
+      issue: {
+        number: 87,
+        title: "Generate task briefs",
+        body: [
+          "## Feature request",
+          "Generate a brief for `apps/cli/src/index.ts`.",
+          "",
+          "## Acceptance criteria",
+          "- Briefs include validation commands",
+        ].join("\n"),
+        author: "maintainer",
+        labels: ["enhancement"],
+        state: "open",
+        url: "https://github.com/Open-Maintainer/open-maintainer/issues/87",
+        createdAt: "2026-05-03T00:00:00.000Z",
+        updatedAt: "2026-05-03T00:01:00.000Z",
+      },
+    });
+    const brief = buildIssueTriageTaskBrief({
+      result: {
+        ...validModelResult,
+        classification: "ready_for_review",
+        agentReadiness: "agent_ready",
+        riskFlags: [],
+        missingInformation: [],
+        requiredAuthorActions: [],
+      },
+      evidence,
+      readFirstPaths: ["AGENTS.md", "README.md"],
+      validationCommands: [
+        { name: "test", command: "bun test", source: "package.json" },
+        { name: "typecheck", command: "bun typecheck", source: "package.json" },
+      ],
+    });
+
+    expect(brief.status).toBe("generated");
+    expect(brief.goal).toContain("#87");
+    expect(brief.userVisibleBehavior).toContain(
+      "Briefs include validation commands",
+    );
+    expect(brief.readFirst).toContain("AGENTS.md");
+    expect(brief.likelyFiles).toContain("apps/cli/src/index.ts");
+    expect(brief.validationCommands.map((command) => command.command)).toEqual([
+      "bun typecheck",
+      "bun test",
+    ]);
+    expect(brief.markdown).toContain("## Escalation Risks");
+  });
+
+  it("skips task briefs for non-agent-ready results without override", () => {
+    const evidence = buildIssueTriageEvidence({
+      repoId: "repo_1",
+      owner: "Open-Maintainer",
+      repo: "open-maintainer",
+      issue: {
+        number: 88,
+        title: "Needs design",
+        body: "Maintainer needs to choose the workflow.",
+        author: "maintainer",
+        labels: ["enhancement"],
+        state: "open",
+        url: "https://github.com/Open-Maintainer/open-maintainer/issues/88",
+        createdAt: "2026-05-03T00:00:00.000Z",
+        updatedAt: "2026-05-03T00:01:00.000Z",
+      },
+    });
+
+    const brief = buildIssueTriageTaskBrief({
+      result: validModelResult,
+      evidence,
+      validationCommands: [],
+    });
+
+    expect(brief.status).toBe("skipped");
+    expect(brief.escalationRisks.join(" ")).toContain("Needs Human Design");
+  });
+
+  it("renders override task briefs for non-agent-ready results with risks", () => {
+    const evidence = buildIssueTriageEvidence({
+      repoId: "repo_1",
+      owner: "Open-Maintainer",
+      repo: "open-maintainer",
+      issue: {
+        number: 89,
+        title: "Needs human design",
+        body: "## Acceptance criteria\n- Maintainer approves the scope",
+        author: "maintainer",
+        labels: ["enhancement"],
+        state: "open",
+        url: "https://github.com/Open-Maintainer/open-maintainer/issues/89",
+        createdAt: "2026-05-03T00:00:00.000Z",
+        updatedAt: "2026-05-03T00:01:00.000Z",
+      },
+    });
+
+    const brief = buildIssueTriageTaskBrief({
+      result: validModelResult,
+      evidence,
+      validationCommands: [],
+      allowNonAgentReady: true,
+    });
+
+    expect(brief.status).toBe("generated");
+    expect(brief.safetyNotes.join(" ")).toContain("Override path");
+    expect(brief.doneCriteria).toContain("Maintainer approves the scope");
+    expect(brief.escalationRisks.join(" ")).toContain(
+      "Non-agent-ready override",
+    );
   });
 });

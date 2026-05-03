@@ -61,6 +61,7 @@ describe("CLI help", () => {
     expect(result.stderr).toBe("");
     expect(result.stdout).toContain("open-maintainer triage issue <repo>");
     expect(result.stdout).toContain("open-maintainer triage issues <repo>");
+    expect(result.stdout).toContain("open-maintainer triage brief <repo>");
     expect(result.stdout).toContain("--number <n>");
     expect(result.stdout).toContain("--state open|closed|all");
     expect(result.stdout).toContain("--limit <n>");
@@ -68,6 +69,7 @@ describe("CLI help", () => {
     expect(result.stdout).toContain("--create-labels");
     expect(result.stdout).toContain("--post-comment");
     expect(result.stdout).toContain("--close-allowed");
+    expect(result.stdout).toContain("--allow-non-agent-ready");
     expect(result.stdout).toContain("--model codex|claude");
     expect(result.stdout).toContain("--allow-model-content-transfer");
     expect(result.stdout).toContain("non-mutating");
