@@ -1,7 +1,13 @@
 {
   "$schema": "https://biomejs.dev/schemas/1.9.4/schema.json",
   "files": {
-    "ignore": [".next", "dist", "node_modules", "coverage"]
+    "ignore": [
+      ".next",
+      "dist",
+      "node_modules",
+      "coverage",
+      ".open-maintainer/triage"
+    ]
   },
   "formatter": {
     "enabled": true,
