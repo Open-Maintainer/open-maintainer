@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_62066c04-abe9-47fe-876d-98f1793f999a",
+  "id": "repo_profile_163a5d55-87a5-4f28-be15-287664876ec8",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -1014,11 +1014,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "fb70d2d870848c18"
+      "hash": "394558b6444a5fa7"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "053fcf954aa6ca5e"
+      "hash": "342666744e9ff7da"
     },
     {
       "path": "AGENTS.md",
@@ -1082,7 +1082,7 @@
     },
     {
       "path": "docs/DEMO_RUNBOOK.md",
-      "hash": "153954dfbbe686a3"
+      "hash": "0759c8d884f38caf"
     },
     {
       "path": "docs/MVP_RELEASE_REVIEW.md",
@@ -1218,7 +1218,7 @@
     },
     {
       "path": "README.md",
-      "hash": "b0bd4872c345a600"
+      "hash": "999cb213f43f6fb1"
     },
     {
       "path": "tests/action-mvp.test.ts",
@@ -1226,11 +1226,11 @@
     },
     {
       "path": "tests/cli-audit.test.ts",
-      "hash": "c609b74bfcb3f2ec"
+      "hash": "482cd1d14509e101"
     },
     {
       "path": "tests/cli-doctor.test.ts",
-      "hash": "e24a5bdaff16ac4b"
+      "hash": "65837c9631783546"
     },
     {
       "path": "tests/cli-help.test.ts",
@@ -1238,11 +1238,11 @@
     },
     {
       "path": "tests/cli-review.test.ts",
-      "hash": "fefea324181380c4"
+      "hash": "bce41dddbe3de751"
     },
     {
       "path": "tests/cli-triage.test.ts",
-      "hash": "ccc3b693f909756b"
+      "hash": "55a5691c524d2344"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1426,7 +1426,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-03T09:11:24.083Z",
+  "createdAt": "2026-05-03T20:27:51.500Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2636,7 +2636,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-03T09:11:24.084Z"
+    "generatedAt": "2026-05-03T20:27:51.501Z"
   },
-  "openMaintainerProfileHash": "1234468fb6b2c055"
+  "openMaintainerProfileHash": "309a20f8aa7e3c3d"
 }
