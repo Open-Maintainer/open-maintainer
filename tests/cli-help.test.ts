@@ -64,6 +64,8 @@ describe("CLI help", () => {
     expect(result.stdout).toContain("--number <n>");
     expect(result.stdout).toContain("--state open|closed|all");
     expect(result.stdout).toContain("--limit <n>");
+    expect(result.stdout).toContain("--apply-labels");
+    expect(result.stdout).toContain("--create-labels");
     expect(result.stdout).toContain("--model codex|claude");
     expect(result.stdout).toContain("--allow-model-content-transfer");
     expect(result.stdout).toContain("non-mutating");

@@ -77,11 +77,23 @@ if (args[0] !== "api") {
   console.error("unexpected gh args: " + args.join(" "));
   process.exit(1);
 }
-if (args.includes("--method")) {
+const endpoint = args[1];
+const methodIndex = args.indexOf("--method");
+const method = methodIndex >= 0 ? args[methodIndex + 1] : "GET";
+const inputIndex = args.indexOf("--input");
+const input = inputIndex >= 0 ? JSON.parse(fs.readFileSync(args[inputIndex + 1], "utf8")) : null;
+if (method === "POST" && endpoint === "repos/acme/triage-fixture/labels") {
+  write({ name: input.name });
+  process.exit(0);
+}
+if (method === "POST" && /^repos\\/acme\\/triage-fixture\\/issues\\/\\d+\\/labels$/.test(endpoint)) {
+  write(input.labels.map((name) => ({ name })));
+  process.exit(0);
+}
+if (method !== "GET") {
   console.error("unexpected mutation: " + args.join(" "));
   process.exit(1);
 }
-const endpoint = args[1];
 if (endpoint === "repos/acme/triage-fixture/issues") {
   write([
     { number: 42, title: "Triage one issue locally", pull_request: null },
@@ -148,6 +160,22 @@ if (/^repos\\/acme\\/triage-fixture\\/issues\\/(43|44)\\/comments$/.test(endpoin
   write([]);
   process.exit(0);
 }
+if (endpoint === "repos/acme/triage-fixture/labels?per_page=100") {
+  write([
+    { name: "open-maintainer/needs-author-input" },
+    { name: "open-maintainer/ready-for-review" },
+    { name: "open-maintainer/agent-ready" }
+  ]);
+  process.exit(0);
+}
+if (endpoint === "repos/acme/triage-fixture/issues/42/labels?per_page=100") {
+  write([{ name: "open-maintainer/needs-author-input" }]);
+  process.exit(0);
+}
+if (/^repos\\/acme\\/triage-fixture\\/issues\\/(43|44)\\/labels\\?per_page=100$/.test(endpoint)) {
+  write([]);
+  process.exit(0);
+}
 if (endpoint === "search/issues") {
   write({ items: [] });
   process.exit(0);
@@ -210,6 +238,7 @@ describe("CLI issue triage", () => {
     expect(result.stdout).toContain(
       "Artifact: .open-maintainer/triage/issues/42.json",
     );
+    expect(result.stdout).toContain("Label actions: skipped");
     expect(result.stdout).toContain("GitHub writes: skipped");
     const artifact = JSON.parse(
       await readFile(
@@ -226,8 +255,95 @@ describe("CLI issue triage", () => {
     expect(artifact.input.evidence.referencedSurfaces).toContain(
       "apps/cli/src/index.ts",
     );
+    expect(
+      triage.writeActions.some(
+        (action) =>
+          action.type === "apply_label" &&
+          action.status === "skipped" &&
+          action.reason.includes("Label is missing"),
+      ),
+    ).toBe(true);
     const ghCalls = await readFile(fakeGh.callsPath, "utf8");
     expect(ghCalls).not.toContain("--method");
+  });
+
+  it("requires label application before creating missing labels", async () => {
+    const fixture = await createTriageRepo();
+
+    const result = await runCli([
+      "triage",
+      "issue",
+      fixture,
+      "--number",
+      "42",
+      "--model",
+      "codex",
+      "--allow-model-content-transfer",
+      "--create-labels",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("--create-labels requires --apply-labels");
+  });
+
+  it("creates missing issue labels and applies labels only when requested", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issue",
+        fixture,
+        "--number",
+        "42",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+        "--apply-labels",
+        "--create-labels",
+      ],
+      { ...fakeCodex.env, ...fakeGh.env },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    const artifact = JSON.parse(
+      await readFile(
+        path.join(fixture, ".open-maintainer/triage/issues/42.json"),
+        "utf8",
+      ),
+    );
+    const triage = IssueTriageResultSchema.parse(artifact.result);
+    expect(
+      triage.writeActions.some(
+        (action) =>
+          action.type === "create_label" &&
+          action.status === "applied" &&
+          action.target === "open-maintainer/needs-validation",
+      ),
+    ).toBe(true);
+    expect(
+      triage.writeActions.some(
+        (action) =>
+          action.type === "apply_label" &&
+          action.status === "skipped" &&
+          action.target === "open-maintainer/needs-author-input",
+      ),
+    ).toBe(true);
+    expect(
+      triage.writeActions.some(
+        (action) =>
+          action.type === "apply_label" &&
+          action.status === "applied" &&
+          action.target === "open-maintainer/needs-validation",
+      ),
+    ).toBe(true);
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).toContain("repos/acme/triage-fixture/labels");
+    expect(ghCalls).toContain("repos/acme/triage-fixture/issues/42/labels");
+    expect(ghCalls).not.toContain("/pulls/");
   });
 
   it("runs bounded batch triage with grouped reports and per-issue errors", async () => {
