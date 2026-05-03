@@ -18,6 +18,7 @@
         "@open-maintainer/db": "workspace:*",
         "@open-maintainer/github": "workspace:*",
         "@open-maintainer/shared": "workspace:*",
+        "@open-maintainer/triage": "workspace:*",
         "bullmq": "^5.39.1",
         "drizzle-orm": "^0.45.2",
         "fastify": "^5.2.1",
@@ -89,6 +90,9 @@
     },
     "packages/github": {
       "name": "@open-maintainer/github",
+      "dependencies": {
+        "@open-maintainer/triage": "workspace:*",
+      },
     },
     "packages/review": {
       "name": "@open-maintainer/review",
@@ -100,6 +104,13 @@
     },
     "packages/shared": {
       "name": "@open-maintainer/shared",
+    },
+    "packages/triage": {
+      "name": "@open-maintainer/triage",
+      "dependencies": {
+        "@open-maintainer/shared": "workspace:*",
+        "zod": "^3.24.1",
+      },
     },
   },
   "packages": {
@@ -336,6 +347,8 @@
     "@open-maintainer/review": ["@open-maintainer/review@workspace:packages/review"],
 
     "@open-maintainer/shared": ["@open-maintainer/shared@workspace:packages/shared"],
+
+    "@open-maintainer/triage": ["@open-maintainer/triage@workspace:packages/triage"],
 
     "@open-maintainer/web": ["@open-maintainer/web@workspace:apps/web"],
 

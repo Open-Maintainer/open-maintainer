@@ -6,6 +6,10 @@ import type {
   ContextPr,
   GeneratedArtifact,
   Installation,
+  IssueTriageEvidence,
+  IssueTriageIssueMetadata,
+  IssueTriageRelatedIssue,
+  IssueTriageSkippedEvidence,
   Repo,
   ReviewChangedFile,
   ReviewCheckStatus,
@@ -17,6 +21,11 @@ import type {
   ReviewSkippedFile,
 } from "@open-maintainer/shared";
 import { newId, nowIso } from "@open-maintainer/shared";
+import {
+  type IssueTriageEvidenceCommentInput,
+  buildIssueTriageEvidence,
+  extractReferencedIssueNumbers,
+} from "@open-maintainer/triage";
 
 export type GitHubInstallationEvent = {
   installation: {
@@ -81,6 +90,10 @@ type GitHubPullRequestCommit = {
 type GitHubIssueComment = {
   id: number;
   body?: string | null;
+  html_url?: string | null;
+  user?: { login?: string } | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type GitHubReviewComment = GitHubIssueComment & {
@@ -93,6 +106,18 @@ type GitHubIssueData = {
   title: string;
   body: string | null;
   html_url?: string | null;
+  user?: { login?: string } | null;
+  labels?: Array<string | { name?: string | null }>;
+  state?: string;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+type GitHubIssueSearchItem = {
+  number: number;
+  title: string;
+  html_url?: string | null;
+  pull_request?: unknown;
 };
 
 type GitHubCheckRun = {
@@ -253,6 +278,13 @@ export type GitHubRepositoryClient = {
       comment_id: number;
       body: string;
     }): Promise<{ data: { id: number; html_url?: string | null } }>;
+  };
+  search?: {
+    issuesAndPullRequests?(input: {
+      q: string;
+      per_page?: number;
+      page?: number;
+    }): Promise<{ data: { items: GitHubIssueSearchItem[] } }>;
   };
   checks?: {
     listForRef?(input: {
@@ -851,6 +883,271 @@ async function fetchIssueContext(input: {
     });
   }
   return issues;
+}
+
+export async function fetchIssueTriageEvidence(input: {
+  repoId: string;
+  owner: string;
+  repo: string;
+  issueNumber: number;
+  sourceProfileVersion?: number | null;
+  contextArtifactVersion?: number | null;
+  maxComments?: number;
+  maxRelatedIssues?: number;
+  client?: GitHubRepositoryClient;
+  auth?: GitHubAppInstallationAuth;
+}): Promise<IssueTriageEvidence> {
+  const client = resolveGitHubClient(input);
+  if (!client.issues?.get) {
+    throw new Error("GitHub issue read API is unavailable.");
+  }
+  const issue = (
+    await client.issues.get({
+      owner: input.owner,
+      repo: input.repo,
+      issue_number: input.issueNumber,
+    })
+  ).data;
+  const maxComments = input.maxComments ?? 20;
+  const maxRelatedIssues = input.maxRelatedIssues ?? 8;
+  const skippedEvidence: IssueTriageSkippedEvidence[] = [];
+  const comments = await fetchIssueCommentsForTriage({
+    owner: input.owner,
+    repo: input.repo,
+    issueNumber: input.issueNumber,
+    maxComments,
+    client,
+    skippedEvidence,
+  });
+  const relatedIssues = await fetchRelatedIssuesForTriage({
+    owner: input.owner,
+    repo: input.repo,
+    issue,
+    comments,
+    maxRelatedIssues,
+    client,
+    skippedEvidence,
+  });
+
+  return buildIssueTriageEvidence({
+    repoId: input.repoId,
+    owner: input.owner,
+    repo: input.repo,
+    issue: mapIssueTriageMetadata(issue),
+    comments,
+    relatedIssues,
+    sourceProfileVersion: input.sourceProfileVersion ?? null,
+    contextArtifactVersion: input.contextArtifactVersion ?? null,
+    skippedEvidence,
+  });
+}
+
+async function fetchIssueCommentsForTriage(input: {
+  owner: string;
+  repo: string;
+  issueNumber: number;
+  maxComments: number;
+  client: GitHubRepositoryClient;
+  skippedEvidence: IssueTriageSkippedEvidence[];
+}): Promise<IssueTriageEvidenceCommentInput[]> {
+  const listComments = input.client.issues?.listComments;
+  if (!listComments) {
+    input.skippedEvidence.push({
+      source: "github_comment",
+      reason: "GitHub issue comment API is unavailable.",
+    });
+    return [];
+  }
+
+  const comments: GitHubIssueComment[] = [];
+  try {
+    for (let page = 1; comments.length < input.maxComments; page += 1) {
+      const response = await listComments({
+        owner: input.owner,
+        repo: input.repo,
+        issue_number: input.issueNumber,
+        per_page: Math.min(100, input.maxComments - comments.length),
+        page,
+      });
+      comments.push(...response.data);
+      if (response.data.length < 100) {
+        break;
+      }
+    }
+  } catch (error) {
+    input.skippedEvidence.push({
+      source: "github_comment",
+      reason: `GitHub issue comments could not be fetched: ${errorMessage(error)}`,
+    });
+    return [];
+  }
+
+  if (comments.length >= input.maxComments) {
+    input.skippedEvidence.push({
+      source: "github_comment",
+      reason: `Issue comments were capped at ${input.maxComments}.`,
+    });
+  }
+
+  return comments.map((comment) => ({
+    id: comment.id,
+    body: comment.body ?? "",
+    author: comment.user?.login ?? null,
+    url: comment.html_url ?? null,
+    createdAt: comment.created_at ?? null,
+    updatedAt: comment.updated_at ?? null,
+  }));
+}
+
+async function fetchRelatedIssuesForTriage(input: {
+  owner: string;
+  repo: string;
+  issue: GitHubIssueData;
+  comments: readonly IssueTriageEvidenceCommentInput[];
+  maxRelatedIssues: number;
+  client: GitHubRepositoryClient;
+  skippedEvidence: IssueTriageSkippedEvidence[];
+}): Promise<IssueTriageRelatedIssue[]> {
+  const related = new Map<number, IssueTriageRelatedIssue>();
+  const text = [
+    input.issue.title,
+    input.issue.body ?? "",
+    ...input.comments.map((comment) => comment.body),
+  ].join("\n\n");
+  const referencedNumbers = extractReferencedIssueNumbers(text)
+    .filter((issueNumber: number) => issueNumber !== input.issue.number)
+    .slice(0, input.maxRelatedIssues);
+
+  for (const issueNumber of referencedNumbers) {
+    try {
+      const issue = (
+        await input.client.issues?.get?.({
+          owner: input.owner,
+          repo: input.repo,
+          issue_number: issueNumber,
+        })
+      )?.data;
+      if (!issue) {
+        input.skippedEvidence.push({
+          source: "related_issue",
+          reason: `Referenced issue #${issueNumber} could not be fetched because GitHub issue read API is unavailable.`,
+        });
+        continue;
+      }
+      related.set(issue.number, {
+        number: issue.number,
+        title: issue.title,
+        url: issue.html_url ?? null,
+        reason: "Issue text references this issue or pull request.",
+      });
+    } catch (error) {
+      input.skippedEvidence.push({
+        source: "related_issue",
+        reason: `Referenced issue #${issueNumber} could not be fetched: ${errorMessage(error)}`,
+      });
+    }
+  }
+
+  const remaining = input.maxRelatedIssues - related.size;
+  if (remaining <= 0) {
+    return [...related.values()];
+  }
+
+  const searchIssues = input.client.search?.issuesAndPullRequests;
+  const query = buildRelatedIssueSearchQuery({
+    owner: input.owner,
+    repo: input.repo,
+    title: input.issue.title,
+  });
+  if (!searchIssues || !query) {
+    input.skippedEvidence.push({
+      source: "related_issue",
+      reason: !searchIssues
+        ? "GitHub issue search API is unavailable."
+        : "Issue title did not contain enough search terms for related issue lookup.",
+    });
+    return [...related.values()];
+  }
+
+  try {
+    const response = await searchIssues({
+      q: query,
+      per_page: Math.min(remaining + 1, 10),
+      page: 1,
+    });
+    for (const item of response.data.items) {
+      if (related.size >= input.maxRelatedIssues) {
+        break;
+      }
+      if (item.number === input.issue.number || item.pull_request) {
+        continue;
+      }
+      related.set(item.number, {
+        number: item.number,
+        title: item.title,
+        url: item.html_url ?? null,
+        reason: "GitHub issue search found a related title candidate.",
+      });
+    }
+  } catch (error) {
+    input.skippedEvidence.push({
+      source: "related_issue",
+      reason: `GitHub related issue search failed: ${errorMessage(error)}`,
+    });
+  }
+
+  return [...related.values()];
+}
+
+function mapIssueTriageMetadata(
+  issue: GitHubIssueData,
+): IssueTriageIssueMetadata {
+  return {
+    number: issue.number,
+    title: issue.title,
+    body: issue.body ?? "",
+    author: issue.user?.login ?? null,
+    labels: (issue.labels ?? [])
+      .map((label) => (typeof label === "string" ? label : label.name))
+      .filter((label): label is string => Boolean(label)),
+    state: issue.state === "closed" ? "closed" : "open",
+    url: issue.html_url ?? null,
+    createdAt: issue.created_at ?? nowIso(),
+    updatedAt: issue.updated_at ?? nowIso(),
+  };
+}
+
+function buildRelatedIssueSearchQuery(input: {
+  owner: string;
+  repo: string;
+  title: string;
+}): string | null {
+  const terms = input.title
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, " ")
+    .split(/\s+/)
+    .filter((term) => term.length >= 4 && !RELATED_SEARCH_STOP_WORDS.has(term))
+    .slice(0, 5);
+  if (terms.length < 2) {
+    return null;
+  }
+  return `repo:${input.owner}/${input.repo} is:issue in:title ${terms.join(" ")}`;
+}
+
+const RELATED_SEARCH_STOP_WORDS = new Set([
+  "with",
+  "from",
+  "that",
+  "this",
+  "issue",
+  "issues",
+  "open",
+  "close",
+  "closed",
+]);
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export function extractLinkedIssueNumbers(text: string): number[] {

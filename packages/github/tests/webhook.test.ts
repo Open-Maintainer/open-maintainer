@@ -7,6 +7,7 @@ import {
   createContextPr,
   extractAcceptanceCriteria,
   extractLinkedIssueNumbers,
+  fetchIssueTriageEvidence,
   fetchPullRequestReviewContext,
   fetchRepositoryContents,
   isOpenMaintainerReviewComment,
@@ -320,6 +321,150 @@ describe("github helpers", () => {
       "missing.md",
       "src/second.ts",
     ]);
+  });
+
+  it("fetches issue triage evidence with comments and related candidates", async () => {
+    const fetchedIssues: number[] = [];
+    const searchQueries: string[] = [];
+    const client: GitHubRepositoryClient = {
+      repos: {
+        async getContent() {
+          throw notFound();
+        },
+        async createOrUpdateFileContents() {
+          return { data: { commit: { sha: "unused" } } };
+        },
+      },
+      git: {
+        async getRef() {
+          return { data: { object: { sha: "unused" } } };
+        },
+        async createRef() {
+          return {};
+        },
+        async updateRef() {
+          return {};
+        },
+      },
+      pulls: {
+        async list() {
+          return { data: [] };
+        },
+        async create() {
+          return {
+            data: {
+              number: 1,
+              html_url: "https://github.com/acme/tool/pull/1",
+            },
+          };
+        },
+        async update() {
+          return {
+            data: {
+              number: 1,
+              html_url: "https://github.com/acme/tool/pull/1",
+            },
+          };
+        },
+      },
+      issues: {
+        async get(input) {
+          fetchedIssues.push(input.issue_number);
+          if (input.issue_number === 42) {
+            return {
+              data: {
+                number: 42,
+                title: "Add issue triage evidence",
+                body: [
+                  "## Feature request",
+                  "Inspect `packages/triage/src/index.ts` and related #7.",
+                  "",
+                  "## Acceptance criteria",
+                  "- Evidence includes comments",
+                ].join("\n"),
+                html_url: "https://github.com/acme/tool/issues/42",
+                user: { login: "author" },
+                labels: [{ name: "enhancement" }],
+                state: "open",
+                created_at: "2026-05-03T00:00:00.000Z",
+                updated_at: "2026-05-03T00:01:00.000Z",
+              },
+            };
+          }
+          if (input.issue_number === 7) {
+            return {
+              data: {
+                number: 7,
+                title: "Define triage contract",
+                body: "Contract issue.",
+                html_url: "https://github.com/acme/tool/issues/7",
+                state: "closed",
+                created_at: "2026-05-02T00:00:00.000Z",
+                updated_at: "2026-05-02T00:01:00.000Z",
+              },
+            };
+          }
+          throw notFound();
+        },
+        async listComments() {
+          return {
+            data: [
+              {
+                id: 100,
+                body: "The implementation should also read docs/DEMO_RUNBOOK.md.",
+                html_url:
+                  "https://github.com/acme/tool/issues/42#issuecomment-100",
+                user: { login: "maintainer" },
+                created_at: "2026-05-03T00:02:00.000Z",
+                updated_at: "2026-05-03T00:02:00.000Z",
+              },
+            ],
+          };
+        },
+      },
+      search: {
+        async issuesAndPullRequests(input) {
+          searchQueries.push(input.q);
+          return {
+            data: {
+              items: [
+                {
+                  number: 9,
+                  title: "Improve issue evidence fixtures",
+                  html_url: "https://github.com/acme/tool/issues/9",
+                },
+              ],
+            },
+          };
+        },
+      },
+    };
+
+    const evidence = await fetchIssueTriageEvidence({
+      repoId: "repo_1",
+      owner: "acme",
+      repo: "tool",
+      issueNumber: 42,
+      sourceProfileVersion: 3,
+      contextArtifactVersion: 4,
+      client,
+    });
+
+    expect(evidence.issue.author).toBe("author");
+    expect(evidence.issue.labels).toEqual(["enhancement"]);
+    expect(evidence.acceptanceCriteriaCandidates).toEqual([
+      "Evidence includes comments",
+    ]);
+    expect(evidence.referencedSurfaces).toEqual([
+      "packages/triage/src/index.ts",
+      "docs/DEMO_RUNBOOK.md",
+    ]);
+    expect(evidence.relatedIssues.map((issue) => issue.number)).toEqual([7, 9]);
+    expect(evidence.citations.map((citation) => citation.source)).toContain(
+      "github_comment",
+    );
+    expect(fetchedIssues).toEqual([42, 7]);
+    expect(searchQueries[0]).toContain("repo:acme/tool is:issue");
   });
 
   it("updates a context branch, preserves existing context files, and updates an existing PR", async () => {

@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildIssueTriageEvidence,
+  extractAcceptanceCriteriaCandidates,
+  extractReferencedIssueNumbers,
+  extractReferencedSurfaces,
   mapIssueTriageLabelIntents,
   parseIssueTriageModelResult,
   safeParseIssueTriageModelResult,
@@ -72,5 +76,86 @@ describe("issue triage package", () => {
     expect(Object.keys(triage).some((name) => /^classify/i.test(name))).toBe(
       false,
     );
+  });
+
+  it("assembles bounded issue evidence without assigning readiness", () => {
+    const evidence = buildIssueTriageEvidence({
+      repoId: "repo_1",
+      owner: "Open-Maintainer",
+      repo: "open-maintainer",
+      issue: {
+        number: 81,
+        title: "Gather issue triage evidence without classifying issues",
+        body: [
+          "## Bug report",
+          "The CLI needs evidence from `packages/triage/src/index.ts`.",
+          "",
+          "## Acceptance criteria",
+          "- [ ] Evidence includes comments",
+          "- Related #80 is cited",
+        ].join("\n"),
+        author: "maintainer",
+        labels: ["enhancement"],
+        state: "open",
+        url: "https://github.com/Open-Maintainer/open-maintainer/issues/81",
+        createdAt: "2026-05-03T00:00:00.000Z",
+        updatedAt: "2026-05-03T00:01:00.000Z",
+      },
+      comments: [
+        {
+          id: 10,
+          body: "Also inspect docs/DEMO_RUNBOOK.md before changing UX.",
+          author: "reviewer",
+          url: "https://github.com/Open-Maintainer/open-maintainer/issues/81#issuecomment-10",
+          createdAt: "2026-05-03T00:02:00.000Z",
+          updatedAt: "2026-05-03T00:02:00.000Z",
+        },
+      ],
+      relatedIssues: [
+        {
+          number: 80,
+          title: "Define the issue triage contract",
+          url: "https://github.com/Open-Maintainer/open-maintainer/issues/80",
+          reason: "Issue text references this issue.",
+        },
+      ],
+    });
+
+    expect(evidence.acceptanceCriteriaCandidates).toEqual([
+      "Evidence includes comments",
+      "Related #80 is cited",
+    ]);
+    expect(evidence.templateHints).toContain("Bug report");
+    expect(evidence.referencedSurfaces).toEqual([
+      "packages/triage/src/index.ts",
+      "docs/DEMO_RUNBOOK.md",
+    ]);
+    expect(evidence.citations.map((citation) => citation.source)).toContain(
+      "github_comment",
+    );
+    expect(JSON.stringify(evidence)).not.toContain("agent_ready");
+    expect(JSON.stringify(evidence)).not.toContain("ready_for_review");
+  });
+
+  it("extracts issue references and repository surfaces from issue text", () => {
+    expect(
+      extractReferencedIssueNumbers(
+        "Related to #12, fixes acme/tool#13, and https://github.com/acme/tool/issues/14.",
+      ),
+    ).toEqual([12, 13, 14]);
+    expect(
+      extractReferencedSurfaces(
+        "Touches `README.md`, apps/cli/src/index.ts, packages/triage/src/index.ts.",
+      ),
+    ).toEqual([
+      "README.md",
+      "apps/cli/src/index.ts",
+      "packages/triage/src/index.ts",
+    ]);
+    expect(
+      extractAcceptanceCriteriaCandidates(
+        "## Acceptance criteria\n1. First result\n- Second result\n\n## Notes\nIgnore this",
+      ),
+    ).toEqual(["First result", "Second result"]);
   });
 });
