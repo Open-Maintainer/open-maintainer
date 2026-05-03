@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_6266f712-3cd3-467f-884a-2d00481d86aa",
+  "id": "repo_profile_cf6bfba2-fdef-4e06-86b0-cc742f04dcb1",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -206,7 +206,6 @@
     "docs/MVP_RELEASE_REVIEW.md",
     "docs/PRODUCT_PRD.md",
     "docs/ROADMAP.md",
-    "docs/V0_5_RELEASE_REVIEW.md",
     "README.md"
   ],
   "repoTemplates": [],
@@ -378,6 +377,7 @@
     "tests/fixtures/with-context/AGENTS.md",
     "tests/fixtures/with-context/README.md",
     "tests/fixtures/with-context/package.json",
+    "tests/helpers/cli.ts",
     "tests/helpers/fake-model-cli.ts",
     "tests/mvp-golden.test.ts",
     "tests/smoke/compose-smoke.ts",
@@ -546,10 +546,6 @@
       "reason": "detected repository context"
     },
     {
-      "path": "docs/V0_5_RELEASE_REVIEW.md",
-      "reason": "detected repository context"
-    },
-    {
       "path": "README.md",
       "reason": "detected repository context"
     },
@@ -886,6 +882,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "tests/helpers/cli.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "tests/helpers/fake-model-cli.ts",
       "reason": "detected repository context"
     },
@@ -1014,11 +1014,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "3b8f9736f19f80fa"
+      "hash": "bf0187d273fd30f3"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "0354505035cbd033"
+      "hash": "1f7fe256eb392761"
     },
     {
       "path": "AGENTS.md",
@@ -1095,10 +1095,6 @@
     {
       "path": "docs/ROADMAP.md",
       "hash": "4ad546f40721408c"
-    },
-    {
-      "path": "docs/V0_5_RELEASE_REVIEW.md",
-      "hash": "17734751112381d2"
     },
     {
       "path": "package.json",
@@ -1222,7 +1218,7 @@
     },
     {
       "path": "README.md",
-      "hash": "3137f85567cd051e"
+      "hash": "b0bd4872c345a600"
     },
     {
       "path": "tests/action-mvp.test.ts",
@@ -1230,7 +1226,7 @@
     },
     {
       "path": "tests/cli-audit.test.ts",
-      "hash": "387bbed63c33f7c6"
+      "hash": "c609b74bfcb3f2ec"
     },
     {
       "path": "tests/cli-doctor.test.ts",
@@ -1238,15 +1234,15 @@
     },
     {
       "path": "tests/cli-help.test.ts",
-      "hash": "5d00777f8f61bf42"
+      "hash": "777e3f9d9e881c3f"
     },
     {
       "path": "tests/cli-review.test.ts",
-      "hash": "f82231f529c36c38"
+      "hash": "fefea324181380c4"
     },
     {
       "path": "tests/cli-triage.test.ts",
-      "hash": "ad705e26710e8485"
+      "hash": "3fbaf04fd08f30c2"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1389,6 +1385,10 @@
       "hash": "f2118cdfc17ea6b1"
     },
     {
+      "path": "tests/helpers/cli.ts",
+      "hash": "55de750a15eec330"
+    },
+    {
       "path": "tests/helpers/fake-model-cli.ts",
       "hash": "aa19aecdaa260578"
     },
@@ -1426,7 +1426,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-03T08:11:53.404Z",
+  "createdAt": "2026-05-03T09:02:48.352Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1542,10 +1542,6 @@
           },
           {
             "path": "docs/ROADMAP.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "docs/V0_5_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
           {
@@ -1682,10 +1678,6 @@
           },
           {
             "path": "docs/ROADMAP.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "docs/V0_5_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
           {
@@ -1958,6 +1950,10 @@
           },
           {
             "path": "tests/fixtures/with-context/package.json",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/helpers/cli.ts",
             "reason": "detected repository context"
           },
           {
@@ -2281,6 +2277,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "tests/helpers/cli.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/helpers/fake-model-cli.ts",
             "reason": "detected repository context"
           },
@@ -2453,10 +2453,6 @@
             "reason": "detected repository context"
           },
           {
-            "path": "docs/V0_5_RELEASE_REVIEW.md",
-            "reason": "detected repository context"
-          },
-          {
             "path": "README.md",
             "reason": "detected repository context"
           }
@@ -2486,10 +2482,6 @@
           },
           {
             "path": "docs/ROADMAP.md",
-            "reason": "detected repository context"
-          },
-          {
-            "path": "docs/V0_5_RELEASE_REVIEW.md",
             "reason": "detected repository context"
           },
           {
@@ -2644,7 +2636,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-03T08:11:53.405Z"
+    "generatedAt": "2026-05-03T09:02:48.353Z"
   },
-  "openMaintainerProfileHash": "e15eafc4f98b4c59"
+  "openMaintainerProfileHash": "65e1c8eef425e8e1"
 }

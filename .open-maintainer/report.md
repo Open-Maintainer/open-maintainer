@@ -34,7 +34,6 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/PRODUCT_PRD.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
-- Evidence: docs/V0_5_RELEASE_REVIEW.md (detected repository context)
 - Evidence: README.md (detected repository context)
 - Evidence: .env.example (detected repository context)
 - Evidence: tests/fixtures/high-readiness-ts/.env.example (detected repository context)
@@ -71,7 +70,6 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/PRODUCT_PRD.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
-- Evidence: docs/V0_5_RELEASE_REVIEW.md (detected repository context)
 - Evidence: apps/api/tsconfig.json (detected repository context)
 - Evidence: apps/cli/tsconfig.json (detected repository context)
 - Evidence: apps/web/tsconfig.json (detected repository context)
@@ -140,6 +138,7 @@ Agent Readiness: 100/100
 - Evidence: tests/fixtures/with-context/AGENTS.md (detected repository context)
 - Evidence: tests/fixtures/with-context/README.md (detected repository context)
 - Evidence: tests/fixtures/with-context/package.json (detected repository context)
+- Evidence: tests/helpers/cli.ts (detected repository context)
 - Evidence: tests/helpers/fake-model-cli.ts (detected repository context)
 - Evidence: tests/mvp-golden.test.ts (detected repository context)
 - Evidence: tests/smoke/compose-smoke.ts (detected repository context)
@@ -222,6 +221,7 @@ Agent Readiness: 100/100
 - Evidence: tests/fixtures/with-context/AGENTS.md (detected repository context)
 - Evidence: tests/fixtures/with-context/README.md (detected repository context)
 - Evidence: tests/fixtures/with-context/package.json (detected repository context)
+- Evidence: tests/helpers/cli.ts (detected repository context)
 - Evidence: tests/helpers/fake-model-cli.ts (detected repository context)
 - Evidence: tests/mvp-golden.test.ts (detected repository context)
 - Evidence: tests/smoke/compose-smoke.ts (detected repository context)
@@ -269,7 +269,6 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/PRODUCT_PRD.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
-- Evidence: docs/V0_5_RELEASE_REVIEW.md (detected repository context)
 - Evidence: README.md (detected repository context)
 
 ### risk handling: 12/12
@@ -280,7 +279,6 @@ Agent Readiness: 100/100
 - Evidence: docs/MVP_RELEASE_REVIEW.md (detected repository context)
 - Evidence: docs/PRODUCT_PRD.md (detected repository context)
 - Evidence: docs/ROADMAP.md (detected repository context)
-- Evidence: docs/V0_5_RELEASE_REVIEW.md (detected repository context)
 - Evidence: README.md (detected repository context)
 
 ### generated-file handling: 12/12
@@ -325,7 +323,7 @@ Agent Readiness: 100/100
 
 ## Drift
 
-- Documentation: docs/ROADMAP.md was changed. Evidence: docs/ROADMAP.md. Next action: review generated context against the changed docs.
+- Documentation: docs/V0_5_RELEASE_REVIEW.md was removed. Evidence: docs/V0_5_RELEASE_REVIEW.md. Next action: review generated context against the changed docs.
 - Documentation: README.md was changed. Evidence: README.md. Next action: review generated context against the changed docs.
 
 ## Commands
