@@ -135,30 +135,23 @@ describe("shared schemas", () => {
   it("validates issue triage model results and rejects unknown categories", () => {
     const result = IssueTriageModelResultSchema.parse({
       classification: "needs_author_input",
+      qualityScore: 40,
+      spamRisk: "low",
       agentReadiness: "not_agent_ready",
       confidence: 0.76,
-      riskFlags: ["unclear_scope", "missing_validation"],
-      labelIntents: ["needs_author_input", "needs_validation"],
-      recommendation: "Ask the author for a reproduction and validation plan.",
-      rationale: "The issue states the symptom but omits a reproducible path.",
+      signals: ["needs_author_input", "missing_reproduction"],
       evidence: [
         {
-          source: "github_issue",
-          path: null,
-          url: "https://github.com/Open-Maintainer/open-maintainer/issues/1",
-          excerpt: "It fails sometimes.",
+          signal: "needs_author_input",
+          issueTextQuote: "It fails sometimes.",
           reason: "Issue body is too vague for implementation.",
         },
       ],
-      missingInformation: ["Minimal reproduction"],
-      requiredAuthorActions: ["Add steps to reproduce."],
-      nextAction: "Request author input before agent handoff.",
-      commentPreview: {
-        marker: "<!-- open-maintainer:issue-triage -->",
-        summary: "Needs author input.",
-        body: "Please add a minimal reproduction.",
-        artifactPath: ".open-maintainer/triage/issues/1.json",
-      },
+      missingInfo: ["reproduction_steps"],
+      possibleDuplicates: [],
+      maintainerSummary:
+        "Ask the author for a reproduction and validation plan.",
+      suggestedAuthorRequest: "Add steps to reproduce.",
     });
 
     expect(result.classification).toBe("needs_author_input");
@@ -181,33 +174,26 @@ describe("shared schemas", () => {
   it("requires model-backed issue triage results to cite evidence", () => {
     expect(() =>
       IssueTriageModelResultSchema.parse({
-        classification: "ready_for_review",
+        classification: "ready_for_maintainer_review",
+        qualityScore: 92,
+        spamRisk: "low",
         agentReadiness: "agent_ready",
         confidence: 0.92,
-        riskFlags: [],
-        labelIntents: ["ready_for_review", "agent_ready"],
-        recommendation: "Ready for maintainer review.",
-        rationale: "The issue has scope, acceptance criteria, and validation.",
+        signals: ["ready_for_maintainer_review", "agent_ready"],
         evidence: [],
-        missingInformation: [],
-        requiredAuthorActions: [],
-        nextAction: "Prepare an agent task brief.",
-        commentPreview: {
-          marker: "<!-- open-maintainer:issue-triage -->",
-          summary: "Ready for review.",
-          body: "This issue appears ready for review.",
-          artifactPath: ".open-maintainer/triage/issues/2.json",
-        },
+        missingInfo: [],
+        possibleDuplicates: [],
+        maintainerSummary: "Ready for maintainer review.",
       }),
     ).toThrow();
   });
 
   it("defines default issue triage label mappings and rejects unknown intents", () => {
     expect(DefaultIssueTriageLabelMappings.needs_author_input).toBe(
-      "open-maintainer/needs-author-input",
+      "needs-author-input",
     );
-    expect(IssueTriageLabelIntentSchema.parse("duplicate_candidate")).toBe(
-      "duplicate_candidate",
+    expect(IssueTriageLabelIntentSchema.parse("possible_duplicate")).toBe(
+      "possible_duplicate",
     );
     expect(() =>
       IssueTriageLabelIntentSchema.parse("please_merge_fast"),
@@ -223,24 +209,21 @@ describe("shared schemas", () => {
         id: "triage_1",
         repoId: "repo_1",
         issueNumber: 3,
-        classification: "ready_for_review",
+        classification: "ready_for_maintainer_review",
+        qualityScore: 90,
+        spamRisk: "low",
         confidence: 0.9,
-        riskFlags: [],
-        labelIntents: ["ready_for_review"],
-        recommendation: "Ready for review.",
-        rationale: "The issue is bounded.",
+        signals: ["ready_for_maintainer_review"],
         evidence: [
           {
-            source: "github_issue",
-            path: null,
-            url: null,
-            excerpt: "Add batch issue triage.",
+            signal: "ready_for_maintainer_review",
+            issueTextQuote: "Add batch issue triage.",
             reason: "Issue body supplies the requested behavior.",
           },
         ],
-        missingInformation: [],
-        requiredAuthorActions: [],
-        nextAction: "Generate a task brief.",
+        missingInfo: [],
+        possibleDuplicates: [],
+        maintainerSummary: "Generate a task brief.",
         commentPreview: {
           marker: "<!-- open-maintainer:issue-triage -->",
           summary: "Ready for review.",

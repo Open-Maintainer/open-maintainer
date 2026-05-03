@@ -16,37 +16,28 @@ import {
 import * as triage from "../src";
 
 const validModelResult = {
-  classification: "needs_maintainer_design",
+  classification: "needs_human_design",
+  qualityScore: 63,
+  spamRisk: "low",
   agentReadiness: "needs_human_design",
   confidence: 0.84,
-  riskFlags: ["broad_scope"],
-  labelIntents: ["needs_maintainer_design", "needs_human_design"],
-  recommendation: "Ask a maintainer to make the product decision first.",
-  rationale: "The issue requests a roadmap choice without acceptance criteria.",
+  signals: ["needs_human_design"],
   evidence: [
     {
-      source: "github_issue",
-      path: null,
-      url: "https://github.com/Open-Maintainer/open-maintainer/issues/10",
-      excerpt: "Decide what the dashboard should do here.",
+      signal: "needs_human_design",
+      issueTextQuote: "Decide what the dashboard should do here.",
       reason: "The issue asks for a design decision.",
     },
   ],
-  missingInformation: ["Maintainer-approved desired behavior"],
-  requiredAuthorActions: [],
-  nextAction: "Route to maintainer design before implementation.",
-  commentPreview: {
-    marker: "<!-- open-maintainer:issue-triage -->",
-    summary: "Needs maintainer design.",
-    body: "This needs a maintainer decision before implementation.",
-    artifactPath: ".open-maintainer/triage/issues/10.json",
-  },
+  missingInfo: ["acceptance_criteria"],
+  possibleDuplicates: [],
+  maintainerSummary: "Route to maintainer design before implementation.",
 };
 
 describe("issue triage package", () => {
   it("validates model output without assigning a classification", () => {
     expect(parseIssueTriageModelResult(validModelResult).classification).toBe(
-      "needs_maintainer_design",
+      "needs_human_design",
     );
     expect(
       safeParseIssueTriageModelResult({
@@ -56,17 +47,17 @@ describe("issue triage package", () => {
     ).toBe(false);
   });
 
-  it("maps known label intents to default or configured issue labels", () => {
+  it("maps known triage signals to default or configured issue labels", () => {
     expect(
-      mapIssueTriageLabelIntents(["needs_author_input", "security_sensitive"]),
+      mapIssueTriageLabelIntents(["needs_author_input", "possibly_spam"]),
     ).toEqual([
       {
-        intent: "needs_author_input",
-        label: "open-maintainer/needs-author-input",
+        signal: "needs_author_input",
+        label: "needs-author-input",
       },
       {
-        intent: "security_sensitive",
-        label: "open-maintainer/security-sensitive",
+        signal: "possibly_spam",
+        label: "possibly-spam",
       },
     ]);
 
@@ -74,7 +65,7 @@ describe("issue triage package", () => {
       mapIssueTriageLabelIntents(["needs_author_input"], {
         needs_author_input: "needs-info",
       }),
-    ).toEqual([{ intent: "needs_author_input", label: "needs-info" }]);
+    ).toEqual([{ signal: "needs_author_input", label: "needs-info" }]);
   });
 
   it("does not expose a deterministic issue quality classifier", () => {
@@ -193,19 +184,30 @@ describe("issue triage package", () => {
       createdAt: "2026-05-03T00:02:00.000Z",
     });
 
-    expect(prompt.system).toContain("Do not infer");
-    expect(prompt.user).toContain("ready_for_review");
+    expect(prompt.system).toContain(
+      "Do not determine whether the author used AI",
+    );
+    expect(prompt.user).toContain("ready_for_maintainer_review");
     expect(prompt.user).toContain("The command is non-mutating by default");
     expect(issueTriageModelOutputJsonSchema.required).toContain(
       "classification",
     );
   });
 
+  it("keeps the Codex output schema strict-compatible", () => {
+    expect(issueTriageModelOutputJsonSchema.required).toContain(
+      "suggestedAuthorRequest",
+    );
+    expect(
+      issueTriageModelOutputJsonSchema.properties.evidence.items.required,
+    ).toEqual(["signal", "issueTextQuote", "reason"]);
+  });
+
   it("parses issue triage model completions and rejects missing citations", () => {
     const parsed = parseIssueTriageModelCompletion(
       JSON.stringify(validModelResult),
     );
-    expect(parsed.classification).toBe("needs_maintainer_design");
+    expect(parsed.classification).toBe("needs_human_design");
 
     expect(() =>
       parseIssueTriageModelCompletion(
@@ -224,8 +226,8 @@ describe("issue triage package", () => {
     );
 
     expect(comment.body).toContain("<!-- open-maintainer:issue-triage -->");
-    expect(comment.body).toContain("Maintainer-approved desired behavior");
-    expect(comment.body).toContain("Needs Maintainer Design");
+    expect(comment.body).toContain("Acceptance Criteria");
+    expect(comment.body).toContain("Needs Human Design");
     expect(comment.body.toLowerCase()).not.toContain("used ai");
     expect(comment.body.toLowerCase()).not.toContain("authorship");
     expect(comment.artifactPath).toBe(".open-maintainer/triage/issues/10.json");
@@ -257,11 +259,12 @@ describe("issue triage package", () => {
     const brief = buildIssueTriageTaskBrief({
       result: {
         ...validModelResult,
-        classification: "ready_for_review",
+        classification: "ready_for_maintainer_review",
         agentReadiness: "agent_ready",
-        riskFlags: [],
-        missingInformation: [],
-        requiredAuthorActions: [],
+        qualityScore: 91,
+        signals: ["ready_for_maintainer_review", "agent_ready"],
+        missingInfo: [],
+        maintainerSummary: "Ready for maintainer review.",
       },
       evidence,
       readFirstPaths: ["AGENTS.md", "README.md"],

@@ -39,29 +39,28 @@ if (schema.required.includes("classification")) {
     const spam = process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "spam";
     const ready = process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "ready";
     output = {
-      classification: spam ? "possible_spam" : ready ? "ready_for_review" : "needs_author_input",
+      classification: spam ? "possibly_spam" : ready ? "ready_for_maintainer_review" : "needs_author_input",
+      qualityScore: spam ? 18 : ready ? 91 : 42,
+      spamRisk: spam ? "high" : "low",
       agentReadiness: ready ? "agent_ready" : "not_agent_ready",
       confidence: spam ? 0.82 : ready ? 0.9 : 0.71,
-      riskFlags: spam ? ["unclear_scope"] : ready ? [] : ["unclear_scope", "missing_validation"],
-      labelIntents: spam ? ["possible_spam"] : ready ? ["ready_for_review", "agent_ready"] : ["needs_author_input", "needs_validation"],
-      recommendation: spam ? "Close as policy-focused spam only if configured guardrails allow it." : ready ? "Proceed with a bounded implementation brief." : "Ask the author for reproduction steps and validation expectations.",
-      rationale: spam ? "The fake provider is simulating a possible spam issue." : ready ? "The fake provider is simulating an agent-ready issue." : "The issue evidence is available, but the fake provider is configured to require more author detail.",
-      evidence: noEvidence ? [] : [{
-        source: "github_issue",
-        path: null,
-        url: "https://github.com/acme/triage-fixture/issues/42",
-        excerpt: "The command should triage one issue locally.",
-        reason: "Primary issue text describes the requested local triage behavior."
-      }],
-      missingInformation: ready ? [] : ["Minimal reproduction or exact expected behavior"],
-      requiredAuthorActions: ready ? [] : ["Add a concrete acceptance criterion and validation command."],
-      nextAction: ready ? "Generate a task brief for agent handoff." : "Request author input before agent handoff.",
-      commentPreview: {
-        marker: "<!-- open-maintainer:issue-triage -->",
-        summary: "Needs author input before implementation.",
-        body: "Please add a concrete acceptance criterion and validation command before this is ready for implementation.",
-        artifactPath: ".open-maintainer/triage/issues/42.json"
-      }
+      signals: spam ? ["possibly_spam"] : ready ? ["ready_for_maintainer_review", "agent_ready"] : ["needs_author_input", "missing_reproduction"],
+      evidence: noEvidence ? [] : [
+        {
+          signal: spam ? "possibly_spam" : ready ? "ready_for_maintainer_review" : "needs_author_input",
+          issueTextQuote: "The command should triage one issue locally.",
+          reason: "Primary issue text describes the requested local triage behavior."
+        },
+        ...(spam || ready ? [] : [{
+          signal: "missing_reproduction",
+          issueTextQuote: "The command should triage one issue locally.",
+          reason: "The issue needs reproduction or validation details."
+        }])
+      ],
+      missingInfo: ready ? [] : ["reproduction_steps"],
+      possibleDuplicates: [],
+      maintainerSummary: spam ? "Treat as possible spam under maintainer-configured guardrails." : ready ? "Generate an agent task brief for the scoped CLI change." : "Request author input before maintainer review.",
+      suggestedAuthorRequest: ready ? null : "Add a concrete acceptance criterion and validation command."
     };
   }
 } else if (schema.required.includes("findings")) {
@@ -156,31 +155,25 @@ process.stdin.on("end", () => {
     schema.required.includes("classification") &&
     process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "mixed"
   ) {
-    if (promptText.includes('"issueNumber": 43')) {
+    if (promptText.includes('"issueNumber": 43') || promptText.includes('"number": 43')) {
       output = {
         ...output,
         evidence: [],
       };
     }
-    if (promptText.includes('"issueNumber": 44')) {
+    if (promptText.includes('"issueNumber": 44') || promptText.includes('"number": 44')) {
       output = {
         ...output,
-        classification: "ready_for_review",
+        classification: "ready_for_maintainer_review",
+        qualityScore: 88,
+        spamRisk: "low",
         agentReadiness: "agent_ready",
         confidence: 0.88,
-        riskFlags: [],
-        labelIntents: ["ready_for_review", "agent_ready"],
-        recommendation: "Ready for maintainer review.",
-        rationale: "The issue includes enough scope and acceptance evidence for the fake provider.",
-        missingInformation: [],
-        requiredAuthorActions: [],
-        nextAction: "Proceed to maintainer review.",
-        commentPreview: {
-          marker: "<!-- open-maintainer:issue-triage -->",
-          summary: "Ready for review.",
-          body: "This issue appears ready for maintainer review.",
-          artifactPath: ".open-maintainer/triage/issues/44.json"
-        }
+        signals: ["ready_for_maintainer_review", "agent_ready"],
+        maintainerSummary: "Proceed to maintainer review.",
+        missingInfo: [],
+        possibleDuplicates: [],
+        suggestedAuthorRequest: null
       };
     }
   }
@@ -188,73 +181,65 @@ process.stdin.on("end", () => {
     schema.required.includes("classification") &&
     process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "all-classifications"
   ) {
-    const issueMatch = promptText.match(/"issueNumber":\\s*(\\d+)/);
+    const issueMatch =
+      promptText.match(/"issueNumber":\\s*(\\d+)/) ??
+      promptText.match(/"number":\\s*(\\d+)/);
     const issueNumber = issueMatch ? Number(issueMatch[1]) : 0;
     const byIssue = {
       42: {
-        classification: "ready_for_review",
+        classification: "ready_for_maintainer_review",
+        qualityScore: 91,
+        spamRisk: "low",
         agentReadiness: "agent_ready",
         confidence: 0.91,
-        riskFlags: [],
-        labelIntents: ["ready_for_review", "agent_ready"],
-        recommendation: "Proceed with maintainer review and generate a task brief.",
-        rationale: "The issue has a clear goal, acceptance criteria, likely files, and validation expectations.",
-        missingInformation: [],
-        requiredAuthorActions: [],
-        nextAction: "Generate an agent task brief for the scoped CLI change.",
-        summary: "Ready for review."
+        signals: ["ready_for_maintainer_review", "agent_ready"],
+        maintainerSummary: "Generate an agent task brief for the scoped CLI change.",
+        missingInfo: [],
+        suggestedAuthorRequest: null
       },
       43: {
         classification: "needs_author_input",
+        qualityScore: 38,
+        spamRisk: "low",
         agentReadiness: "not_agent_ready",
         confidence: 0.73,
-        riskFlags: ["unclear_scope", "missing_validation"],
-        labelIntents: ["needs_author_input", "needs_reproduction", "needs_validation"],
-        recommendation: "Ask the reporter for reproduction steps, environment details, and expected validation.",
-        rationale: "The bug report describes a symptom but omits a reproducible path and validation evidence.",
-        missingInformation: ["Minimal reproduction", "Observed and expected behavior", "Validation command"],
-        requiredAuthorActions: ["Add a reproducible example and the command that demonstrates the failure."],
-        nextAction: "Request author input before maintainer review.",
-        summary: "Needs author input."
+        signals: ["needs_author_input", "missing_reproduction", "missing_expected_actual"],
+        maintainerSummary: "Request author input before maintainer review.",
+        missingInfo: ["reproduction_steps", "expected_behavior", "actual_behavior"],
+        suggestedAuthorRequest: "Add a reproducible example and the command that demonstrates the failure."
       },
       44: {
-        classification: "needs_maintainer_design",
+        classification: "needs_human_design",
+        qualityScore: 62,
+        spamRisk: "low",
         agentReadiness: "needs_human_design",
         confidence: 0.82,
-        riskFlags: ["broad_scope"],
-        labelIntents: ["needs_maintainer_design", "needs_human_design"],
-        recommendation: "Route to a maintainer for the product policy decision before implementation.",
-        rationale: "The issue asks for a triage policy choice and does not define the intended behavior.",
-        missingInformation: ["Maintainer-approved policy decision"],
-        requiredAuthorActions: [],
-        nextAction: "Get maintainer design direction before assigning implementation.",
-        summary: "Needs maintainer design."
+        signals: ["needs_human_design"],
+        maintainerSummary: "Get maintainer design direction before assigning implementation.",
+        missingInfo: ["acceptance_criteria"],
+        suggestedAuthorRequest: null
       },
       45: {
-        classification: "not_agent_ready",
+        classification: "not_actionable",
+        qualityScore: 34,
+        spamRisk: "low",
         agentReadiness: "not_agent_ready",
         confidence: 0.8,
-        riskFlags: ["security_sensitive", "high_risk_path"],
-        labelIntents: ["not_agent_ready", "security_sensitive", "high_risk_path"],
-        recommendation: "Keep this in human maintainer review because it touches sensitive credential handling.",
-        rationale: "The issue targets authentication and secret handling without enough safety constraints for agent execution.",
-        missingInformation: ["Threat model", "Security review owner"],
-        requiredAuthorActions: ["Describe the security boundary and required manual review path."],
-        nextAction: "Escalate to human maintainer review instead of agent handoff.",
-        summary: "Not agent-ready."
+        signals: ["not_actionable", "needs_author_input"],
+        maintainerSummary: "Escalate to human maintainer review instead of agent handoff.",
+        missingInfo: ["proof_of_concept"],
+        suggestedAuthorRequest: "Describe the security boundary and required manual review path."
       },
       46: {
-        classification: "possible_spam",
+        classification: "possibly_spam",
+        qualityScore: 12,
+        spamRisk: "high",
         agentReadiness: "not_agent_ready",
         confidence: 0.86,
-        riskFlags: ["unclear_scope"],
-        labelIntents: ["possible_spam"],
-        recommendation: "Close only if configured spam-closure guardrails and comment requirements pass.",
-        rationale: "The issue is promotional, does not request a repo-specific change, and lacks actionable evidence.",
-        missingInformation: ["Repo-specific requested change"],
-        requiredAuthorActions: ["Replace promotional content with a concrete bug, feature, or docs request."],
-        nextAction: "Treat as possible spam under maintainer-configured guardrails.",
-        summary: "Possible spam."
+        signals: ["possibly_spam"],
+        maintainerSummary: "Treat as possible spam under maintainer-configured guardrails.",
+        missingInfo: ["affected_files_or_commands"],
+        suggestedAuthorRequest: "Replace promotional content with a concrete bug, feature, or docs request."
       }
     };
     const scenario = byIssue[issueNumber];
@@ -266,28 +251,20 @@ process.stdin.on("end", () => {
     } else if (scenario) {
       output = {
         classification: scenario.classification,
+        qualityScore: scenario.qualityScore,
+        spamRisk: scenario.spamRisk,
         agentReadiness: scenario.agentReadiness,
         confidence: scenario.confidence,
-        riskFlags: scenario.riskFlags,
-        labelIntents: scenario.labelIntents,
-        recommendation: scenario.recommendation,
-        rationale: scenario.rationale,
+        signals: scenario.signals,
         evidence: [{
-          source: "github_issue",
-          path: null,
-          url: "https://github.com/acme/triage-fixture/issues/" + issueNumber,
-          excerpt: "The mock issue includes realistic triage evidence for classification coverage.",
+          signal: scenario.signals[0],
+          issueTextQuote: "The mock issue includes realistic triage evidence for classification coverage.",
           reason: "Primary issue text drives the synthetic validation scenario."
         }],
-        missingInformation: scenario.missingInformation,
-        requiredAuthorActions: scenario.requiredAuthorActions,
-        nextAction: scenario.nextAction,
-        commentPreview: {
-          marker: "<!-- open-maintainer:issue-triage -->",
-          summary: scenario.summary,
-          body: scenario.recommendation,
-          artifactPath: ".open-maintainer/triage/issues/" + issueNumber + ".json"
-        }
+        missingInfo: scenario.missingInfo,
+        possibleDuplicates: [],
+        maintainerSummary: scenario.maintainerSummary,
+        suggestedAuthorRequest: scenario.suggestedAuthorRequest
       };
     }
   }

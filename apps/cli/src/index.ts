@@ -52,7 +52,9 @@ import {
 import type {
   IssueTriageEvidence,
   IssueTriageInput,
+  IssueTriageResolvedLabel,
   IssueTriageResult,
+  IssueTriageSignal,
   ModelProviderConfig,
   ReviewCheckStatus,
   ReviewContributionTriageCategory,
@@ -69,9 +71,9 @@ import {
   buildIssueTriageModelPrompt,
   buildIssueTriageTaskBrief,
   issueTriageModelOutputJsonSchema,
-  mapIssueTriageLabelIntents,
   parseIssueTriageModelCompletion,
   renderIssueTriageCommentPreview,
+  resolveIssueTriageLabels,
 } from "@open-maintainer/triage";
 
 type CliOptions = {
@@ -106,6 +108,11 @@ type CliOptions = {
   triageState: "open" | "closed" | "all";
   triageLimit: number | null;
   triageLabel: string | null;
+  triageIncludeLabels: string[];
+  triageExcludeLabels: string[];
+  triageOnlySignals: string[];
+  triageMinConfidence: number | null;
+  triageFormat: "table" | "json" | "markdown" | null;
   issueApplyLabels: boolean;
   issueCreateLabels: boolean;
   issuePostComment: boolean;
@@ -269,10 +276,19 @@ Single-issue required:
 
 Batch options:
   --state open|closed|all                Issue state to list (default: open)
-  --limit <n>                            Maximum issues to triage before model calls (default: 10, max: 50)
+  --limit <n>                            Maximum issues to triage before model calls (default: 100, max: 100)
   --label <name>                         Optional label filter for the issue list
-  --apply-labels                         Apply mapped Open Maintainer issue labels
-  --create-labels                        Create missing labels before applying them; requires --apply-labels
+  --include-label <name>                 Additional label filter for the issue list
+  --exclude-label <name>                 Skip issues with this label
+                                         Without include filters, already-labelled issues are skipped
+  --only <signals>                       Apply only comma-separated triage signals
+  --min-confidence <n>                   Skip label application below confidence 0..1
+  --format table|json|markdown           Choose batch console/output formatting
+  --output <path>                        Write a batch report to a custom path
+  --apply                                Apply deterministically resolved issue labels
+  --apply-labels                         Alias for --apply
+  --create-missing-preset-labels         Create missing preset labels; requires --apply
+  --create-labels                        Alias for --create-missing-preset-labels
   --post-comment                         Post or update the marked Open Maintainer issue triage comment
   --close-allowed                        Allow config-gated selective issue closure
 
@@ -997,17 +1013,42 @@ async function runIssueTriagePreview(input: {
     modelResult,
     artifactPath,
   );
+  const repoLabels = await listRepoLabels(
+    input.repoRoot,
+    profile.owner,
+    profile.name,
+  );
+  const labelConfig = input.context.config?.issueTriage?.labels;
+  const resolvedLabels = resolveIssueTriageLabels({
+    signals: modelResult.signals,
+    repoLabels,
+    config: labelConfig
+      ? {
+          mappings: labelConfig.mappings as Partial<
+            Record<IssueTriageSignal, string>
+          >,
+          preferUpstream: labelConfig.preferUpstream,
+          createMissingPresetLabels:
+            labelConfig.createMissingPresetLabels ||
+            input.options.issueCreateLabels,
+        }
+      : { createMissingPresetLabels: input.options.issueCreateLabels },
+  });
   const writeActions = await issueTriageWriteActions(input.repoRoot, {
     owner: profile.owner,
     repo: profile.name,
     issueNumber: input.issueNumber,
     issueUpdatedAt: evidence.issue.updatedAt,
     classification: modelResult.classification,
-    labelIntents: modelResult.labelIntents,
+    resolvedLabels,
     commentPreview,
-    applyLabels: input.options.issueApplyLabels,
+    applyLabels:
+      input.options.issueApplyLabels &&
+      (input.options.triageMinConfidence === null ||
+        modelResult.confidence >= input.options.triageMinConfidence),
     createLabels: input.options.issueCreateLabels,
     postComment: input.options.issuePostComment,
+    onlySignals: input.options.triageOnlySignals,
     closeAllowed: input.options.issueCloseAllowed,
     closureConfig: input.context.config?.issueTriage?.closure ?? null,
     closuresApplied: input.context.closuresApplied,
@@ -1022,6 +1063,7 @@ async function runIssueTriagePreview(input: {
   const result = IssueTriageResultSchema.parse({
     ...modelResult,
     commentPreview,
+    resolvedLabels,
     id: newId("issue_triage"),
     repoId: profile.repoId,
     issueNumber: input.issueNumber,
@@ -1045,14 +1087,32 @@ async function triageIssues(
   options: CliOptions,
 ): Promise<void> {
   validateIssueTriageWriteOptions(options);
-  const limit = options.triageLimit ?? 10;
   const context = await prepareIssueTriageContext(repoRoot, options);
+  const batchConfig = context.config?.issueTriage?.batch;
+  const limit = options.triageLimit ?? batchConfig?.maxIssues ?? 100;
+  const excludeLabels =
+    options.triageExcludeLabels.length > 0
+      ? options.triageExcludeLabels
+      : (batchConfig?.excludeLabels ?? [
+          "triaged",
+          "duplicate",
+          "wontfix",
+          "invalid",
+          "closed",
+          "security",
+        ]);
+  const includeLabels = [
+    ...(options.triageLabel ? [options.triageLabel] : []),
+    ...options.triageIncludeLabels,
+    ...(batchConfig?.includeLabels ?? []),
+  ];
   const issues = await listIssuesForTriage(repoRoot, {
     owner: context.profile.owner,
     repo: context.profile.name,
     state: options.triageState,
     limit,
-    label: options.triageLabel,
+    includeLabels,
+    excludeLabels,
   });
   const runId = newId("triage_run");
   const records: IssueTriageBatchRecord[] = [];
@@ -1064,6 +1124,21 @@ async function triageIssues(
         issueNumber: issue.number,
         options,
       });
+      if (
+        options.triageMinConfidence !== null &&
+        preview.result.confidence < options.triageMinConfidence
+      ) {
+        preview.result.writeActions = preview.result.writeActions.map(
+          (action) =>
+            action.type === "apply_label"
+              ? {
+                  ...action,
+                  status: "skipped",
+                  reason: `Confidence ${preview.result.confidence} is below --min-confidence ${options.triageMinConfidence}.`,
+                }
+              : action,
+        );
+      }
       records.push({
         status: "succeeded",
         issueNumber: issue.number,
@@ -1071,7 +1146,13 @@ async function triageIssues(
         artifactPath: preview.artifactPath,
         classification: preview.result.classification,
         agentReadiness: preview.result.agentReadiness,
-        nextAction: preview.result.nextAction,
+        qualityScore: preview.result.qualityScore,
+        confidence: preview.result.confidence,
+        signals: preview.result.signals,
+        resolvedLabels: preview.result.resolvedLabels.map(
+          (label) => label.label,
+        ),
+        nextAction: preview.result.maintainerSummary,
         writeActions: preview.result.writeActions,
       });
     } catch (error) {
@@ -1089,7 +1170,8 @@ async function triageIssues(
     repo: context.profile.name,
     state: options.triageState,
     limit,
-    label: options.triageLabel,
+    label: includeLabels.join(",") || null,
+    excludedLabels: excludeLabels,
     issueCount: issues.length,
     provider: context.providerConfig.displayName,
     model: context.providerConfig.model,
@@ -1119,12 +1201,27 @@ async function triageIssues(
     console.log(JSON.stringify(report, null, 2));
     return;
   }
-  console.log(renderTriageBatchConsole(report, { jsonPath, markdownPath }));
+  if (options.outputPath) {
+    const outputPath = path.resolve(repoRoot, options.outputPath);
+    await mkdir(path.dirname(outputPath), { recursive: true });
+    await writeFile(
+      outputPath,
+      options.triageFormat === "json"
+        ? `${JSON.stringify(report, null, 2)}\n`
+        : renderTriageBatchMarkdown(report),
+    );
+  }
+  console.log(
+    options.triageFormat === "markdown"
+      ? renderTriageBatchMarkdown(report)
+      : renderTriageBatchConsole(report, { jsonPath, markdownPath }),
+  );
 }
 
 type ListedIssueForTriage = {
   number: number;
   title: string;
+  labels: string[];
 };
 
 type IssueTriageBatchRecord =
@@ -1135,6 +1232,10 @@ type IssueTriageBatchRecord =
       artifactPath: string;
       classification: IssueTriageResult["classification"];
       agentReadiness: IssueTriageResult["agentReadiness"];
+      qualityScore: number;
+      confidence: number;
+      signals: IssueTriageResult["signals"];
+      resolvedLabels: string[];
       nextAction: string;
       writeActions: IssueTriageResult["writeActions"];
     }
@@ -1152,6 +1253,7 @@ type IssueTriageBatchReport = {
   state: "open" | "closed" | "all";
   limit: number;
   label: string | null;
+  excludedLabels: string[];
   issueCount: number;
   provider: string;
   model: string;
@@ -1167,12 +1269,14 @@ async function listIssuesForTriage(
     repo: string;
     state: "open" | "closed" | "all";
     limit: number;
-    label: string | null;
+    includeLabels: string[];
+    excludeLabels: string[];
   },
 ): Promise<ListedIssueForTriage[]> {
   const issues: ListedIssueForTriage[] = [];
+  const skipAlreadyLabelled = input.includeLabels.length === 0;
+  const pageSize = 100;
   for (let page = 1; issues.length < input.limit; page += 1) {
-    const pageSize = Math.min(100, input.limit - issues.length);
     const args = [
       "-F",
       `state=${input.state}`,
@@ -1180,12 +1284,15 @@ async function listIssuesForTriage(
       `per_page=${pageSize}`,
       "-F",
       `page=${page}`,
-      ...(input.label ? ["-F", `labels=${input.label}`] : []),
+      ...(input.includeLabels.length > 0
+        ? ["-F", `labels=${input.includeLabels.join(",")}`]
+        : []),
     ];
     const pageItems = await ghApiJson<
       Array<{
         number?: number | null;
         title?: string | null;
+        labels?: Array<string | { name?: string | null }> | null;
         pull_request?: unknown;
       }>
     >(repoRoot, `repos/${input.owner}/${input.repo}/issues`, args);
@@ -1196,7 +1303,23 @@ async function listIssuesForTriage(
       if (item.pull_request || !item.number || !item.title) {
         continue;
       }
-      issues.push({ number: item.number, title: item.title });
+      const labels = (item.labels ?? [])
+        .map((label) => (typeof label === "string" ? label : label.name))
+        .filter((label): label is string => Boolean(label));
+      if (
+        labels.some((label) =>
+          input.excludeLabels.some(
+            (excluded) =>
+              normalizeSimpleLabel(label) === normalizeSimpleLabel(excluded),
+          ),
+        )
+      ) {
+        continue;
+      }
+      if (skipAlreadyLabelled && labels.length > 0) {
+        continue;
+      }
+      issues.push({ number: item.number, title: item.title, labels });
     }
     if (pageItems.length < pageSize) {
       break;
@@ -1230,7 +1353,10 @@ function renderTriageBatchConsole(
 ): string {
   return [
     `Issue triage run: ${report.runId}`,
-    `Issues: ${report.issueCount} (state=${report.state}, limit=${report.limit})`,
+    `Scanned ${report.issueCount} ${report.state} issues`,
+    "",
+    renderTriageBatchSummary(report),
+    "",
     renderTriageBatchGroups(report),
     `JSON report: ${paths.jsonPath}`,
     `Markdown report: ${paths.markdownPath}`,
@@ -1243,14 +1369,39 @@ function renderTriageBatchMarkdown(report: IssueTriageBatchReport): string {
     `# Open Maintainer Issue Triage Run ${report.runId}`,
     "",
     `Repository: ${report.owner}/${report.repo}`,
-    `State: ${report.state}`,
-    `Limit: ${report.limit}`,
+    `Scanned: ${report.issueCount} ${report.state} issues`,
     `Provider: ${report.provider}`,
     `Model: ${report.model}`,
     `Consent: ${report.consentMode}`,
     "",
+    "## Summary",
+    "",
+    renderTriageBatchSummary(report),
+    "",
     renderTriageBatchGroups(report),
     "",
+  ].join("\n");
+}
+
+function renderTriageBatchSummary(report: IssueTriageBatchReport): string {
+  const counts = new Map<
+    IssueTriageResult["classification"] | "failed",
+    number
+  >();
+  for (const record of report.issues) {
+    const key =
+      record.status === "succeeded" ? record.classification : "failed";
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [
+    `Ready for maintainer review: ${counts.get("ready_for_maintainer_review") ?? 0}`,
+    `Needs author input: ${counts.get("needs_author_input") ?? 0}`,
+    `Possibly spam: ${counts.get("possibly_spam") ?? 0}`,
+    `Likely duplicate: ${counts.get("possible_duplicate") ?? 0}`,
+    `Needs human design: ${counts.get("needs_human_design") ?? 0}`,
+    `Not actionable: ${counts.get("not_actionable") ?? 0}`,
+    "Already labelled / unchanged: 0",
+    `Errors: ${counts.get("failed") ?? 0}`,
   ].join("\n");
 }
 
@@ -1276,7 +1427,7 @@ function renderTriageBatchGroups(report: IssueTriageBatchReport): string {
         );
       } else {
         lines.push(
-          `- #${record.issueNumber} ${record.title}: ${record.nextAction} (${record.artifactPath})`,
+          `- #${record.issueNumber} ${record.title}: score ${record.qualityScore}, labels ${record.resolvedLabels.join(", ") || "none"}; ${record.nextAction} (${record.artifactPath})`,
         );
       }
     }
@@ -1289,11 +1440,15 @@ const TRIAGE_BATCH_GROUPS: Array<{
   title: string;
   classification: IssueTriageResult["classification"] | null;
 }> = [
-  { title: "Ready for review", classification: "ready_for_review" },
+  {
+    title: "Ready for maintainer review",
+    classification: "ready_for_maintainer_review",
+  },
   { title: "Needs author input", classification: "needs_author_input" },
-  { title: "Needs human design", classification: "needs_maintainer_design" },
-  { title: "Not agent-ready", classification: "not_agent_ready" },
-  { title: "Possible spam", classification: "possible_spam" },
+  { title: "Needs human design", classification: "needs_human_design" },
+  { title: "Not actionable", classification: "not_actionable" },
+  { title: "Possible duplicate", classification: "possible_duplicate" },
+  { title: "Possibly spam", classification: "possibly_spam" },
   { title: "Errors", classification: null },
 ];
 
@@ -1452,11 +1607,12 @@ async function issueTriageWriteActions(
     issueNumber: number;
     issueUpdatedAt: string;
     classification: IssueTriageResult["classification"];
-    labelIntents: IssueTriageResult["labelIntents"];
+    resolvedLabels: IssueTriageResolvedLabel[];
     commentPreview: IssueTriageResult["commentPreview"];
     applyLabels: boolean;
     createLabels: boolean;
     postComment: boolean;
+    onlySignals: string[];
     closeAllowed: boolean;
     closureConfig: NonNullable<
       NonNullable<OpenMaintainerConfig["issueTriage"]>["closure"]
@@ -1517,9 +1673,9 @@ async function issueTriageCloseAction(
       "Closure requires a posted or updated public triage comment.",
     );
   }
-  if (input.classification === "possible_spam") {
+  if (input.classification === "possibly_spam") {
     if (!config.allowPossibleSpam) {
-      return skipped("Config does not allow possible_spam closure.");
+      return skipped("Config does not allow possibly_spam closure.");
     }
   } else if (input.classification === "needs_author_input") {
     if (!config.allowStaleAuthorInput) {
@@ -1648,19 +1804,26 @@ async function issueTriageLabelActions(
     owner: string;
     repo: string;
     issueNumber: number;
-    labelIntents: IssueTriageResult["labelIntents"];
+    resolvedLabels: IssueTriageResolvedLabel[];
     applyLabels: boolean;
     createLabels: boolean;
+    onlySignals?: string[];
   },
 ): Promise<IssueTriageResult["writeActions"]> {
-  const mappedLabels = mapIssueTriageLabelIntents(input.labelIntents);
+  const mappedLabels = input.resolvedLabels.filter(
+    (label) =>
+      label.source !== "none" &&
+      (input.onlySignals?.length
+        ? input.onlySignals.includes(label.signal)
+        : true),
+  );
   if (mappedLabels.length === 0) {
     return [
       {
         type: "apply_label",
         status: "skipped",
         target: `issue:${input.issueNumber}`,
-        reason: "Model returned no issue label intents.",
+        reason: "No issue triage signals resolved to allowed labels.",
       },
     ];
   }
@@ -1686,13 +1849,18 @@ async function issueTriageLabelActions(
   );
   if (missingLabels.length > 0 && input.createLabels) {
     for (const label of missingLabels) {
+      if (!label.shouldCreate) {
+        actions.push({
+          type: "create_label",
+          status: "skipped",
+          target: label.label,
+          reason:
+            "Missing preset label creation is not enabled for this label.",
+        });
+        continue;
+      }
       try {
-        await createIssueTriageLabel(
-          repoRoot,
-          input.owner,
-          input.repo,
-          label.label,
-        );
+        await createIssueTriageLabel(repoRoot, input.owner, input.repo, label);
         repoLabels.add(label.label);
         actions.push({
           type: "create_label",
@@ -1716,7 +1884,8 @@ async function issueTriageLabelActions(
         type: "create_label",
         status: "skipped",
         target: label.label,
-        reason: "Label is missing; pass --create-labels to create it.",
+        reason:
+          "Label is missing; pass --create-missing-preset-labels to create it.",
       });
     }
   }
@@ -1785,11 +1954,30 @@ async function listRepoLabelNames(
   owner: string,
   repo: string,
 ): Promise<Set<string>> {
+  return new Set(
+    (await listRepoLabels(repoRoot, owner, repo)).map((label) => label.name),
+  );
+}
+
+async function listRepoLabels(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+): Promise<
+  Array<{
+    id?: string;
+    name: string;
+    color?: string;
+    description?: string | null;
+  }>
+> {
   const labels = await ghApiJson<Array<{ name?: string | null }>>(
     repoRoot,
     `repos/${owner}/${repo}/labels?per_page=100`,
   );
-  return new Set(labels.flatMap((label) => (label.name ? [label.name] : [])));
+  return labels.flatMap((label) =>
+    label.name ? [{ ...label, name: label.name }] : [],
+  );
 }
 
 async function listIssueLabelNames(
@@ -1809,11 +1997,19 @@ async function createIssueTriageLabel(
   repoRoot: string,
   owner: string,
   repo: string,
-  label: string,
+  label: IssueTriageResolvedLabel,
 ): Promise<void> {
-  await createGitHubLabel(repoRoot, owner, repo, label, "5319e7", {
-    description: "Open Maintainer issue triage label.",
-  });
+  await createGitHubLabel(
+    repoRoot,
+    owner,
+    repo,
+    label.label,
+    label.color ?? "5319e7",
+    {
+      description:
+        label.description ?? "Open Maintainer issue triage preset label.",
+    },
+  );
 }
 
 async function applyIssueLabel(
@@ -1875,29 +2071,28 @@ function formatIssueTriageSummary(
   evidence: IssueTriageEvidence,
   artifactPath: string,
 ): string[] {
-  const riskFlags =
-    result.riskFlags.length > 0 ? result.riskFlags.join(", ") : "none";
   const missing =
-    result.missingInformation.length > 0
-      ? result.missingInformation.join("; ")
+    result.missingInfo.length > 0 ? result.missingInfo.join("; ") : "none";
+  const signals =
+    result.signals.length > 0 ? result.signals.join(", ") : "none";
+  const labels =
+    result.resolvedLabels.length > 0
+      ? result.resolvedLabels
+          .map((label) => `${label.label} (${label.source})`)
+          .join(", ")
       : "none";
-  const requiredActions =
-    result.requiredAuthorActions.length > 0
-      ? result.requiredAuthorActions.join("; ")
-      : "none";
-  const labelIntents =
-    result.labelIntents.length > 0 ? result.labelIntents.join(", ") : "none";
   return [
     `Issue #${result.issueNumber}: ${evidence.issue.title}`,
     `Classification: ${result.classification}`,
+    `Quality score: ${result.qualityScore}`,
+    `Spam risk: ${result.spamRisk}`,
     `Agent readiness: ${result.agentReadiness}`,
     `Confidence: ${result.confidence}`,
-    `Risk flags: ${riskFlags}`,
     `Missing information: ${missing}`,
-    `Required author actions: ${requiredActions}`,
-    `Label intents: ${labelIntents}`,
+    `Signals: ${signals}`,
+    `Resolved labels: ${labels}`,
     `Label actions: ${formatWriteActionSummary(result.writeActions, "apply_label")}`,
-    `Next action: ${result.nextAction}`,
+    `Next action: ${result.maintainerSummary}`,
     `Comment preview: ${result.commentPreview.summary}`,
     `Comment action: ${formatCommentActionSummary(result.writeActions)}`,
     `Closure action: ${formatWriteActionSummary(result.writeActions, "close_issue")}`,
@@ -1959,6 +2154,10 @@ function formatBatchGitHubWritesSummary(
     return "skipped (preview-only default)";
   }
   return `applied (${appliedCount} action${appliedCount === 1 ? "" : "s"})`;
+}
+
+function normalizeSimpleLabel(label: string): string {
+  return label.toLowerCase().trim().replace(/[_/]+/g, "-").replace(/\s+/g, "-");
 }
 
 function formatCommentActionSummary(
@@ -3190,6 +3389,11 @@ function parseOptions(rawOptions: string[]): CliOptions {
     triageState: "open",
     triageLimit: null,
     triageLabel: null,
+    triageIncludeLabels: [],
+    triageExcludeLabels: [],
+    triageOnlySignals: [],
+    triageMinConfidence: null,
+    triageFormat: null,
     issueApplyLabels: false,
     issueCreateLabels: false,
     issuePostComment: false,
@@ -3291,9 +3495,9 @@ function parseOptions(rawOptions: string[]): CliOptions {
     } else if (option === "--limit") {
       const value = requireOptionValue(rawOptions, index, option);
       const limit = Number(value);
-      if (!Number.isInteger(limit) || limit <= 0 || limit > 50) {
+      if (!Number.isInteger(limit) || limit <= 0 || limit > 100) {
         throw new Error(
-          "Invalid value for --limit. Expected a positive integer up to 50.",
+          "Invalid value for --limit. Expected a positive integer up to 100.",
         );
       }
       options.triageLimit = limit;
@@ -3301,12 +3505,54 @@ function parseOptions(rawOptions: string[]): CliOptions {
     } else if (option === "--label") {
       options.triageLabel = requireOptionValue(rawOptions, index, option);
       index += 1;
-    } else if (option === "--apply-labels") {
+    } else if (option === "--include-label") {
+      options.triageIncludeLabels.push(
+        requireOptionValue(rawOptions, index, option),
+      );
+      index += 1;
+    } else if (option === "--exclude-label") {
+      options.triageExcludeLabels.push(
+        requireOptionValue(rawOptions, index, option),
+      );
+      index += 1;
+    } else if (option === "--only") {
+      options.triageOnlySignals = requireOptionValue(rawOptions, index, option)
+        .split(",")
+        .map((value) => value.trim())
+        .filter(Boolean);
+      index += 1;
+    } else if (option === "--min-confidence") {
+      const value = Number(requireOptionValue(rawOptions, index, option));
+      if (!Number.isFinite(value) || value < 0 || value > 1) {
+        throw new Error(
+          "Invalid value for --min-confidence. Expected a number from 0 to 1.",
+        );
+      }
+      options.triageMinConfidence = value;
+      index += 1;
+    } else if (option === "--format") {
+      const value = requireOptionValue(rawOptions, index, option);
+      if (value !== "table" && value !== "json" && value !== "markdown") {
+        throw new Error(
+          "Invalid value for --format. Expected table, json, or markdown.",
+        );
+      }
+      options.triageFormat = value;
+      index += 1;
+    } else if (option === "--output") {
+      options.outputPath = requireOptionValue(rawOptions, index, option);
+      index += 1;
+    } else if (option === "--apply" || option === "--apply-labels") {
       options.issueApplyLabels = true;
-    } else if (option === "--create-labels") {
+    } else if (
+      option === "--create-labels" ||
+      option === "--create-missing-preset-labels"
+    ) {
       options.issueCreateLabels = true;
     } else if (option === "--post-comment") {
       options.issuePostComment = true;
+    } else if (option === "--no-comments") {
+      options.issuePostComment = false;
     } else if (option === "--close-allowed") {
       options.issueCloseAllowed = true;
     } else if (option === "--allow-non-agent-ready") {

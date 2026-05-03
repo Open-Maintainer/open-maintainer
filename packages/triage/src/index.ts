@@ -1,4 +1,5 @@
 import {
+  DefaultIssueTriageLabelDefinitions,
   DefaultIssueTriageLabelMappings,
   type DetectedCommand,
   type IssueTriageCommentPreview,
@@ -6,11 +7,12 @@ import {
   type IssueTriageEvidenceCitation,
   type IssueTriageInput,
   type IssueTriageIssueMetadata,
-  type IssueTriageLabelIntent,
-  IssueTriageLabelIntentSchema,
   type IssueTriageModelResult,
   IssueTriageModelResultSchema,
   type IssueTriageRelatedIssue,
+  type IssueTriageResolvedLabel,
+  type IssueTriageSignal,
+  IssueTriageSignalSchema,
   type IssueTriageSkippedEvidence,
   type IssueTriageTaskBrief,
 } from "@open-maintainer/shared";
@@ -20,13 +22,99 @@ export const ISSUE_TRIAGE_COMMENT_MARKER =
   "<!-- open-maintainer:issue-triage -->";
 
 export type IssueTriageLabelMapping = Partial<
-  Record<IssueTriageLabelIntent, string>
+  Record<IssueTriageSignal, string>
 >;
 
 export type MappedIssueTriageLabel = {
-  intent: IssueTriageLabelIntent;
+  signal: IssueTriageSignal;
   label: string;
 };
+
+export type GitHubLabel = {
+  id?: string;
+  name: string;
+  color?: string;
+  description?: string | null;
+};
+
+export type IssueTriageLabelResolutionConfig = {
+  mappings?: Partial<Record<IssueTriageSignal, string>>;
+  preferUpstream?: boolean;
+  createMissingPresetLabels?: boolean;
+};
+
+export const ISSUE_TRIAGE_SIGNALS = [
+  "needs_author_input",
+  "missing_reproduction",
+  "missing_expected_actual",
+  "missing_environment",
+  "possible_duplicate",
+  "possibly_spam",
+  "not_actionable",
+  "needs_human_design",
+  "ready_for_maintainer_review",
+  "agent_ready",
+  "not_agent_ready",
+  "bug_report",
+  "feature_request",
+  "question",
+  "documentation",
+  "security_claim_needs_poc",
+] as const satisfies readonly IssueTriageSignal[];
+
+const SIGNAL_PRIORITY: readonly IssueTriageSignal[] = [
+  "possibly_spam",
+  "possible_duplicate",
+  "not_actionable",
+  "missing_reproduction",
+  "missing_expected_actual",
+  "missing_environment",
+  "security_claim_needs_poc",
+  "needs_human_design",
+  "needs_author_input",
+  "bug_report",
+  "feature_request",
+  "question",
+  "documentation",
+  "ready_for_maintainer_review",
+  "agent_ready",
+  "not_agent_ready",
+];
+
+const CLASSIFICATION_SIGNALS: Record<
+  IssueTriageModelResult["classification"],
+  readonly IssueTriageSignal[]
+> = {
+  possibly_spam: ["possibly_spam"],
+  possible_duplicate: ["possible_duplicate"],
+  not_actionable: ["not_actionable", "needs_author_input"],
+  needs_author_input: [
+    "needs_author_input",
+    "missing_reproduction",
+    "missing_expected_actual",
+    "missing_environment",
+    "security_claim_needs_poc",
+  ],
+  needs_human_design: ["needs_human_design"],
+  ready_for_maintainer_review: [
+    "ready_for_maintainer_review",
+    "bug_report",
+    "feature_request",
+    "question",
+    "documentation",
+    "agent_ready",
+  ],
+};
+
+const SIGNAL_CONFLICTS: Array<readonly [IssueTriageSignal, IssueTriageSignal]> =
+  [
+    ["agent_ready", "not_agent_ready"],
+    ["ready_for_maintainer_review", "needs_author_input"],
+    ["ready_for_maintainer_review", "possibly_spam"],
+    ["ready_for_maintainer_review", "not_actionable"],
+    ["bug_report", "feature_request"],
+    ["possibly_spam", "needs_human_design"],
+  ];
 
 export type IssueTriageEvidenceCommentInput = {
   id: number;
@@ -62,117 +150,85 @@ export const issueTriageModelOutputJsonSchema = {
   additionalProperties: false,
   required: [
     "classification",
+    "qualityScore",
+    "spamRisk",
     "agentReadiness",
+    "signals",
     "confidence",
-    "riskFlags",
-    "labelIntents",
-    "recommendation",
-    "rationale",
     "evidence",
-    "missingInformation",
-    "requiredAuthorActions",
-    "nextAction",
-    "commentPreview",
+    "missingInfo",
+    "possibleDuplicates",
+    "maintainerSummary",
+    "suggestedAuthorRequest",
   ],
   properties: {
     classification: {
       type: "string",
       enum: [
-        "ready_for_review",
+        "ready_for_maintainer_review",
         "needs_author_input",
-        "needs_maintainer_design",
-        "not_agent_ready",
-        "possible_spam",
+        "needs_human_design",
+        "not_actionable",
+        "possible_duplicate",
+        "possibly_spam",
       ],
     },
+    qualityScore: { type: "integer", minimum: 0, maximum: 100 },
+    spamRisk: { type: "string", enum: ["low", "medium", "high"] },
     agentReadiness: {
       type: "string",
       enum: ["agent_ready", "not_agent_ready", "needs_human_design"],
     },
+    signals: {
+      type: "array",
+      items: { type: "string", enum: ISSUE_TRIAGE_SIGNALS },
+    },
     confidence: { type: "number", minimum: 0, maximum: 1 },
-    riskFlags: {
-      type: "array",
-      items: {
-        type: "string",
-        enum: [
-          "security_sensitive",
-          "high_risk_path",
-          "dependency_change",
-          "migration",
-          "release_or_ci_change",
-          "generated_file_change",
-          "broad_scope",
-          "unclear_scope",
-          "missing_validation",
-          "repository_content_transfer",
-        ],
-      },
-    },
-    labelIntents: {
-      type: "array",
-      items: {
-        type: "string",
-        enum: [
-          "ready_for_review",
-          "needs_author_input",
-          "needs_maintainer_design",
-          "not_agent_ready",
-          "possible_spam",
-          "agent_ready",
-          "needs_human_design",
-          "security_sensitive",
-          "high_risk_path",
-          "needs_reproduction",
-          "needs_validation",
-          "duplicate_candidate",
-        ],
-      },
-    },
-    recommendation: { type: "string" },
-    rationale: { type: "string" },
     evidence: {
       type: "array",
       minItems: 1,
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["source", "path", "url", "excerpt", "reason"],
+        required: ["signal", "issueTextQuote", "reason"],
         properties: {
-          source: {
-            type: "string",
-            enum: [
-              "github_issue",
-              "github_comment",
-              "issue_template",
-              "repo_profile",
-              "open_maintainer_config",
-              "generated_context",
-              "related_issue",
-              "referenced_file",
-              "maintainer_input",
-            ],
-          },
-          path: { type: ["string", "null"] },
-          url: { type: ["string", "null"] },
-          excerpt: { type: ["string", "null"] },
+          signal: { type: "string", enum: ISSUE_TRIAGE_SIGNALS },
+          issueTextQuote: { type: ["string", "null"] },
           reason: { type: "string" },
         },
       },
     },
-    missingInformation: { type: "array", items: { type: "string" } },
-    requiredAuthorActions: { type: "array", items: { type: "string" } },
-    nextAction: { type: "string" },
-    commentPreview: {
-      type: "object",
-      additionalProperties: false,
-      required: ["marker", "summary", "body", "artifactPath"],
-      properties: {
-        marker: { type: "string" },
-        summary: { type: "string" },
-        body: { type: "string" },
-        artifactPath: { type: ["string", "null"] },
+    missingInfo: {
+      type: "array",
+      items: {
+        type: "string",
+        enum: [
+          "reproduction_steps",
+          "expected_behavior",
+          "actual_behavior",
+          "environment",
+          "logs_or_error",
+          "affected_version",
+          "acceptance_criteria",
+          "affected_files_or_commands",
+          "proof_of_concept",
+        ],
       },
     },
+    possibleDuplicates: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["issueNumber", "reason"],
+        properties: {
+          issueNumber: { type: "integer", minimum: 1 },
+          reason: { type: "string" },
+        },
+      },
+    },
+    maintainerSummary: { type: "string" },
+    suggestedAuthorRequest: { type: ["string", "null"] },
   },
 } as const;
 
@@ -200,7 +256,7 @@ export function parseIssueTriageModelCompletion(
         .join("; ")}`,
     );
   }
-  return result.data;
+  return normalizeIssueTriageModelResult(result.data);
 }
 
 export function buildIssueTriageModelPrompt(input: IssueTriageInput): {
@@ -209,32 +265,82 @@ export function buildIssueTriageModelPrompt(input: IssueTriageInput): {
 } {
   return {
     system: [
-      "You are Open Maintainer's issue triage reviewer.",
-      "Classify the issue only from the provided issue evidence and repository context.",
-      "Do not infer, mention, or evaluate whether an author used AI or automation.",
-      "Return JSON that matches the provided schema and cite at least one provided evidence item.",
+      "You are OpenMaintainer Issue Triage.",
+      "",
+      "Your job is to help OSS maintainers batch-triage GitHub issues.",
+      "",
+      "Do not determine whether the author used AI.",
+      "Do not accuse the author of using AI.",
+      "Evaluate only observable issue quality: specificity, evidence, reproduction, scope, repo relevance, duplicate risk, spam risk, and actionability.",
+      "",
+      "Return JSON that satisfies the supplied schema.",
+      "",
+      "You must choose only from the supplied enum values.",
+      "You must not invent labels.",
+      "You must not output GitHub label names.",
+      "You must not create new categories.",
+      "",
+      "Every signal must be supported by issue content, repo context, similar issue evidence, or missing required fields.",
+      "",
+      "Classify as possibly_spam only when the issue is promotional, irrelevant, nonsensical, malicious-looking, link-farm-like, or clearly unrelated to the repository.",
+      "",
+      "Classify as not_actionable when the issue may be sincere but lacks enough concrete information for maintainers to act.",
+      "",
+      "Classify as needs_author_input when the issue is potentially valid but needs missing information such as reproduction steps, expected/actual behavior, logs, environment, version, or acceptance criteria.",
+      "",
+      "Classify as needs_human_design when the issue is a broad product/design request that requires maintainer decision before implementation.",
+      "",
+      "Classify as ready_for_maintainer_review only when the issue has enough context for a maintainer to decide next steps.",
+      "",
+      "Keep summaries concise and neutral.",
+      "Do not be hostile.",
+      "",
+      "Return only valid JSON.",
+      "Do not include markdown fences.",
+      "Do not include text outside JSON.",
     ].join("\n"),
     user: JSON.stringify(
       {
-        task: "Classify one GitHub issue for maintainer review and agent readiness.",
-        allowedClassifications: [
-          "ready_for_review",
-          "needs_author_input",
-          "needs_maintainer_design",
-          "not_agent_ready",
-          "possible_spam",
-        ],
-        allowedAgentReadiness: [
-          "agent_ready",
-          "not_agent_ready",
-          "needs_human_design",
-        ],
-        boundaries: [
-          "Do not mutate GitHub state.",
-          "Do not claim or imply the author used AI.",
-          "Use the LLM result as the only source of classification and agent readiness.",
-        ],
-        input,
+        task: "Classify this GitHub issue for deterministic maintainer triage.",
+        allowedSignals: ISSUE_TRIAGE_SIGNALS,
+        repo: {
+          owner: input.owner,
+          name: input.repo,
+          defaultBranch: input.evidence.repo,
+          languages: [],
+          frameworks: [],
+          importantDocs: [],
+          issueTemplates: input.evidence.templateHints,
+          knownCommands: [],
+          knownPaths: input.evidence.referencedSurfaces,
+        },
+        issue: {
+          number: input.issueNumber,
+          title: input.evidence.issue.title,
+          body: input.evidence.issue.body,
+          authorAssociation: input.evidence.issue.author ?? "unknown",
+          createdAt: input.evidence.issue.createdAt,
+          updatedAt: input.evidence.issue.updatedAt,
+          currentLabels: input.evidence.issue.labels,
+        },
+        similarIssues: input.evidence.relatedIssues.map((issue) => ({
+          number: issue.number,
+          title: issue.title,
+          state: "open",
+          labels: [],
+          similarityReason: issue.reason,
+        })),
+        repoContext: {
+          issueTemplateHints: input.evidence.templateHints,
+        },
+        evidence: input.evidence.citations,
+        outputRules: {
+          noLabelNames: true,
+          allowedSignalsOnly: true,
+          doNotDetectAiAuthorship: true,
+          evidenceRequired: true,
+          maxSignals: 4,
+        },
       },
       null,
       2,
@@ -248,20 +354,19 @@ export function renderIssueTriageCommentPreview(
 ): IssueTriageCommentPreview {
   const title = humanizeTriageValue(result.classification);
   const missingLines =
-    result.missingInformation.length > 0
-      ? result.missingInformation.map((item) => `- ${item}`)
+    result.missingInfo.length > 0
+      ? result.missingInfo.map((item) => `- ${humanizeTriageValue(item)}`)
       : ["- No missing information was identified."];
-  const actionLines =
-    result.requiredAuthorActions.length > 0
-      ? result.requiredAuthorActions.map((item) => `- ${item}`)
-      : ["- No author action is required before maintainer review."];
+  const actionLines = result.suggestedAuthorRequest
+    ? [`- ${result.suggestedAuthorRequest}`]
+    : ["- No author action is required before maintainer review."];
   const body = [
     ISSUE_TRIAGE_COMMENT_MARKER,
     "## Open Maintainer Issue Triage",
     "",
     `Status: **${title}**`,
     "",
-    result.recommendation,
+    result.maintainerSummary,
     "",
     "### Missing Information",
     ...missingLines,
@@ -269,8 +374,8 @@ export function renderIssueTriageCommentPreview(
     "### Requested Author Actions",
     ...actionLines,
     "",
-    "### Next Step",
-    result.nextAction,
+    "### Signals",
+    ...result.signals.map((signal) => `- ${humanizeTriageValue(signal)}`),
   ].join("\n");
 
   return {
@@ -282,17 +387,132 @@ export function renderIssueTriageCommentPreview(
 }
 
 export function mapIssueTriageLabelIntents(
-  intents: readonly IssueTriageLabelIntent[],
+  intents: readonly IssueTriageSignal[],
   mappings: IssueTriageLabelMapping = {},
 ): MappedIssueTriageLabel[] {
   return intents.map((intent) => {
-    const parsedIntent = IssueTriageLabelIntentSchema.parse(intent);
+    const parsedIntent = IssueTriageSignalSchema.parse(intent);
     return {
-      intent: parsedIntent,
+      signal: parsedIntent,
       label:
         mappings[parsedIntent] ?? DefaultIssueTriageLabelMappings[parsedIntent],
     };
   });
+}
+
+export function resolveIssueTriageLabels(input: {
+  signals: readonly IssueTriageSignal[];
+  repoLabels: readonly GitHubLabel[];
+  config?: IssueTriageLabelResolutionConfig;
+  maxLabelsPerIssue?: number;
+}): IssueTriageResolvedLabel[] {
+  const maxLabels = input.maxLabelsPerIssue ?? 3;
+  const repoLabels = input.repoLabels.filter((label) => label.name.trim());
+  const normalizedToLabel = new Map(
+    repoLabels.map((label) => [normalizeLabelName(label.name), label]),
+  );
+  const configMappings = input.config?.mappings ?? {};
+  const preferUpstream = input.config?.preferUpstream ?? true;
+  const createMissingPresetLabels =
+    input.config?.createMissingPresetLabels ?? false;
+  const signals = pruneIssueTriageSignals(input.signals).slice(0, maxLabels);
+  const resolved: IssueTriageResolvedLabel[] = [];
+
+  for (const signal of signals) {
+    const configured = configMappings[signal];
+    if (configured) {
+      resolved.push({
+        signal,
+        label: configured,
+        source: "config",
+        shouldCreate: false,
+      });
+      continue;
+    }
+
+    const preset = DefaultIssueTriageLabelDefinitions[signal];
+    const exact = normalizedToLabel.get(normalizeLabelName(preset.name));
+    if (preferUpstream && exact) {
+      resolved.push({
+        signal,
+        label: exact.name,
+        source: "upstream_exact",
+        shouldCreate: false,
+      });
+      continue;
+    }
+
+    const alias = preferUpstream
+      ? findAliasLabel(signal, normalizedToLabel)
+      : null;
+    if (alias) {
+      resolved.push({
+        signal,
+        label: alias.name,
+        source: "upstream_alias",
+        shouldCreate: false,
+      });
+      continue;
+    }
+
+    resolved.push({
+      signal,
+      label: preset.name,
+      source: "preset",
+      shouldCreate: createMissingPresetLabels,
+      color: preset.color,
+      description: preset.description,
+    });
+  }
+
+  return dedupeResolvedLabels(resolved).slice(0, maxLabels);
+}
+
+export function normalizeLabelName(name: string): string {
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[_/]+/g, "-")
+    .replace(/\s+/g, "-")
+    .replace(/^type[:-]/, "type-");
+}
+
+export function pruneIssueTriageSignals(
+  signals: readonly IssueTriageSignal[],
+  maxSignals = 4,
+): IssueTriageSignal[] {
+  const parsed = unique(
+    signals.map((signal) => IssueTriageSignalSchema.parse(signal)),
+  ) as IssueTriageSignal[];
+  const sorted = parsed.sort(
+    (left, right) =>
+      SIGNAL_PRIORITY.indexOf(left) - SIGNAL_PRIORITY.indexOf(right),
+  );
+  const kept: IssueTriageSignal[] = [];
+  for (const signal of sorted) {
+    if (
+      SIGNAL_CONFLICTS.some(
+        ([left, right]) =>
+          (signal === left && kept.includes(right)) ||
+          (signal === right && kept.includes(left)),
+      )
+    ) {
+      continue;
+    }
+    if (
+      signal === "agent_ready" &&
+      (kept.includes("needs_author_input") ||
+        kept.includes("not_actionable") ||
+        kept.includes("possibly_spam"))
+    ) {
+      continue;
+    }
+    kept.push(signal);
+    if (kept.length >= maxSignals) {
+      break;
+    }
+  }
+  return kept;
 }
 
 export function buildIssueTriageTaskBrief(
@@ -326,7 +546,7 @@ export function buildIssueTriageTaskBrief(
   const userVisibleBehavior =
     input.evidence.acceptanceCriteriaCandidates.length > 0
       ? input.evidence.acceptanceCriteriaCandidates
-      : [input.result.recommendation];
+      : [input.result.maintainerSummary];
   const readFirst = unique([
     ...(input.readFirstPaths ?? []),
     ...input.evidence.referencedSurfaces.filter(isDocumentationSurface),
@@ -340,14 +560,16 @@ export function buildIssueTriageTaskBrief(
   const constraints = unique([
     "Use the existing repository patterns and keep the change scoped to this issue.",
     "Do not run agent dispatch, create branches, open pull requests, or mutate GitHub from this task brief.",
-    ...input.result.requiredAuthorActions.map(
-      (action) => `Do not proceed past missing author input: ${action}`,
-    ),
+    ...(input.result.suggestedAuthorRequest
+      ? [
+          `Do not proceed past missing author input: ${input.result.suggestedAuthorRequest}`,
+        ]
+      : []),
   ]);
   const safetyNotes = unique([
-    `Model rationale: ${input.result.rationale}`,
-    ...input.result.riskFlags.map(
-      (flag) => `Triage risk flag: ${humanizeTriageValue(flag)}.`,
+    `Model summary: ${input.result.maintainerSummary}`,
+    ...input.result.signals.map(
+      (signal) => `Triage signal: ${humanizeTriageValue(signal)}.`,
     ),
     ...(input.result.agentReadiness === "agent_ready"
       ? [
@@ -372,13 +594,10 @@ export function buildIssueTriageTaskBrief(
       : [
           `Non-agent-ready override: ${humanizeTriageValue(input.result.agentReadiness)}.`,
         ]),
-    ...input.result.missingInformation.map(
-      (item) => `Missing information: ${item}`,
-    ),
-    ...input.result.riskFlags.map(
-      (flag) =>
-        `Escalate if implementation touches ${humanizeTriageValue(flag)} areas.`,
-    ),
+    ...input.result.missingInfo.map((item) => `Missing information: ${item}`),
+    ...(input.result.signals.includes("security_claim_needs_poc")
+      ? ["Escalate if implementation touches security-sensitive areas."]
+      : []),
     "Escalate if the implementation requires product, security, data migration, or release policy decisions not already covered by the issue.",
   ]);
   const brief: Omit<IssueTriageTaskBrief, "markdown"> = {
@@ -670,6 +889,148 @@ function excerpt(text: string): string {
 
 function normalizeWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
+}
+
+function normalizeIssueTriageModelResult(
+  result: IssueTriageModelResult,
+): IssueTriageModelResult {
+  const allowed = new Set(CLASSIFICATION_SIGNALS[result.classification]);
+  const evidenceSignals = new Set(result.evidence.map((item) => item.signal));
+  const constrained = result.signals.filter(
+    (signal) => allowed.has(signal) && evidenceSignals.has(signal),
+  );
+  const requiredSignal =
+    CLASSIFICATION_SIGNALS[result.classification][0] ?? result.signals[0];
+  const signals = pruneIssueTriageSignals(
+    constrained.length > 0 || !requiredSignal ? constrained : [requiredSignal],
+  );
+
+  return {
+    ...result,
+    signals,
+    evidence: result.evidence.filter((item) => signals.includes(item.signal))
+      .length
+      ? result.evidence.filter((item) => signals.includes(item.signal))
+      : result.evidence,
+  };
+}
+
+const LABEL_ALIASES: Record<IssueTriageSignal, readonly string[]> = {
+  needs_author_input: [
+    "needs-author-input",
+    "needs author input",
+    "needs-info",
+    "needs info",
+    "needs-information",
+    "needs information",
+    "more-info-needed",
+    "awaiting response",
+    "waiting for author",
+    "needs clarification",
+  ],
+  missing_reproduction: [
+    "needs-reproduction",
+    "needs reproduction",
+    "reproduction needed",
+    "needs repro",
+    "missing reproduction",
+    "can't reproduce",
+    "cannot reproduce",
+  ],
+  missing_expected_actual: [
+    "needs-expected-actual",
+    "expected actual",
+    "expected behavior",
+    "actual behavior",
+  ],
+  missing_environment: [
+    "needs-environment",
+    "environment needed",
+    "needs version",
+    "needs platform",
+  ],
+  possible_duplicate: [
+    "duplicate",
+    "possibly-duplicate",
+    "possible duplicate",
+    "dupe",
+  ],
+  possibly_spam: [
+    "spam",
+    "possibly-spam",
+    "possible spam",
+    "invalid",
+    "off-topic",
+  ],
+  not_actionable: [
+    "not-actionable",
+    "not actionable",
+    "invalid",
+    "wontfix",
+    "wont-fix",
+    "won't fix",
+  ],
+  needs_human_design: [
+    "needs-design",
+    "needs design",
+    "needs-discussion",
+    "needs discussion",
+    "needs maintainer input",
+    "needs product input",
+  ],
+  ready_for_maintainer_review: [
+    "ready-for-review",
+    "ready for review",
+    "triaged",
+    "accepted",
+    "confirmed",
+  ],
+  agent_ready: ["agent-ready", "agent ready"],
+  not_agent_ready: ["not-agent-ready", "not agent ready"],
+  bug_report: ["bug", "type: bug", "kind/bug", "defect"],
+  feature_request: [
+    "enhancement",
+    "feature",
+    "feature request",
+    "type: enhancement",
+    "type: feature",
+  ],
+  question: ["question", "support", "help wanted"],
+  documentation: ["documentation", "docs", "doc"],
+  security_claim_needs_poc: [
+    "security-claim-needs-poc",
+    "security",
+    "needs security details",
+  ],
+};
+
+function findAliasLabel(
+  signal: IssueTriageSignal,
+  normalizedToLabel: Map<string, GitHubLabel>,
+): GitHubLabel | null {
+  for (const alias of LABEL_ALIASES[signal]) {
+    const label = normalizedToLabel.get(normalizeLabelName(alias));
+    if (label) {
+      return label;
+    }
+  }
+  return null;
+}
+
+function dedupeResolvedLabels(
+  labels: readonly IssueTriageResolvedLabel[],
+): IssueTriageResolvedLabel[] {
+  const seen = new Set<string>();
+  const resolved: IssueTriageResolvedLabel[] = [];
+  for (const label of labels) {
+    const normalized = normalizeLabelName(label.label);
+    if (seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    resolved.push(label);
+  }
+  return resolved;
 }
 
 function unique(values: string[]): string[] {

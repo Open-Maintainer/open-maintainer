@@ -176,14 +176,34 @@ if (method !== "GET") {
   process.exit(1);
 }
 if (endpoint === "repos/acme/triage-fixture/issues") {
+  const labelledFirstPage = process.env.OPEN_MAINTAINER_FAKE_GH_LABELLED_FIRST_PAGE === "1";
+  if (labelledFirstPage && args.includes("page=1")) {
+    write(Array.from({ length: 100 }, (_, index) => ({
+      number: 91 + index,
+      title: "Already labelled " + (index + 1),
+      labels: [{ name: index % 2 === 0 ? "bug" : "triaged" }],
+      pull_request: null
+    })));
+    process.exit(0);
+  }
+  if (labelledFirstPage && args.includes("page=2")) {
+    write([
+      { number: 42, title: "Triage one issue locally", labels: [], pull_request: null },
+      { number: 43, title: "Bug: dashboard provider form accepts blank base URL", labels: [], pull_request: null },
+      { number: 44, title: "Ready batch issue", labels: [], pull_request: null },
+      { number: 45, title: "Rotate GitHub App webhook credentials safely", labels: [], pull_request: null },
+      { number: 46, title: "Best crypto casino bonus partnership", labels: [], pull_request: null }
+    ]);
+    process.exit(0);
+  }
   write([
-    { number: 42, title: "Triage one issue locally", pull_request: null },
-    { number: 43, title: "Bug: dashboard provider form accepts blank base URL", pull_request: null },
-    { number: 44, title: "Ready batch issue", pull_request: null },
-    { number: 45, title: "Rotate GitHub App webhook credentials safely", pull_request: null },
-    { number: 46, title: "Best crypto casino bonus partnership", pull_request: null },
-    { number: 47, title: "Malformed provider output fixture", pull_request: null },
-    { number: 48, title: "Beyond requested limit", pull_request: null }
+    { number: 42, title: "Triage one issue locally", labels: [], pull_request: null },
+    { number: 43, title: "Bug: dashboard provider form accepts blank base URL", labels: [], pull_request: null },
+    { number: 44, title: "Ready batch issue", labels: [], pull_request: null },
+    { number: 45, title: "Rotate GitHub App webhook credentials safely", labels: [], pull_request: null },
+    { number: 46, title: "Best crypto casino bonus partnership", labels: [], pull_request: null },
+    { number: 47, title: "Malformed provider output fixture", labels: [], pull_request: null },
+    { number: 48, title: "Beyond requested limit", labels: [], pull_request: null }
   ]);
   process.exit(0);
 }
@@ -236,7 +256,7 @@ if (endpoint === "repos/acme/triage-fixture/issues/45") {
     body: "## Security task\\nUpdate webhook credential rotation around \`GITHUB_WEBHOOK_SECRET\` and \`packages/github/src/index.ts\`.\\n\\n## Acceptance criteria\\n- Existing webhook verification tests keep passing\\n- Manual security review is required before release",
     html_url: "https://github.com/acme/triage-fixture/issues/45",
     user: { login: "security-reviewer" },
-    labels: [{ name: "security" }],
+    labels: [],
     state: "open",
     created_at: "2026-05-03T00:00:00.000Z",
     updated_at: "2026-05-03T00:01:00.000Z"
@@ -299,14 +319,14 @@ if (/^repos\\/acme\\/triage-fixture\\/issues\\/(43|44|45|46|47)\\/comments$/.tes
 }
 if (endpoint === "repos/acme/triage-fixture/labels?per_page=100") {
   write([
-    { name: "open-maintainer/needs-author-input" },
-    { name: "open-maintainer/ready-for-review" },
-    { name: "open-maintainer/agent-ready" }
+    { name: "needs-author-input" },
+    { name: "ready-for-review" },
+    { name: "agent-ready" }
   ]);
   process.exit(0);
 }
 if (endpoint === "repos/acme/triage-fixture/issues/42/labels?per_page=100") {
-  write([{ name: "open-maintainer/needs-author-input" }]);
+  write([{ name: "needs-author-input" }]);
   process.exit(0);
 }
 if (/^repos\\/acme\\/triage-fixture\\/issues\\/(43|44|45|46|47)\\/labels\\?per_page=100$/.test(endpoint)) {
@@ -403,9 +423,7 @@ describe("CLI issue triage", () => {
     expect(triage.commentPreview.body).toContain(
       "<!-- open-maintainer:issue-triage -->",
     );
-    expect(triage.commentPreview.body).toContain(
-      "Minimal reproduction or exact expected behavior",
-    );
+    expect(triage.commentPreview.body).toContain("Reproduction Steps");
     expect(triage.commentPreview.body.toLowerCase()).not.toContain("used ai");
     const ghCalls = await readFile(fakeGh.callsPath, "utf8");
     expect(ghCalls).not.toContain('"POST"');
@@ -466,7 +484,7 @@ describe("CLI issue triage", () => {
         (action) =>
           action.type === "create_label" &&
           action.status === "applied" &&
-          action.target === "open-maintainer/needs-validation",
+          action.target === "needs-reproduction",
       ),
     ).toBe(true);
     expect(
@@ -474,7 +492,7 @@ describe("CLI issue triage", () => {
         (action) =>
           action.type === "apply_label" &&
           action.status === "skipped" &&
-          action.target === "open-maintainer/needs-author-input",
+          action.target === "needs-author-input",
       ),
     ).toBe(true);
     expect(
@@ -482,12 +500,12 @@ describe("CLI issue triage", () => {
         (action) =>
           action.type === "apply_label" &&
           action.status === "applied" &&
-          action.target === "open-maintainer/needs-validation",
+          action.target === "needs-reproduction",
       ),
     ).toBe(true);
     const ghCalls = await readFile(fakeGh.callsPath, "utf8");
     expect(ghCalls).toContain("repos/acme/triage-fixture/labels");
-    expect(ghCalls).toContain('"open-maintainer/needs-validation"');
+    expect(ghCalls).toContain('"needs-reproduction"');
     expect(ghCalls).toContain("repos/acme/triage-fixture/issues/42/labels");
     expect(ghCalls).not.toContain('"issue","edit"');
     expect(ghCalls).not.toContain("/pulls/");
@@ -520,7 +538,9 @@ describe("CLI issue triage", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("Classification: ready_for_review");
+    expect(result.stdout).toContain(
+      "Classification: ready_for_maintainer_review",
+    );
     expect(result.stdout).toContain("Label actions: failed");
     expect(result.stdout).toContain("GitHub writes: failed");
     const artifact = JSON.parse(
@@ -647,7 +667,7 @@ describe("CLI issue triage", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("Issues: 2 (state=open, limit=2)");
+    expect(result.stdout).toContain("Scanned 2 open issues");
     expect(result.stdout).toContain("GitHub writes: failed");
     expect(result.stdout).not.toContain("#42 Triage one issue locally: error:");
     expect(result.stdout).not.toContain(
@@ -803,7 +823,7 @@ describe("CLI issue triage", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("Classification: possible_spam");
+    expect(result.stdout).toContain("Classification: possibly_spam");
     expect(result.stdout).toContain("Closure action: applied issue:42");
     const artifact = JSON.parse(
       await readFile(
@@ -1073,10 +1093,10 @@ describe("CLI issue triage", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("Issues: 3 (state=open, limit=3)");
-    expect(result.stdout.indexOf("## Ready for review")).toBeLessThan(
-      result.stdout.indexOf("## Needs author input"),
-    );
+    expect(result.stdout).toContain("Scanned 3 open issues");
+    expect(
+      result.stdout.indexOf("## Ready for maintainer review"),
+    ).toBeLessThan(result.stdout.indexOf("## Needs author input"));
     expect(result.stdout).toContain("#44 Choose stale issue closure policy");
     expect(result.stdout).toContain(
       "#43 Bug: dashboard provider form accepts blank base URL: error:",
@@ -1108,12 +1128,12 @@ describe("CLI issue triage", () => {
       report.issues.find(
         (issue: { issueNumber: number }) => issue.issueNumber === 44,
       ).classification,
-    ).toBe("ready_for_review");
+    ).toBe("ready_for_maintainer_review");
     const markdown = await readFile(
       path.join(fixture, markdownPath as string),
       "utf8",
     );
-    expect(markdown).toContain("## Ready for review");
+    expect(markdown).toContain("## Ready for maintainer review");
     expect(markdown).toContain("## Errors");
     expect(
       await readFile(
@@ -1132,10 +1152,59 @@ describe("CLI issue triage", () => {
       'repos/acme/triage-fixture/issues","--method","GET"',
     );
     expect(ghCalls).toContain("state=open");
-    expect(ghCalls).toContain("per_page=3");
+    expect(ghCalls).toContain("per_page=100");
     expect(ghCalls).toContain("labels=enhancement");
     expect(ghCalls).not.toContain('"POST"');
     expect(ghCalls).not.toContain('"PATCH"');
+  });
+
+  it("skips already labelled issues and keeps paging until the batch limit is filled", async () => {
+    const fixture = await createTriageRepo();
+    const fakeCodex = await createFakeCodexCli();
+    const fakeGh = await createFakeGhCli();
+
+    const result = await runCli(
+      [
+        "triage",
+        "issues",
+        fixture,
+        "--state",
+        "open",
+        "--limit",
+        "5",
+        "--model",
+        "codex",
+        "--allow-model-content-transfer",
+      ],
+      {
+        ...fakeCodex.env,
+        ...fakeGh.env,
+        OPEN_MAINTAINER_FAKE_GH_LABELLED_FIRST_PAGE: "1",
+        OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE: "all-classifications",
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("Scanned 5 open issues");
+    expect(result.stdout).toContain("#42 Triage one issue locally");
+    expect(result.stdout).toContain("#46 Best crypto casino bonus partnership");
+    expect(result.stdout).not.toContain("#91 Already labelled one");
+    expect(result.stdout).not.toContain("#95 Already labelled five");
+    const jsonPath = result.stdout
+      .split("\n")
+      .find((line) => line.startsWith("JSON report: "))
+      ?.replace("JSON report: ", "");
+    expect(jsonPath).toBeTruthy();
+    const report = JSON.parse(
+      await readFile(path.join(fixture, jsonPath as string), "utf8"),
+    );
+    expect(
+      report.issues.map((issue: { issueNumber: number }) => issue.issueNumber),
+    ).toEqual([42, 43, 44, 45, 46]);
+    const ghCalls = await readFile(fakeGh.callsPath, "utf8");
+    expect(ghCalls).toContain("page=1");
+    expect(ghCalls).toContain("page=2");
   });
 
   it("covers every issue triage classification with realistic mock issues", async () => {
@@ -1165,21 +1234,19 @@ describe("CLI issue triage", () => {
 
     expect(result.exitCode).toBe(0);
     expect(result.stderr).toBe("");
-    expect(result.stdout).toContain("Issues: 6 (state=open, limit=6)");
+    expect(result.stdout).toContain("Scanned 6 open issues");
+    expect(result.stdout).toContain("#42 Triage one issue locally: score 91");
     expect(result.stdout).toContain(
-      "#42 Triage one issue locally: Generate an agent task brief for the scoped CLI change.",
+      "#43 Bug: dashboard provider form accepts blank base URL: score 38",
     );
     expect(result.stdout).toContain(
-      "#43 Bug: dashboard provider form accepts blank base URL: Request author input before maintainer review.",
+      "#44 Choose stale issue closure policy: score 62",
     );
     expect(result.stdout).toContain(
-      "#44 Choose stale issue closure policy: Get maintainer design direction before assigning implementation.",
+      "#45 Rotate GitHub App webhook credentials safely: score 34",
     );
     expect(result.stdout).toContain(
-      "#45 Rotate GitHub App webhook credentials safely: Escalate to human maintainer review instead of agent handoff.",
-    );
-    expect(result.stdout).toContain(
-      "#46 Best crypto casino bonus partnership: Treat as possible spam under maintainer-configured guardrails.",
+      "#46 Best crypto casino bonus partnership: score 12",
     );
     expect(result.stdout).toContain(
       "#47 Malformed provider output fixture: error:",
@@ -1200,10 +1267,10 @@ describe("CLI issue triage", () => {
         .sort(),
     ).toEqual([
       "needs_author_input",
-      "needs_maintainer_design",
-      "not_agent_ready",
-      "possible_spam",
-      "ready_for_review",
+      "needs_human_design",
+      "not_actionable",
+      "possibly_spam",
+      "ready_for_maintainer_review",
     ]);
     expect(
       report.issues.find(
@@ -1218,13 +1285,13 @@ describe("CLI issue triage", () => {
             "utf8",
           ),
         ).result,
-      ).riskFlags,
-    ).toEqual(["security_sensitive", "high_risk_path"]);
+      ).signals,
+    ).toContain("not_actionable");
     const ghCalls = await readFile(fakeGh.callsPath, "utf8");
     expect(ghCalls).toContain(
       'repos/acme/triage-fixture/issues","--method","GET"',
     );
-    expect(ghCalls).toContain("per_page=6");
+    expect(ghCalls).toContain("per_page=100");
     expect(ghCalls).not.toContain('"POST"');
     expect(ghCalls).not.toContain('"PATCH"');
   });

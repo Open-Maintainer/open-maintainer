@@ -29,6 +29,41 @@ export const OpenMaintainerConfigSchema = z.object({
           requireCommentBeforeClose: z.boolean().default(true),
         })
         .default({}),
+      labels: z
+        .object({
+          preferUpstream: z.boolean().default(true),
+          createMissingPresetLabels: z.boolean().default(false),
+          allowOnlyConfiguredOrPreset: z.boolean().default(true),
+          mappings: z.record(z.string()).default({}),
+        })
+        .default({}),
+      batch: z
+        .object({
+          defaultState: z.enum(["open", "closed", "all"]).default("open"),
+          includeLabels: z.array(z.string()).default([]),
+          excludeLabels: z
+            .array(z.string())
+            .default([
+              "triaged",
+              "duplicate",
+              "wontfix",
+              "invalid",
+              "closed",
+              "security",
+            ]),
+          maxIssues: z.number().int().positive().max(100).default(100),
+        })
+        .default({}),
+      comments: z
+        .object({
+          enabled: z.boolean().default(false),
+          maxOneCommentPerIssue: z.boolean().default(true),
+          updateExistingComment: z.boolean().default(true),
+        })
+        .default({}),
+      mode: z
+        .enum(["advisory", "label_only", "comment_and_label"])
+        .default("advisory"),
     })
     .optional(),
   generated: z.object({

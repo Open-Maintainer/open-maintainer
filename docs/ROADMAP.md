@@ -228,21 +228,21 @@ Scope:
 - Keep the first useful command easy to learn. Advanced config should be optional and only needed for custom labels, comments, and closure rules.
 - Keep the first useful local triage run within the 15-minute repo adoption target.
 - Classify issues with the LLM only. Deterministic code may gather candidate evidence such as issue templates, labels, related issue candidates, referenced files, repo context, and existing metadata, but it must not independently assign categories.
-- Use primary classifications: `ready_for_review`, `needs_author_input`, `needs_maintainer_design`, `not_agent_ready`, and `possible_spam`.
+- Use primary classifications: `ready_for_maintainer_review`, `needs_author_input`, `needs_human_design`, `not_actionable`, `possible_duplicate`, and `possibly_spam`.
 - Keep agent readiness as a separate field: `agent_ready`, `not_agent_ready`, or `needs_human_design`.
 - Keep risk flags separate from primary classification, including security-sensitive, high-risk paths, dependency changes, migrations, release/CI changes, broad scope, and unclear scope.
-- Suggest canonical label intents, then map them deterministically to configured or default repo labels.
+- Return canonical triage signals only, then map them deterministically to configured labels, upstream labels, or fixed preset labels.
 - Render public comments through deterministic templates filled with LLM-provided missing-information items and required author actions.
 - Default to console summary plus local artifacts; do not apply labels, post comments, close issues, or otherwise mutate GitHub state unless explicit flags are provided.
 - Store local run history as ignored operational artifacts, including per-issue JSON and batch JSON/Markdown reports.
 - Support opt-in write flags for labels and comments. Do not auto-create missing labels unless an explicit create-labels flag is used.
-- Include selective configurable closure for `possible_spam` and stale `needs_author_input` issues only when repo config and CLI flags both allow closure. Fresh low-context issues should receive author-input requests before closure.
+- Include selective configurable closure for `possibly_spam` and stale `needs_author_input` issues only when repo config and CLI flags both allow closure. Fresh low-context issues should receive author-input requests before closure.
 - Generate agent task briefs only as a second step for `agent_ready` issues or when explicitly requested. Agent-ready briefs must include likely files or surfaces, constraints, validation plan, done criteria, and escalation risks.
 - Keep separate PR triage write workflows out of v0.5; PR contribution quality remains part of the PR review/v0.4.x line.
 
 Complete when:
 
-- Product outcome: maintainers can locally triage one issue or a batch of issues, inspect classifications, required author actions, label intents, rendered comment previews, and local artifacts before changing GitHub state.
+- Product outcome: maintainers can locally triage one issue or a batch of issues, inspect classifications, missing information, fixed signals, resolved labels, rendered comment previews, and local artifacts before changing GitHub state.
 - Product outcome: maintainers can opt into labels, comments, and selective closure through explicit flags and configuration.
 - Validation evidence: tests cover schema handling with fake model outputs, consent gates, batch CLI flow, candidate evidence gathering, label-intent mapping, deterministic comment rendering, local artifact layout, write flags, closure guardrails, duplicate candidate retrieval, and task brief rendering.
 - Quality bar: issue triage references repo context where applicable, distinguishes low-confidence suggestions, and does not infer whether the author used AI.

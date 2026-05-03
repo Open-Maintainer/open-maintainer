@@ -452,11 +452,12 @@ export const ReviewInputSchema = z.object({
 export type ReviewInput = z.infer<typeof ReviewInputSchema>;
 
 export const IssueTriageClassificationSchema = z.enum([
-  "ready_for_review",
+  "ready_for_maintainer_review",
   "needs_author_input",
-  "needs_maintainer_design",
-  "not_agent_ready",
-  "possible_spam",
+  "needs_human_design",
+  "not_actionable",
+  "possible_duplicate",
+  "possibly_spam",
 ]);
 export type IssueTriageClassification = z.infer<
   typeof IssueTriageClassificationSchema
@@ -471,52 +472,142 @@ export type IssueTriageAgentReadiness = z.infer<
   typeof IssueTriageAgentReadinessSchema
 >;
 
-export const IssueTriageRiskFlagSchema = z.enum([
-  "security_sensitive",
-  "high_risk_path",
-  "dependency_change",
-  "migration",
-  "release_or_ci_change",
-  "generated_file_change",
-  "broad_scope",
-  "unclear_scope",
-  "missing_validation",
-  "repository_content_transfer",
-]);
-export type IssueTriageRiskFlag = z.infer<typeof IssueTriageRiskFlagSchema>;
-
-export const IssueTriageLabelIntentSchema = z.enum([
-  "ready_for_review",
+export const IssueTriageSignalSchema = z.enum([
   "needs_author_input",
-  "needs_maintainer_design",
-  "not_agent_ready",
-  "possible_spam",
-  "agent_ready",
+  "missing_reproduction",
+  "missing_expected_actual",
+  "missing_environment",
+  "possible_duplicate",
+  "possibly_spam",
+  "not_actionable",
   "needs_human_design",
-  "security_sensitive",
-  "high_risk_path",
-  "needs_reproduction",
-  "needs_validation",
-  "duplicate_candidate",
+  "ready_for_maintainer_review",
+  "agent_ready",
+  "not_agent_ready",
+  "bug_report",
+  "feature_request",
+  "question",
+  "documentation",
+  "security_claim_needs_poc",
 ]);
-export type IssueTriageLabelIntent = z.infer<
-  typeof IssueTriageLabelIntentSchema
->;
+export type IssueTriageSignal = z.infer<typeof IssueTriageSignalSchema>;
+
+export const IssueTriageLabelIntentSchema = IssueTriageSignalSchema;
+export type IssueTriageLabelIntent = IssueTriageSignal;
 
 export const DefaultIssueTriageLabelMappings = {
-  ready_for_review: "open-maintainer/ready-for-review",
-  needs_author_input: "open-maintainer/needs-author-input",
-  needs_maintainer_design: "open-maintainer/needs-maintainer-design",
-  not_agent_ready: "open-maintainer/not-agent-ready",
-  possible_spam: "open-maintainer/possible-spam",
+  needs_author_input: "needs-author-input",
+  missing_reproduction: "needs-reproduction",
+  missing_expected_actual: "needs-expected-actual",
+  missing_environment: "needs-environment",
+  possible_duplicate: "possibly-duplicate",
+  possibly_spam: "possibly-spam",
+  not_actionable: "not-actionable",
+  needs_human_design: "needs-human-design",
+  ready_for_maintainer_review: "ready-for-maintainer-review",
   agent_ready: "open-maintainer/agent-ready",
-  needs_human_design: "open-maintainer/needs-human-design",
-  security_sensitive: "open-maintainer/security-sensitive",
-  high_risk_path: "open-maintainer/high-risk-path",
-  needs_reproduction: "open-maintainer/needs-reproduction",
-  needs_validation: "open-maintainer/needs-validation",
-  duplicate_candidate: "open-maintainer/duplicate-candidate",
-} as const satisfies Record<IssueTriageLabelIntent, string>;
+  not_agent_ready: "open-maintainer/not-agent-ready",
+  bug_report: "bug",
+  feature_request: "enhancement",
+  question: "question",
+  documentation: "documentation",
+  security_claim_needs_poc: "security-claim-needs-poc",
+} as const satisfies Record<IssueTriageSignal, string>;
+
+export const DefaultIssueTriageLabelDefinitions = {
+  needs_author_input: {
+    name: "needs-author-input",
+    color: "D4C5F9",
+    description:
+      "Issue needs more information from the author before maintainers can act.",
+  },
+  missing_reproduction: {
+    name: "needs-reproduction",
+    color: "D4C5F9",
+    description:
+      "Bug report needs reproduction steps or a minimal reproduction.",
+  },
+  missing_expected_actual: {
+    name: "needs-expected-actual",
+    color: "D4C5F9",
+    description: "Issue needs expected and actual behavior.",
+  },
+  missing_environment: {
+    name: "needs-environment",
+    color: "D4C5F9",
+    description:
+      "Issue needs environment, version, platform, or commit details.",
+  },
+  possible_duplicate: {
+    name: "possibly-duplicate",
+    color: "CFD3D7",
+    description: "Issue may duplicate an existing issue.",
+  },
+  possibly_spam: {
+    name: "possibly-spam",
+    color: "B60205",
+    description:
+      "Issue appears promotional, irrelevant, bot-like, or non-actionable.",
+  },
+  not_actionable: {
+    name: "not-actionable",
+    color: "B60205",
+    description:
+      "Issue lacks enough actionable content for maintainers to proceed.",
+  },
+  needs_human_design: {
+    name: "needs-human-design",
+    color: "FBCA04",
+    description:
+      "Issue requires maintainer/product design before implementation.",
+  },
+  ready_for_maintainer_review: {
+    name: "ready-for-maintainer-review",
+    color: "0E8A16",
+    description: "Issue appears sufficiently clear for maintainer review.",
+  },
+  agent_ready: {
+    name: "agent-ready",
+    color: "0E8A16",
+    description:
+      "Issue appears scoped and clear enough for an AI coding agent.",
+  },
+  not_agent_ready: {
+    name: "not-agent-ready",
+    color: "BFDADC",
+    description:
+      "Issue is not suitable for an AI coding agent without more context.",
+  },
+  bug_report: {
+    name: "bug",
+    color: "D73A4A",
+    description: "Issue reports a bug.",
+  },
+  feature_request: {
+    name: "enhancement",
+    color: "A2EEEF",
+    description: "Issue requests a feature or improvement.",
+  },
+  question: {
+    name: "question",
+    color: "D876E3",
+    description: "Issue is primarily a question.",
+  },
+  documentation: {
+    name: "documentation",
+    color: "0075CA",
+    description: "Issue relates to documentation.",
+  },
+  security_claim_needs_poc: {
+    name: "security-claim-needs-poc",
+    color: "B60205",
+    description:
+      "Security-like issue needs affected surface, proof of concept, or exploit path.",
+  },
+} as const satisfies Record<
+  IssueTriageSignal,
+  { name: string; color: string; description: string }
+>;
 
 export const IssueTriageEvidenceSourceSchema = z.enum([
   "github_issue",
@@ -647,33 +738,90 @@ export const IssueTriageTaskBriefSchema = z.object({
 });
 export type IssueTriageTaskBrief = z.infer<typeof IssueTriageTaskBriefSchema>;
 
-export const IssueTriageModelResultSchema = z.object({
-  classification: IssueTriageClassificationSchema,
-  agentReadiness: IssueTriageAgentReadinessSchema,
-  confidence: z.number().min(0).max(1),
-  riskFlags: z.array(IssueTriageRiskFlagSchema),
-  labelIntents: z.array(IssueTriageLabelIntentSchema),
-  recommendation: z.string().min(1),
-  rationale: z.string().min(1),
-  evidence: z.array(IssueTriageEvidenceCitationSchema).min(1),
-  missingInformation: z.array(z.string().min(1)),
-  requiredAuthorActions: z.array(z.string().min(1)),
-  nextAction: z.string().min(1),
-  commentPreview: IssueTriageCommentPreviewSchema,
-  taskBrief: IssueTriageTaskBriefSchema.default({
-    status: "not_generated",
-    goal: null,
-    userVisibleBehavior: [],
-    readFirst: [],
-    likelyFiles: [],
-    constraints: [],
-    safetyNotes: [],
-    validationCommands: [],
-    doneCriteria: [],
-    escalationRisks: [],
-    markdown: null,
-  }),
-});
+export const IssueTriageMissingInfoSchema = z.enum([
+  "reproduction_steps",
+  "expected_behavior",
+  "actual_behavior",
+  "environment",
+  "logs_or_error",
+  "affected_version",
+  "acceptance_criteria",
+  "affected_files_or_commands",
+  "proof_of_concept",
+]);
+export type IssueTriageMissingInfo = z.infer<
+  typeof IssueTriageMissingInfoSchema
+>;
+
+export const IssueTriageModelEvidenceSchema = z
+  .object({
+    signal: IssueTriageSignalSchema,
+    issueTextQuote: z.string().min(1).nullable().default(null),
+    reason: z.string().min(1),
+  })
+  .strict();
+export type IssueTriageModelEvidence = z.infer<
+  typeof IssueTriageModelEvidenceSchema
+>;
+
+export const IssueTriagePossibleDuplicateSchema = z
+  .object({
+    issueNumber: z.number().int().positive(),
+    reason: z.string().min(1),
+  })
+  .strict();
+export type IssueTriagePossibleDuplicate = z.infer<
+  typeof IssueTriagePossibleDuplicateSchema
+>;
+
+export const IssueTriageResolvedLabelSchema = z
+  .object({
+    signal: IssueTriageSignalSchema,
+    label: z.string().min(1),
+    source: z.enum([
+      "config",
+      "upstream_exact",
+      "upstream_alias",
+      "preset",
+      "none",
+    ]),
+    shouldCreate: z.boolean(),
+    color: z.string().min(1).optional(),
+    description: z.string().min(1).optional(),
+  })
+  .strict();
+export type IssueTriageResolvedLabel = z.infer<
+  typeof IssueTriageResolvedLabelSchema
+>;
+
+export const IssueTriageModelResultSchema = z
+  .object({
+    classification: IssueTriageClassificationSchema,
+    qualityScore: z.number().int().min(0).max(100),
+    spamRisk: z.enum(["low", "medium", "high"]),
+    agentReadiness: IssueTriageAgentReadinessSchema,
+    signals: z.array(IssueTriageSignalSchema),
+    confidence: z.number().min(0).max(1),
+    evidence: z.array(IssueTriageModelEvidenceSchema).min(1),
+    missingInfo: z.array(IssueTriageMissingInfoSchema),
+    possibleDuplicates: z.array(IssueTriagePossibleDuplicateSchema),
+    maintainerSummary: z.string().min(1),
+    suggestedAuthorRequest: z.string().min(1).nullable().default(null),
+    taskBrief: IssueTriageTaskBriefSchema.default({
+      status: "not_generated",
+      goal: null,
+      userVisibleBehavior: [],
+      readFirst: [],
+      likelyFiles: [],
+      constraints: [],
+      safetyNotes: [],
+      validationCommands: [],
+      doneCriteria: [],
+      escalationRisks: [],
+      markdown: null,
+    }),
+  })
+  .strict();
 export type IssueTriageModelResult = z.infer<
   typeof IssueTriageModelResultSchema
 >;
@@ -682,6 +830,8 @@ export const IssueTriageResultSchema = IssueTriageModelResultSchema.extend({
   id: z.string().min(1),
   repoId: z.string().min(1),
   issueNumber: z.number().int().positive(),
+  commentPreview: IssueTriageCommentPreviewSchema,
+  resolvedLabels: z.array(IssueTriageResolvedLabelSchema).default([]),
   writeActions: z.array(IssueTriageWriteActionSchema),
   modelProvider: z.string().min(1),
   model: z.string().min(1),

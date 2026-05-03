@@ -163,14 +163,20 @@ does not label, comment, or close GitHub issues unless write flags are present.
 | --- | --- |
 | `--number <n>` | GitHub issue number for `triage issue` or `triage brief`. |
 | `--state open|closed|all` | Issue state for `triage issues`; default is `open`. |
-| `--limit <n>` | Maximum issues to triage before model calls; default is 10, max is 50. |
-| `--label <name>` | Optional label filter for `triage issues`. |
+| `--limit <n>` | Maximum issues to triage before model calls; default is 100, max is 100. |
+| `--label <name>` / `--include-label <name>` | Optional label filter for `triage issues`. |
+| `--exclude-label <name>` | Skip issues with the label; defaults include `triaged`, `duplicate`, `wontfix`, `invalid`, `closed`, and `security`. |
+| Default batch selection | Without an include-label filter, already labelled issues are skipped and pagination continues until the requested unlabelled issue count is reached or no more issues are available. |
+| `--only <signals>` | Apply only comma-separated triage signals such as `possibly_spam,needs_author_input`. |
+| `--min-confidence <n>` | Skip label application below a confidence threshold from 0 to 1. |
+| `--format table|json|markdown` | Choose batch console/output formatting. |
+| `--output <path>` | Write a batch report to a custom path. |
 | `--model codex|claude` | Select the CLI backend for model-backed triage. |
 | `--llm-model <model>` | Override the backend model. |
 | `--allow-model-content-transfer` | Required with `--model`; sends issue evidence and repo context to the selected backend. |
 | `--json` | Print machine-readable triage result or batch report JSON. |
-| `--apply-labels` | Apply mapped Open Maintainer issue labels to GitHub issues. |
-| `--create-labels` | Create missing issue labels before applying them; requires `--apply-labels`. |
+| `--apply` / `--apply-labels` | Apply deterministically resolved issue labels to GitHub issues. |
+| `--create-missing-preset-labels` / `--create-labels` | Create missing preset labels before applying them; requires `--apply` or `--apply-labels`. |
 | `--post-comment` | Post or update the marked Open Maintainer issue triage comment. |
 | `--close-allowed` | Allow config-gated selective issue closure. |
 | `--allow-non-agent-ready` | Generate a task brief despite non-agent-ready triage. |
@@ -356,15 +362,18 @@ bun run cli triage issues "$TARGET_REPO" \
 Local issue artifacts are written under
 `.open-maintainer/triage/issues/<number>.json`; batch reports are written under
 `.open-maintainer/triage/runs/`. Treat `.open-maintainer/triage/` as ignored
-local operational history for maintainer inspection. Opt-in writes use explicit
-flags: `--apply-labels`, `--create-labels`, `--post-comment`, and config-gated
-`--close-allowed`. Label creation uses `gh label create`, label application uses
-`gh issue edit --add-label`, and new comments use
-`gh issue comment --body-file`. Existing marked comment updates and closure use
-`gh api` for the missing high-level operations. All writes use the maintainer's
-local `gh` authentication with issue write permission; if GitHub rejects a
-write, the triage result remains available and the write action is recorded as
-failed.
+local operational history for maintainer inspection. Model output uses fixed
+signals such as `needs_author_input`, `missing_reproduction`,
+`ready_for_maintainer_review`, and `possibly_spam`; Open Maintainer maps those
+signals deterministically to existing upstream labels first, then to fixed preset
+labels. Opt-in writes use explicit flags: `--apply`, `--apply-labels`,
+`--create-missing-preset-labels`, `--create-labels`, `--post-comment`, and
+config-gated `--close-allowed`. Label creation and application use `gh api`,
+and new comments use `gh issue comment --body-file`. Existing marked comment
+updates and closure also use `gh api` for the missing high-level operations. All
+writes use the maintainer's local `gh` authentication with issue write
+permission; if GitHub rejects a write, the triage result remains available and
+the write action is recorded as failed.
 
 Generate agent task briefs as a second step from an existing local triage
 artifact:
