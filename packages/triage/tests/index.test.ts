@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   buildIssueTriageEvidence,
+  buildIssueTriageModelPrompt,
   extractAcceptanceCriteriaCandidates,
   extractReferencedIssueNumbers,
   extractReferencedSurfaces,
+  issueTriageModelOutputJsonSchema,
   mapIssueTriageLabelIntents,
+  parseIssueTriageModelCompletion,
   parseIssueTriageModelResult,
   safeParseIssueTriageModelResult,
 } from "../src";
@@ -157,5 +160,58 @@ describe("issue triage package", () => {
         "## Acceptance criteria\n1. First result\n- Second result\n\n## Notes\nIgnore this",
       ),
     ).toEqual(["First result", "Second result"]);
+  });
+
+  it("builds issue triage prompts with explicit non-authorship boundaries", () => {
+    const evidence = buildIssueTriageEvidence({
+      repoId: "repo_1",
+      owner: "Open-Maintainer",
+      repo: "open-maintainer",
+      issue: {
+        number: 82,
+        title: "Triage one issue locally",
+        body: "## Acceptance criteria\n- The command is non-mutating by default",
+        author: "maintainer",
+        labels: [],
+        state: "open",
+        url: "https://github.com/Open-Maintainer/open-maintainer/issues/82",
+        createdAt: "2026-05-03T00:00:00.000Z",
+        updatedAt: "2026-05-03T00:01:00.000Z",
+      },
+    });
+    const prompt = buildIssueTriageModelPrompt({
+      repoId: "repo_1",
+      owner: "Open-Maintainer",
+      repo: "open-maintainer",
+      issueNumber: 82,
+      evidence,
+      modelProvider: "Codex CLI",
+      model: "gpt-test",
+      consentMode: "explicit_repository_content_transfer",
+      createdAt: "2026-05-03T00:02:00.000Z",
+    });
+
+    expect(prompt.system).toContain("Do not infer");
+    expect(prompt.user).toContain("ready_for_review");
+    expect(prompt.user).toContain("The command is non-mutating by default");
+    expect(issueTriageModelOutputJsonSchema.required).toContain(
+      "classification",
+    );
+  });
+
+  it("parses issue triage model completions and rejects missing citations", () => {
+    const parsed = parseIssueTriageModelCompletion(
+      JSON.stringify(validModelResult),
+    );
+    expect(parsed.classification).toBe("needs_maintainer_design");
+
+    expect(() =>
+      parseIssueTriageModelCompletion(
+        JSON.stringify({ ...validModelResult, evidence: [] }),
+      ),
+    ).toThrow("Invalid issue triage model output");
+    expect(() => parseIssueTriageModelCompletion("not json")).toThrow(
+      "Invalid issue triage model output",
+    );
   });
 });

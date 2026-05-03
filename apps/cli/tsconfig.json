@@ -12,6 +12,8 @@
     { "path": "../../packages/config" },
     { "path": "../../packages/analyzer" },
     { "path": "../../packages/context" },
-    { "path": "../../packages/review" }
+    { "path": "../../packages/review" },
+    { "path": "../../packages/triage" },
+    { "path": "../../packages/github" }
   ]
 }

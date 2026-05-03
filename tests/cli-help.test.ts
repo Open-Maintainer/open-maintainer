@@ -40,6 +40,7 @@ describe("CLI help", () => {
       "init",
       "doctor",
       "review",
+      "triage",
       "pr",
     ]) {
       for (const helpToken of ["--help", "-h", "help"]) {
@@ -51,6 +52,18 @@ describe("CLI help", () => {
         expect(result.stdout).not.toContain("ENOENT");
       }
     }
+  });
+
+  it("documents issue triage safety defaults", async () => {
+    const result = await runCli(["help", "triage"]);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stderr).toBe("");
+    expect(result.stdout).toContain("open-maintainer triage issue <repo>");
+    expect(result.stdout).toContain("--number <n>");
+    expect(result.stdout).toContain("--model codex|claude");
+    expect(result.stdout).toContain("--allow-model-content-transfer");
+    expect(result.stdout).toContain("non-mutating");
   });
 
   it("prints targeted help through the help command", async () => {

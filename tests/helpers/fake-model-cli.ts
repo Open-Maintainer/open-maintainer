@@ -30,7 +30,38 @@ const slug = repoName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$
 const repeated = "Use repository evidence, run the detected validation command, and keep generated context scoped. ";
 let output;
 
-if (schema.required.includes("findings")) {
+if (schema.required.includes("classification")) {
+  if (process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "invalid-json") {
+    output = "not an issue triage object";
+  } else {
+    const noEvidence = process.env.OPEN_MAINTAINER_FAKE_CODEX_ISSUE_TRIAGE === "no-evidence";
+    output = {
+      classification: "needs_author_input",
+      agentReadiness: "not_agent_ready",
+      confidence: 0.71,
+      riskFlags: ["unclear_scope", "missing_validation"],
+      labelIntents: ["needs_author_input", "needs_validation"],
+      recommendation: "Ask the author for reproduction steps and validation expectations.",
+      rationale: "The issue evidence is available, but the fake provider is configured to require more author detail.",
+      evidence: noEvidence ? [] : [{
+        source: "github_issue",
+        path: null,
+        url: "https://github.com/acme/triage-fixture/issues/42",
+        excerpt: "The command should triage one issue locally.",
+        reason: "Primary issue text describes the requested local triage behavior."
+      }],
+      missingInformation: ["Minimal reproduction or exact expected behavior"],
+      requiredAuthorActions: ["Add a concrete acceptance criterion and validation command."],
+      nextAction: "Request author input before agent handoff.",
+      commentPreview: {
+        marker: "<!-- open-maintainer:issue-triage -->",
+        summary: "Needs author input before implementation.",
+        body: "Please add a concrete acceptance criterion and validation command before this is ready for implementation.",
+        artifactPath: ".open-maintainer/triage/issues/42.json"
+      }
+    };
+  }
+} else if (schema.required.includes("findings")) {
   const findings = process.env.OPEN_MAINTAINER_FAKE_CODEX_FINDING === "1"
     ? [{
         severity: "major",

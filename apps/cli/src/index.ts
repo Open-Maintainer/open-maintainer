@@ -6,6 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import {
   DEFAULT_CODEX_CLI_MODEL,
+  type ModelProvider,
   buildClaudeCliProvider,
   buildCodexCliProvider,
 } from "@open-maintainer/ai";
@@ -34,6 +35,10 @@ import {
   structuredRepoFactsJsonSchema,
 } from "@open-maintainer/context";
 import {
+  type GitHubRepositoryClient,
+  fetchIssueTriageEvidence,
+} from "@open-maintainer/github";
+import {
   assembleLocalReviewInput,
   generateReview,
   renderInlineReviewComment,
@@ -41,12 +46,24 @@ import {
   renderReviewSummaryComment,
 } from "@open-maintainer/review";
 import type {
+  IssueTriageEvidence,
+  IssueTriageResult,
   ModelProviderConfig,
   ReviewCheckStatus,
   ReviewContributionTriageCategory,
   ReviewExistingComment,
   ReviewResult,
 } from "@open-maintainer/shared";
+import {
+  IssueTriageResultSchema,
+  newId,
+  nowIso,
+} from "@open-maintainer/shared";
+import {
+  buildIssueTriageModelPrompt,
+  issueTriageModelOutputJsonSchema,
+  parseIssueTriageModelCompletion,
+} from "@open-maintainer/triage";
 
 type CliOptions = {
   force: boolean;
@@ -76,6 +93,7 @@ type CliOptions = {
   reviewInlineCap: number | null;
   reviewApplyTriageLabel: boolean;
   reviewCreateTriageLabels: boolean;
+  issueNumber: number | null;
 };
 
 type ArtifactSelection = "codex" | "claude" | "both";
@@ -91,6 +109,7 @@ Commands:
   init <repo>                           Run audit, then generate missing artifacts
   doctor <repo>                         Report missing or stale generated context
   review <repo>                         Produce or post a rule-grounded PR review
+  triage issue <repo>                   Preview model-backed issue triage locally
   pr <repo> --create                    Print a dry-run PR summary for generated artifacts
 
 Help:
@@ -219,6 +238,25 @@ Examples:
   open-maintainer review . --pr 123 --model codex --allow-model-content-transfer
   open-maintainer review . --pr 123 --model claude --allow-model-content-transfer --dry-run
 `,
+  triage: `open-maintainer triage issue <repo> --number <n>
+
+Run local, non-mutating model-backed triage for one GitHub issue and write a JSON artifact.
+
+Required:
+  --number <n>                          GitHub issue number to triage
+  --model codex|claude                  CLI backend used for model-backed triage
+  --allow-model-content-transfer        Required; sends issue evidence and repo context to the backend
+
+Model options:
+  --llm-model <model>                   Optional backend model override
+
+Output:
+  .open-maintainer/triage/issues/<n>.json
+
+Examples:
+  open-maintainer triage issue . --number 82 --model codex --allow-model-content-transfer
+  open-maintainer triage issue . --number 82 --model claude --allow-model-content-transfer
+`,
   pr: `open-maintainer pr <repo> --create
 
 Print a dry-run context PR summary for generated artifacts.
@@ -256,6 +294,29 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
   if (rest.some(isHelpToken)) {
     console.log(commandUsages[command]);
     return 0;
+  }
+
+  if (command === "triage") {
+    const [subcommand, repoArg, ...rawOptions] = rest;
+    if (subcommand !== "issue") {
+      console.error("Unknown triage command. Expected: triage issue\n");
+      console.error(commandUsages.triage);
+      return 2;
+    }
+    if (!repoArg) {
+      console.error("Missing repository path.\n");
+      console.error(commandUsages.triage);
+      return 2;
+    }
+    const repoRoot = path.resolve(repoArg);
+    try {
+      const options = parseOptions(rawOptions);
+      await triageIssue(repoRoot, options);
+      return 0;
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      return 1;
+    }
   }
 
   const [repoArg, ...rawOptions] = rest;
@@ -727,6 +788,289 @@ async function pr(repoRoot: string, options: CliOptions): Promise<void> {
   console.log(
     "Use the GitHub App API flow to create a real remote PR with installation credentials.",
   );
+}
+
+async function triageIssue(
+  repoRoot: string,
+  options: CliOptions,
+): Promise<void> {
+  if (options.issueNumber === null) {
+    throw new Error("triage issue requires --number <n>.");
+  }
+  const files = await scanRepository(repoRoot, { maxFiles: 800 });
+  const profile = await createProfileFromFiles(repoRoot, files);
+  const provider = buildIssueTriageProvider({
+    repoRoot,
+    provider: options.model,
+    model: options.llmModel,
+    allowModelContentTransfer: options.allowModelContentTransfer,
+  });
+  const evidence = await fetchIssueTriageEvidence({
+    repoId: profile.repoId,
+    owner: profile.owner,
+    repo: profile.name,
+    issueNumber: options.issueNumber,
+    sourceProfileVersion: profile.version,
+    client: buildGhIssueTriageClient(repoRoot),
+  });
+  const triageInput = {
+    repoId: profile.repoId,
+    owner: profile.owner,
+    repo: profile.name,
+    issueNumber: options.issueNumber,
+    evidence,
+    modelProvider: provider.providerConfig.displayName,
+    model: provider.providerConfig.model,
+    consentMode: "explicit_repository_content_transfer" as const,
+    createdAt: nowIso(),
+  };
+  const completion = await provider.provider.complete(
+    buildIssueTriageModelPrompt(triageInput),
+    { outputSchema: issueTriageModelOutputJsonSchema },
+  );
+  const modelResult = parseIssueTriageModelCompletion(completion.text);
+  const result = IssueTriageResultSchema.parse({
+    ...modelResult,
+    id: newId("issue_triage"),
+    repoId: profile.repoId,
+    issueNumber: options.issueNumber,
+    writeActions: previewOnlyIssueTriageWriteActions(options.issueNumber),
+    modelProvider: provider.providerConfig.displayName,
+    model: completion.model,
+    consentMode: "explicit_repository_content_transfer",
+    sourceProfileVersion: profile.version,
+    contextArtifactVersion: null,
+    createdAt: nowIso(),
+  } satisfies IssueTriageResult);
+  const artifactPath = path.join(
+    ".open-maintainer",
+    "triage",
+    "issues",
+    `${options.issueNumber}.json`,
+  );
+  await writeIssueTriageArtifact(repoRoot, artifactPath, {
+    input: triageInput,
+    result,
+  });
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  for (const line of formatIssueTriageSummary(result, evidence, artifactPath)) {
+    console.log(line);
+  }
+}
+
+function buildIssueTriageProvider(input: {
+  repoRoot: string;
+  provider: ArtifactModel | null;
+  model: string | null;
+  allowModelContentTransfer: boolean;
+}): { providerConfig: ModelProviderConfig; provider: ModelProvider } {
+  if (!input.provider) {
+    throw new Error(
+      "triage issue requires --model codex or --model claude because issue triage is LLM-backed only.",
+    );
+  }
+  if (!input.allowModelContentTransfer) {
+    throw new Error(
+      "--model requires --allow-model-content-transfer because issue triage sends repository context and issue content to the selected CLI backend.",
+    );
+  }
+  const createdAt = new Date(0).toISOString();
+  const codexModel =
+    input.model ??
+    process.env.OPEN_MAINTAINER_CODEX_MODEL ??
+    DEFAULT_CODEX_CLI_MODEL;
+  const providerConfig: ModelProviderConfig =
+    input.provider === "codex"
+      ? {
+          id: "model_provider_cli_issue_triage_codex",
+          kind: "codex-cli",
+          displayName: "Codex CLI",
+          baseUrl: "http://localhost",
+          model: codexModel,
+          encryptedApiKey: "local-cli",
+          repoContentConsent: true,
+          createdAt,
+          updatedAt: createdAt,
+        }
+      : {
+          id: "model_provider_cli_issue_triage_claude",
+          kind: "claude-cli",
+          displayName: "Claude CLI",
+          baseUrl: "http://localhost",
+          model: input.model ?? "claude-cli",
+          encryptedApiKey: "local-cli",
+          repoContentConsent: true,
+          createdAt,
+          updatedAt: createdAt,
+        };
+  const provider =
+    input.provider === "codex"
+      ? buildCodexCliProvider({
+          cwd: input.repoRoot,
+          model: codexModel,
+        })
+      : buildClaudeCliProvider({
+          cwd: input.repoRoot,
+          ...(input.model ? { model: input.model } : {}),
+        });
+  return { providerConfig, provider };
+}
+
+function buildGhIssueTriageClient(repoRoot: string): GitHubRepositoryClient {
+  return {
+    repos: {
+      async getContent() {
+        throw new Error(
+          "Repository content fetching is not used for issue triage.",
+        );
+      },
+      async createOrUpdateFileContents() {
+        throw new Error("Repository writes are not used for issue triage.");
+      },
+    },
+    git: {
+      async getRef() {
+        throw new Error("Git ref reads are not used for issue triage.");
+      },
+      async createRef() {
+        throw new Error("Git ref writes are not used for issue triage.");
+      },
+      async updateRef() {
+        throw new Error("Git ref writes are not used for issue triage.");
+      },
+    },
+    pulls: {
+      async list() {
+        return { data: [] };
+      },
+      async create() {
+        throw new Error("Pull request writes are not used for issue triage.");
+      },
+      async update() {
+        throw new Error("Pull request writes are not used for issue triage.");
+      },
+    },
+    issues: {
+      async get(input) {
+        return {
+          data: await ghApiJson(
+            repoRoot,
+            issueEndpoint(input.owner, input.repo, input.issue_number),
+          ),
+        };
+      },
+      async listComments(input) {
+        const args = [
+          "-F",
+          `per_page=${input.per_page ?? 100}`,
+          "-F",
+          `page=${input.page ?? 1}`,
+        ];
+        return {
+          data: await ghApiJson(
+            repoRoot,
+            `${issueEndpoint(input.owner, input.repo, input.issue_number)}/comments`,
+            args,
+          ),
+        };
+      },
+    },
+    search: {
+      async issuesAndPullRequests(input) {
+        const args = [
+          "-F",
+          `q=${input.q}`,
+          "-F",
+          `per_page=${input.per_page ?? 10}`,
+          "-F",
+          `page=${input.page ?? 1}`,
+        ];
+        return { data: await ghApiJson(repoRoot, "search/issues", args) };
+      },
+    },
+  };
+}
+
+function issueEndpoint(
+  owner: string,
+  repo: string,
+  issueNumber: number,
+): string {
+  return `repos/${owner}/${repo}/issues/${issueNumber}`;
+}
+
+function previewOnlyIssueTriageWriteActions(
+  issueNumber: number,
+): IssueTriageResult["writeActions"] {
+  return [
+    {
+      type: "apply_label",
+      status: "skipped",
+      target: `issue:${issueNumber}`,
+      reason:
+        "Issue triage is non-mutating by default; label writes were not requested.",
+    },
+    {
+      type: "post_comment",
+      status: "skipped",
+      target: `issue:${issueNumber}`,
+      reason:
+        "Issue triage is non-mutating by default; comment posting was not requested.",
+    },
+    {
+      type: "close_issue",
+      status: "skipped",
+      target: `issue:${issueNumber}`,
+      reason:
+        "Issue triage is non-mutating by default; closure was not requested.",
+    },
+  ];
+}
+
+async function writeIssueTriageArtifact(
+  repoRoot: string,
+  artifactPath: string,
+  artifact: { input: unknown; result: IssueTriageResult },
+): Promise<void> {
+  const absolutePath = path.join(repoRoot, artifactPath);
+  await mkdir(path.dirname(absolutePath), { recursive: true });
+  await writeFile(absolutePath, `${JSON.stringify(artifact, null, 2)}\n`);
+}
+
+function formatIssueTriageSummary(
+  result: IssueTriageResult,
+  evidence: IssueTriageEvidence,
+  artifactPath: string,
+): string[] {
+  const riskFlags =
+    result.riskFlags.length > 0 ? result.riskFlags.join(", ") : "none";
+  const missing =
+    result.missingInformation.length > 0
+      ? result.missingInformation.join("; ")
+      : "none";
+  const requiredActions =
+    result.requiredAuthorActions.length > 0
+      ? result.requiredAuthorActions.join("; ")
+      : "none";
+  const labelIntents =
+    result.labelIntents.length > 0 ? result.labelIntents.join(", ") : "none";
+  return [
+    `Issue #${result.issueNumber}: ${evidence.issue.title}`,
+    `Classification: ${result.classification}`,
+    `Agent readiness: ${result.agentReadiness}`,
+    `Confidence: ${result.confidence}`,
+    `Risk flags: ${riskFlags}`,
+    `Missing information: ${missing}`,
+    `Required author actions: ${requiredActions}`,
+    `Label intents: ${labelIntents}`,
+    `Next action: ${result.nextAction}`,
+    `Comment preview: ${result.commentPreview.summary}`,
+    `Artifact: ${artifactPath}`,
+    "GitHub writes: skipped (preview-only default)",
+  ];
 }
 
 async function review(repoRoot: string, options: CliOptions): Promise<void> {
@@ -1864,6 +2208,7 @@ function parseOptions(rawOptions: string[]): CliOptions {
     reviewInlineCap: null,
     reviewApplyTriageLabel: false,
     reviewCreateTriageLabels: false,
+    issueNumber: null,
   };
   for (let index = 0; index < rawOptions.length; index += 1) {
     const option = rawOptions[index];
@@ -1938,6 +2283,16 @@ function parseOptions(rawOptions: string[]): CliOptions {
       }
       options.prNumber = prNumber;
       index += 1;
+    } else if (option === "--number") {
+      const value = requireOptionValue(rawOptions, index, option);
+      const issueNumber = Number(value);
+      if (!Number.isInteger(issueNumber) || issueNumber <= 0) {
+        throw new Error(
+          "Invalid value for --number. Expected a positive integer.",
+        );
+      }
+      options.issueNumber = issueNumber;
+      index += 1;
     } else if (option === "--output-path") {
       options.outputPath = requireOptionValue(rawOptions, index, option);
       index += 1;
@@ -2001,6 +2356,7 @@ function isCommandName(value: string | undefined): value is CommandName {
     value === "init" ||
     value === "doctor" ||
     value === "review" ||
+    value === "triage" ||
     value === "pr"
   );
 }

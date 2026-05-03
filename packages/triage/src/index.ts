@@ -2,6 +2,7 @@ import {
   DefaultIssueTriageLabelMappings,
   type IssueTriageEvidence,
   type IssueTriageEvidenceCitation,
+  type IssueTriageInput,
   type IssueTriageIssueMetadata,
   type IssueTriageLabelIntent,
   IssueTriageLabelIntentSchema,
@@ -42,6 +43,125 @@ export type BuildIssueTriageEvidenceInput = {
   skippedEvidence?: readonly IssueTriageSkippedEvidence[];
 };
 
+export const issueTriageModelOutputJsonSchema = {
+  type: "object",
+  additionalProperties: false,
+  required: [
+    "classification",
+    "agentReadiness",
+    "confidence",
+    "riskFlags",
+    "labelIntents",
+    "recommendation",
+    "rationale",
+    "evidence",
+    "missingInformation",
+    "requiredAuthorActions",
+    "nextAction",
+    "commentPreview",
+  ],
+  properties: {
+    classification: {
+      type: "string",
+      enum: [
+        "ready_for_review",
+        "needs_author_input",
+        "needs_maintainer_design",
+        "not_agent_ready",
+        "possible_spam",
+      ],
+    },
+    agentReadiness: {
+      type: "string",
+      enum: ["agent_ready", "not_agent_ready", "needs_human_design"],
+    },
+    confidence: { type: "number", minimum: 0, maximum: 1 },
+    riskFlags: {
+      type: "array",
+      items: {
+        type: "string",
+        enum: [
+          "security_sensitive",
+          "high_risk_path",
+          "dependency_change",
+          "migration",
+          "release_or_ci_change",
+          "generated_file_change",
+          "broad_scope",
+          "unclear_scope",
+          "missing_validation",
+          "repository_content_transfer",
+        ],
+      },
+    },
+    labelIntents: {
+      type: "array",
+      items: {
+        type: "string",
+        enum: [
+          "ready_for_review",
+          "needs_author_input",
+          "needs_maintainer_design",
+          "not_agent_ready",
+          "possible_spam",
+          "agent_ready",
+          "needs_human_design",
+          "security_sensitive",
+          "high_risk_path",
+          "needs_reproduction",
+          "needs_validation",
+          "duplicate_candidate",
+        ],
+      },
+    },
+    recommendation: { type: "string" },
+    rationale: { type: "string" },
+    evidence: {
+      type: "array",
+      minItems: 1,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["source", "path", "url", "excerpt", "reason"],
+        properties: {
+          source: {
+            type: "string",
+            enum: [
+              "github_issue",
+              "github_comment",
+              "issue_template",
+              "repo_profile",
+              "open_maintainer_config",
+              "generated_context",
+              "related_issue",
+              "referenced_file",
+              "maintainer_input",
+            ],
+          },
+          path: { type: ["string", "null"] },
+          url: { type: ["string", "null"] },
+          excerpt: { type: ["string", "null"] },
+          reason: { type: "string" },
+        },
+      },
+    },
+    missingInformation: { type: "array", items: { type: "string" } },
+    requiredAuthorActions: { type: "array", items: { type: "string" } },
+    nextAction: { type: "string" },
+    commentPreview: {
+      type: "object",
+      additionalProperties: false,
+      required: ["marker", "summary", "body", "artifactPath"],
+      properties: {
+        marker: { type: "string" },
+        summary: { type: "string" },
+        body: { type: "string" },
+        artifactPath: { type: ["string", "null"] },
+      },
+    },
+  },
+} as const;
+
 export function parseIssueTriageModelResult(
   value: unknown,
 ): IssueTriageModelResult {
@@ -52,6 +172,60 @@ export function safeParseIssueTriageModelResult(
   value: unknown,
 ): z.SafeParseReturnType<unknown, IssueTriageModelResult> {
   return IssueTriageModelResultSchema.safeParse(value);
+}
+
+export function parseIssueTriageModelCompletion(
+  text: string,
+): IssueTriageModelResult {
+  const parsed = parseJsonObjectFromModelText(text);
+  const result = IssueTriageModelResultSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(
+      `Invalid issue triage model output: ${result.error.issues
+        .map((issue) => `${issue.path.join(".") || "result"} ${issue.message}`)
+        .join("; ")}`,
+    );
+  }
+  return result.data;
+}
+
+export function buildIssueTriageModelPrompt(input: IssueTriageInput): {
+  system: string;
+  user: string;
+} {
+  return {
+    system: [
+      "You are Open Maintainer's issue triage reviewer.",
+      "Classify the issue only from the provided issue evidence and repository context.",
+      "Do not infer, mention, or evaluate whether an author used AI or automation.",
+      "Return JSON that matches the provided schema and cite at least one provided evidence item.",
+    ].join("\n"),
+    user: JSON.stringify(
+      {
+        task: "Classify one GitHub issue for maintainer review and agent readiness.",
+        allowedClassifications: [
+          "ready_for_review",
+          "needs_author_input",
+          "needs_maintainer_design",
+          "not_agent_ready",
+          "possible_spam",
+        ],
+        allowedAgentReadiness: [
+          "agent_ready",
+          "not_agent_ready",
+          "needs_human_design",
+        ],
+        boundaries: [
+          "Do not mutate GitHub state.",
+          "Do not claim or imply the author used AI.",
+          "Use the LLM result as the only source of classification and agent readiness.",
+        ],
+        input,
+      },
+      null,
+      2,
+    ),
+  };
 }
 
 export function mapIssueTriageLabelIntents(
@@ -259,4 +433,16 @@ function normalizeWhitespace(text: string): string {
 
 function unique(values: string[]): string[] {
   return [...new Set(values.filter((value) => value.length > 0))];
+}
+
+function parseJsonObjectFromModelText(text: string): unknown {
+  const trimmed = text.trim();
+  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(trimmed);
+  const jsonText = fenced?.[1] ?? trimmed;
+  try {
+    return JSON.parse(jsonText);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid issue triage model output: ${message}`);
+  }
 }
