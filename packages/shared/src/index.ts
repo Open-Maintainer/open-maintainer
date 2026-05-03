@@ -451,6 +451,247 @@ export const ReviewInputSchema = z.object({
 });
 export type ReviewInput = z.infer<typeof ReviewInputSchema>;
 
+export const IssueTriageClassificationSchema = z.enum([
+  "ready_for_review",
+  "needs_author_input",
+  "needs_maintainer_design",
+  "not_agent_ready",
+  "possible_spam",
+]);
+export type IssueTriageClassification = z.infer<
+  typeof IssueTriageClassificationSchema
+>;
+
+export const IssueTriageAgentReadinessSchema = z.enum([
+  "agent_ready",
+  "not_agent_ready",
+  "needs_human_design",
+]);
+export type IssueTriageAgentReadiness = z.infer<
+  typeof IssueTriageAgentReadinessSchema
+>;
+
+export const IssueTriageRiskFlagSchema = z.enum([
+  "security_sensitive",
+  "high_risk_path",
+  "dependency_change",
+  "migration",
+  "release_or_ci_change",
+  "generated_file_change",
+  "broad_scope",
+  "unclear_scope",
+  "missing_validation",
+  "repository_content_transfer",
+]);
+export type IssueTriageRiskFlag = z.infer<typeof IssueTriageRiskFlagSchema>;
+
+export const IssueTriageLabelIntentSchema = z.enum([
+  "ready_for_review",
+  "needs_author_input",
+  "needs_maintainer_design",
+  "not_agent_ready",
+  "possible_spam",
+  "agent_ready",
+  "needs_human_design",
+  "security_sensitive",
+  "high_risk_path",
+  "needs_reproduction",
+  "needs_validation",
+  "duplicate_candidate",
+]);
+export type IssueTriageLabelIntent = z.infer<
+  typeof IssueTriageLabelIntentSchema
+>;
+
+export const DefaultIssueTriageLabelMappings = {
+  ready_for_review: "open-maintainer/ready-for-review",
+  needs_author_input: "open-maintainer/needs-author-input",
+  needs_maintainer_design: "open-maintainer/needs-maintainer-design",
+  not_agent_ready: "open-maintainer/not-agent-ready",
+  possible_spam: "open-maintainer/possible-spam",
+  agent_ready: "open-maintainer/agent-ready",
+  needs_human_design: "open-maintainer/needs-human-design",
+  security_sensitive: "open-maintainer/security-sensitive",
+  high_risk_path: "open-maintainer/high-risk-path",
+  needs_reproduction: "open-maintainer/needs-reproduction",
+  needs_validation: "open-maintainer/needs-validation",
+  duplicate_candidate: "open-maintainer/duplicate-candidate",
+} as const satisfies Record<IssueTriageLabelIntent, string>;
+
+export const IssueTriageEvidenceSourceSchema = z.enum([
+  "github_issue",
+  "github_comment",
+  "issue_template",
+  "repo_profile",
+  "open_maintainer_config",
+  "generated_context",
+  "related_issue",
+  "referenced_file",
+  "maintainer_input",
+]);
+export type IssueTriageEvidenceSource = z.infer<
+  typeof IssueTriageEvidenceSourceSchema
+>;
+
+export const IssueTriageEvidenceCitationSchema = z.object({
+  source: IssueTriageEvidenceSourceSchema,
+  path: z.string().min(1).nullable(),
+  url: z.string().url().nullable(),
+  excerpt: z.string().min(1).nullable(),
+  reason: z.string().min(1),
+});
+export type IssueTriageEvidenceCitation = z.infer<
+  typeof IssueTriageEvidenceCitationSchema
+>;
+
+export const IssueTriageSkippedEvidenceSchema = z.object({
+  source: IssueTriageEvidenceSourceSchema,
+  reason: z.string().min(1),
+});
+export type IssueTriageSkippedEvidence = z.infer<
+  typeof IssueTriageSkippedEvidenceSchema
+>;
+
+export const IssueTriageIssueMetadataSchema = z.object({
+  number: z.number().int().positive(),
+  title: z.string().min(1),
+  body: z.string(),
+  author: z.string().nullable(),
+  labels: z.array(z.string().min(1)),
+  state: z.enum(["open", "closed"]),
+  url: z.string().url().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type IssueTriageIssueMetadata = z.infer<
+  typeof IssueTriageIssueMetadataSchema
+>;
+
+export const IssueTriageRelatedIssueSchema = z.object({
+  number: z.number().int().positive(),
+  title: z.string().min(1),
+  url: z.string().url().nullable(),
+  reason: z.string().min(1),
+});
+export type IssueTriageRelatedIssue = z.infer<
+  typeof IssueTriageRelatedIssueSchema
+>;
+
+export const IssueTriageEvidenceSchema = z.object({
+  issue: IssueTriageIssueMetadataSchema,
+  repoId: z.string().min(1),
+  owner: z.string().min(1),
+  repo: z.string().min(1),
+  sourceProfileVersion: z.number().int().positive().nullable(),
+  contextArtifactVersion: z.number().int().positive().nullable(),
+  templateHints: z.array(z.string().min(1)),
+  acceptanceCriteriaCandidates: z.array(z.string().min(1)),
+  referencedSurfaces: z.array(z.string().min(1)),
+  relatedIssues: z.array(IssueTriageRelatedIssueSchema),
+  citations: z.array(IssueTriageEvidenceCitationSchema),
+  skippedEvidence: z.array(IssueTriageSkippedEvidenceSchema),
+});
+export type IssueTriageEvidence = z.infer<typeof IssueTriageEvidenceSchema>;
+
+export const IssueTriageInputSchema = z.object({
+  repoId: z.string().min(1),
+  owner: z.string().min(1),
+  repo: z.string().min(1),
+  issueNumber: z.number().int().positive(),
+  evidence: IssueTriageEvidenceSchema,
+  modelProvider: z.string().min(1),
+  model: z.string().min(1),
+  consentMode: z.literal("explicit_repository_content_transfer"),
+  createdAt: z.string(),
+});
+export type IssueTriageInput = z.infer<typeof IssueTriageInputSchema>;
+
+export const IssueTriageCommentPreviewSchema = z.object({
+  marker: z.string().min(1),
+  summary: z.string().min(1),
+  body: z.string().min(1),
+  artifactPath: z.string().min(1).nullable(),
+});
+export type IssueTriageCommentPreview = z.infer<
+  typeof IssueTriageCommentPreviewSchema
+>;
+
+export const IssueTriageWriteActionSchema = z.object({
+  type: z.enum([
+    "apply_label",
+    "create_label",
+    "post_comment",
+    "update_comment",
+    "close_issue",
+  ]),
+  status: z.enum(["skipped", "planned", "applied", "failed"]),
+  target: z.string().min(1).nullable(),
+  reason: z.string().min(1),
+});
+export type IssueTriageWriteAction = z.infer<
+  typeof IssueTriageWriteActionSchema
+>;
+
+export const IssueTriageTaskBriefSchema = z.object({
+  status: z.enum(["not_generated", "generated", "skipped"]),
+  goal: z.string().min(1).nullable(),
+  userVisibleBehavior: z.array(z.string().min(1)),
+  readFirst: z.array(z.string().min(1)),
+  likelyFiles: z.array(z.string().min(1)),
+  constraints: z.array(z.string().min(1)),
+  safetyNotes: z.array(z.string().min(1)),
+  validationCommands: z.array(DetectedCommandSchema),
+  doneCriteria: z.array(z.string().min(1)),
+  escalationRisks: z.array(z.string().min(1)),
+  markdown: z.string().min(1).nullable(),
+});
+export type IssueTriageTaskBrief = z.infer<typeof IssueTriageTaskBriefSchema>;
+
+export const IssueTriageModelResultSchema = z.object({
+  classification: IssueTriageClassificationSchema,
+  agentReadiness: IssueTriageAgentReadinessSchema,
+  confidence: z.number().min(0).max(1),
+  riskFlags: z.array(IssueTriageRiskFlagSchema),
+  labelIntents: z.array(IssueTriageLabelIntentSchema),
+  recommendation: z.string().min(1),
+  rationale: z.string().min(1),
+  evidence: z.array(IssueTriageEvidenceCitationSchema).min(1),
+  missingInformation: z.array(z.string().min(1)),
+  requiredAuthorActions: z.array(z.string().min(1)),
+  nextAction: z.string().min(1),
+  commentPreview: IssueTriageCommentPreviewSchema,
+  taskBrief: IssueTriageTaskBriefSchema.default({
+    status: "not_generated",
+    goal: null,
+    userVisibleBehavior: [],
+    readFirst: [],
+    likelyFiles: [],
+    constraints: [],
+    safetyNotes: [],
+    validationCommands: [],
+    doneCriteria: [],
+    escalationRisks: [],
+    markdown: null,
+  }),
+});
+export type IssueTriageModelResult = z.infer<
+  typeof IssueTriageModelResultSchema
+>;
+
+export const IssueTriageResultSchema = IssueTriageModelResultSchema.extend({
+  id: z.string().min(1),
+  repoId: z.string().min(1),
+  issueNumber: z.number().int().positive(),
+  writeActions: z.array(IssueTriageWriteActionSchema),
+  modelProvider: z.string().min(1),
+  model: z.string().min(1),
+  consentMode: z.literal("explicit_repository_content_transfer"),
+  sourceProfileVersion: z.number().int().positive().nullable(),
+  contextArtifactVersion: z.number().int().positive().nullable(),
+  createdAt: z.string(),
+});
+export type IssueTriageResult = z.infer<typeof IssueTriageResultSchema>;
+
 export const HealthSchema = z.object({
   status: z.enum(["ok", "degraded"]),
   api: z.literal("ok"),

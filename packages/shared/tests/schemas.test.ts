@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  DefaultIssueTriageLabelMappings,
+  IssueTriageAgentReadinessSchema,
+  IssueTriageLabelIntentSchema,
+  IssueTriageModelResultSchema,
+  IssueTriageResultSchema,
   NotEvaluatedContributionTriage,
   RepoProfileSchema,
   ReviewContributionTriageSchema,
@@ -123,6 +128,132 @@ describe("shared schemas", () => {
       ReviewContributionTriageSchema.parse({
         ...NotEvaluatedContributionTriage,
         category: "ready_for_review",
+      }),
+    ).toThrow();
+  });
+
+  it("validates issue triage model results and rejects unknown categories", () => {
+    const result = IssueTriageModelResultSchema.parse({
+      classification: "needs_author_input",
+      agentReadiness: "not_agent_ready",
+      confidence: 0.76,
+      riskFlags: ["unclear_scope", "missing_validation"],
+      labelIntents: ["needs_author_input", "needs_validation"],
+      recommendation: "Ask the author for a reproduction and validation plan.",
+      rationale: "The issue states the symptom but omits a reproducible path.",
+      evidence: [
+        {
+          source: "github_issue",
+          path: null,
+          url: "https://github.com/Open-Maintainer/open-maintainer/issues/1",
+          excerpt: "It fails sometimes.",
+          reason: "Issue body is too vague for implementation.",
+        },
+      ],
+      missingInformation: ["Minimal reproduction"],
+      requiredAuthorActions: ["Add steps to reproduce."],
+      nextAction: "Request author input before agent handoff.",
+      commentPreview: {
+        marker: "<!-- open-maintainer:issue-triage -->",
+        summary: "Needs author input.",
+        body: "Please add a minimal reproduction.",
+        artifactPath: ".open-maintainer/triage/issues/1.json",
+      },
+    });
+
+    expect(result.classification).toBe("needs_author_input");
+    expect(result.taskBrief.status).toBe("not_generated");
+
+    expect(() =>
+      IssueTriageModelResultSchema.parse({
+        ...result,
+        classification: "authorship_detection",
+      }),
+    ).toThrow();
+    expect(() =>
+      IssueTriageModelResultSchema.parse({
+        ...result,
+        agentReadiness: "bot_ready",
+      }),
+    ).toThrow();
+  });
+
+  it("requires model-backed issue triage results to cite evidence", () => {
+    expect(() =>
+      IssueTriageModelResultSchema.parse({
+        classification: "ready_for_review",
+        agentReadiness: "agent_ready",
+        confidence: 0.92,
+        riskFlags: [],
+        labelIntents: ["ready_for_review", "agent_ready"],
+        recommendation: "Ready for maintainer review.",
+        rationale: "The issue has scope, acceptance criteria, and validation.",
+        evidence: [],
+        missingInformation: [],
+        requiredAuthorActions: [],
+        nextAction: "Prepare an agent task brief.",
+        commentPreview: {
+          marker: "<!-- open-maintainer:issue-triage -->",
+          summary: "Ready for review.",
+          body: "This issue appears ready for review.",
+          artifactPath: ".open-maintainer/triage/issues/2.json",
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("defines default issue triage label mappings and rejects unknown intents", () => {
+    expect(DefaultIssueTriageLabelMappings.needs_author_input).toBe(
+      "open-maintainer/needs-author-input",
+    );
+    expect(IssueTriageLabelIntentSchema.parse("duplicate_candidate")).toBe(
+      "duplicate_candidate",
+    );
+    expect(() =>
+      IssueTriageLabelIntentSchema.parse("please_merge_fast"),
+    ).toThrow();
+  });
+
+  it("keeps issue classification separate from agent readiness", () => {
+    expect(IssueTriageAgentReadinessSchema.parse("needs_human_design")).toBe(
+      "needs_human_design",
+    );
+    expect(() =>
+      IssueTriageResultSchema.parse({
+        id: "triage_1",
+        repoId: "repo_1",
+        issueNumber: 3,
+        classification: "ready_for_review",
+        confidence: 0.9,
+        riskFlags: [],
+        labelIntents: ["ready_for_review"],
+        recommendation: "Ready for review.",
+        rationale: "The issue is bounded.",
+        evidence: [
+          {
+            source: "github_issue",
+            path: null,
+            url: null,
+            excerpt: "Add batch issue triage.",
+            reason: "Issue body supplies the requested behavior.",
+          },
+        ],
+        missingInformation: [],
+        requiredAuthorActions: [],
+        nextAction: "Generate a task brief.",
+        commentPreview: {
+          marker: "<!-- open-maintainer:issue-triage -->",
+          summary: "Ready for review.",
+          body: "This issue appears ready for review.",
+          artifactPath: null,
+        },
+        writeActions: [],
+        modelProvider: "codex-cli",
+        model: "codex",
+        consentMode: "explicit_repository_content_transfer",
+        sourceProfileVersion: 1,
+        contextArtifactVersion: null,
+        createdAt: nowIso(),
       }),
     ).toThrow();
   });
