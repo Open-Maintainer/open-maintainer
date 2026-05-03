@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_163a5d55-87a5-4f28-be15-287664876ec8",
+  "id": "repo_profile_84197f52-652c-41c1-9e7c-53b85e97cba6",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -287,6 +287,7 @@
     "HOME",
     "MODE",
     "NEXT_PUBLIC_API_BASE_URL",
+    "NO_COLOR",
     "OPEN_MAINTAINER_CLAUDE_COMMAND",
     "OPEN_MAINTAINER_CLAUDE_MODEL",
     "OPEN_MAINTAINER_CODEX_COMMAND",
@@ -302,11 +303,13 @@
     "OPEN_MAINTAINER_FAKE_GH_LABEL_APPLY_FAIL",
     "OPEN_MAINTAINER_FAKE_GH_REJECT_ENV_TOKEN",
     "OPEN_MAINTAINER_FAKE_ISSUE_42_UPDATED_AT",
+    "OPEN_MAINTAINER_FORCE_COLOR",
     "OPEN_MAINTAINER_GH_COMMAND",
     "OPEN_MAINTAINER_GIT_AUTHOR_EMAIL",
     "OPEN_MAINTAINER_GIT_AUTHOR_NAME",
     "OPEN_MAINTAINER_GIT_COMMAND",
     "OPEN_MAINTAINER_LOCAL_REPO_CACHE",
+    "OPEN_MAINTAINER_NO_COLOR",
     "OPEN_MAINTAINER_REVIEW_SUMMARY_MARKER",
     "PATH",
     "READINESS_SCORE",
@@ -1014,7 +1017,7 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "394558b6444a5fa7"
+      "hash": "8d32ba03ec0324f3"
     },
     {
       "path": ".open-maintainer/report.md",
@@ -1206,11 +1209,11 @@
     },
     {
       "path": "packages/triage/package.json",
-      "hash": "3e7863959a8e73bb"
+      "hash": "162baa9978cce01c"
     },
     {
       "path": "packages/triage/tests/index.test.ts",
-      "hash": "5aa3d503b02f8801"
+      "hash": "39149ba14ac79f64"
     },
     {
       "path": "packages/triage/tsconfig.json",
@@ -1242,7 +1245,7 @@
     },
     {
       "path": "tests/cli-triage.test.ts",
-      "hash": "55a5691c524d2344"
+      "hash": "cf666c3d6e72a9d8"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1426,7 +1429,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-03T20:27:51.500Z",
+  "createdAt": "2026-05-03T23:34:11.418Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2636,7 +2639,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-03T20:27:51.501Z"
+    "generatedAt": "2026-05-03T23:34:11.418Z"
   },
-  "openMaintainerProfileHash": "309a20f8aa7e3c3d"
+  "openMaintainerProfileHash": "b722a63282578c68"
 }
