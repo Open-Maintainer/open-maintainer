@@ -40,7 +40,7 @@ import {
 } from "@open-maintainer/context";
 import {
   type GitHubRepositoryClient,
-  fetchIssueTriageEvidence,
+  createGitHubIssueTriageEvidencePort,
 } from "@open-maintainer/github";
 import {
   assembleLocalReviewInput,
@@ -68,12 +68,14 @@ import {
   nowIso,
 } from "@open-maintainer/shared";
 import {
-  buildIssueTriageModelPrompt,
-  buildIssueTriageTaskBrief,
-  issueTriageModelOutputJsonSchema,
-  parseIssueTriageModelCompletion,
-  renderIssueTriageCommentPreview,
-  resolveIssueTriageLabels,
+  type IssueTriageArtifactPort,
+  type IssueTriageBatchReport,
+  type IssueTriageGitHubPort,
+  type IssueTriageModelPort,
+  type IssueTriageRepoContextPort,
+  createIssueTriageWorkflow,
+  renderIssueTriageBatchGroups,
+  renderIssueTriageBatchSummary,
 } from "@open-maintainer/triage";
 
 type CliOptions = {
@@ -1195,31 +1197,13 @@ async function triageBrief(
       `Issue #${options.issueNumber} is ${artifact.result.agentReadiness}; pass --allow-non-agent-ready to generate an override brief.`,
     );
   }
-  const profile = await createProfile(repoRoot);
-  const brief = buildIssueTriageTaskBrief({
-    result: artifact.result,
-    evidence: artifact.input.evidence,
-    validationCommands: profile.commands,
-    readFirstPaths: issueBriefReadFirstPaths(profile),
+  const workflow = await prepareIssueTriageBriefWorkflow(repoRoot);
+  const briefResult = await workflow.brief(options.issueNumber, {
     allowNonAgentReady: options.issueBriefAllowNonAgentReady,
+    dryRun: options.dryRun,
+    outputPath: options.outputPath,
   });
-  const updated = {
-    ...artifact,
-    result: {
-      ...artifact.result,
-      taskBrief: brief,
-    },
-  };
-  if (!options.dryRun) {
-    await writeIssueTriageArtifact(repoRoot, artifactPath, updated);
-  }
-  if (options.outputPath && brief.markdown) {
-    const outputPath = path.resolve(repoRoot, options.outputPath);
-    if (!options.dryRun) {
-      await mkdir(path.dirname(outputPath), { recursive: true });
-      await writeFile(outputPath, brief.markdown);
-    }
-  }
+  const { brief } = briefResult;
   if (options.json) {
     console.log(JSON.stringify(brief, null, 2));
     return;
@@ -1234,7 +1218,7 @@ async function triageBrief(
   printLines(
     renderBox("Task brief", [
       `Task brief: ${brief.status}`,
-      `Artifact: ${artifactPath}${options.dryRun ? " (unchanged)" : ""}`,
+      `Artifact: ${briefResult.artifactPath}${options.dryRun ? " (unchanged)" : ""}`,
       ...(options.outputPath
         ? [
             `Markdown: ${options.outputPath}${options.dryRun ? " (planned)" : ""}`,
@@ -1256,7 +1240,7 @@ type IssueTriageContext = {
   provider: ModelProvider;
   client: GitHubRepositoryClient;
   config: OpenMaintainerConfig | null;
-  closuresApplied: number;
+  workflow: ReturnType<typeof createIssueTriageWorkflow>;
 };
 
 type IssueTriagePreview = {
@@ -1277,15 +1261,187 @@ async function prepareIssueTriageContext(
     model: options.llmModel,
     allowModelContentTransfer: options.allowModelContentTransfer,
   });
+  const client = buildGhIssueTriageClient(repoRoot);
+  const config = await readOptionalRepoFile(repoRoot, ".open-maintainer.yml")
+    .then((source) => (source ? parseOpenMaintainerConfig(source) : null))
+    .catch(() => null);
+  const repoContext: IssueTriageRepoContextPort = {
+    repoId: profile.repoId,
+    owner: profile.owner,
+    repo: profile.name,
+    sourceProfileVersion: profile.version,
+    contextArtifactVersion: null,
+    closure: config?.issueTriage?.closure ?? null,
+    batch: config?.issueTriage?.batch ?? null,
+    validationCommands: profile.commands,
+    readFirstPaths: issueBriefReadFirstPaths(profile),
+  };
+  if (config?.issueTriage?.labels) {
+    repoContext.labels = {
+      mappings: config.issueTriage.labels.mappings as Partial<
+        Record<IssueTriageSignal, string>
+      >,
+      preferUpstream: config.issueTriage.labels.preferUpstream,
+      createMissingPresetLabels:
+        config.issueTriage.labels.createMissingPresetLabels,
+    };
+  }
   return {
     profile,
     providerConfig: provider.providerConfig,
     provider: provider.provider,
-    client: buildGhIssueTriageClient(repoRoot),
-    config: await readOptionalRepoFile(repoRoot, ".open-maintainer.yml")
-      .then((source) => (source ? parseOpenMaintainerConfig(source) : null))
-      .catch(() => null),
-    closuresApplied: 0,
+    client,
+    config,
+    workflow: createIssueTriageWorkflow({
+      repo: repoContext,
+      github: createCliIssueTriageGitHubPort(repoRoot, profile, client),
+      model: createCliIssueTriageModelPort(provider),
+      artifacts: createCliIssueTriageArtifactPort(repoRoot),
+    }),
+  };
+}
+
+async function prepareIssueTriageBriefWorkflow(
+  repoRoot: string,
+): Promise<ReturnType<typeof createIssueTriageWorkflow>> {
+  const profile = await createProfile(repoRoot);
+  return createIssueTriageWorkflow({
+    repo: {
+      repoId: profile.repoId,
+      owner: profile.owner,
+      repo: profile.name,
+      sourceProfileVersion: profile.version,
+      validationCommands: profile.commands,
+      readFirstPaths: issueBriefReadFirstPaths(profile),
+    },
+    github: createUnavailableIssueTriageGitHubPort(),
+    model: {
+      provider: "Local artifact",
+      model: "none",
+      async complete() {
+        throw new Error("Model calls are not used for issue triage briefs.");
+      },
+    },
+    artifacts: createCliIssueTriageArtifactPort(repoRoot),
+  });
+}
+
+function createUnavailableIssueTriageGitHubPort(): IssueTriageGitHubPort {
+  const unavailable = async () => {
+    throw new Error("GitHub calls are not used for issue triage briefs.");
+  };
+  return {
+    fetchEvidence: unavailable,
+    listRepoLabels: unavailable,
+    listRepoLabelNames: unavailable,
+    listIssueLabelNames: unavailable,
+    createLabel: unavailable,
+    applyLabel: unavailable,
+    listTriageComments: unavailable,
+    postComment: unavailable,
+    updateComment: unavailable,
+    closeIssue: unavailable,
+    listIssues: unavailable,
+  };
+}
+
+function createCliIssueTriageModelPort(input: {
+  providerConfig: ModelProviderConfig;
+  provider: ModelProvider;
+}): IssueTriageModelPort {
+  return {
+    provider: input.providerConfig.displayName,
+    model: input.providerConfig.model,
+    async complete(prompt, options) {
+      return input.provider.complete(prompt, options);
+    },
+  };
+}
+
+function createCliIssueTriageArtifactPort(
+  repoRoot: string,
+): IssueTriageArtifactPort {
+  return {
+    writeIssue: (artifactPath, artifact) =>
+      writeIssueTriageArtifact(repoRoot, artifactPath, artifact),
+    readIssue: (artifactPath) =>
+      readIssueTriageArtifact(repoRoot, artifactPath),
+    async writeBatchReport(input) {
+      await writeTriageRunReports(repoRoot, input);
+    },
+    async writeBriefMarkdown(outputPath, markdown) {
+      const absolutePath = path.resolve(repoRoot, outputPath);
+      await mkdir(path.dirname(absolutePath), { recursive: true });
+      await writeFile(absolutePath, markdown);
+    },
+  };
+}
+
+function createCliIssueTriageGitHubPort(
+  repoRoot: string,
+  profile: Awaited<ReturnType<typeof createProfileFromFiles>>,
+  client: GitHubRepositoryClient,
+): IssueTriageGitHubPort {
+  const evidencePort = createGitHubIssueTriageEvidencePort({ client });
+  return {
+    fetchEvidence: evidencePort.fetchEvidence,
+    listRepoLabels: () => listRepoLabels(repoRoot, profile.owner, profile.name),
+    listRepoLabelNames: () =>
+      listRepoLabelNames(repoRoot, profile.owner, profile.name),
+    listIssueLabelNames: (issueNumber) =>
+      listIssueLabelNames(repoRoot, profile.owner, profile.name, issueNumber),
+    createLabel: (label) =>
+      createIssueTriageLabel(repoRoot, profile.owner, profile.name, label),
+    applyLabel: (issueNumber, label) =>
+      applyIssueLabel(
+        repoRoot,
+        profile.owner,
+        profile.name,
+        issueNumber,
+        label,
+      ),
+    async listTriageComments(issueNumber) {
+      const comments = await ghApiJson<
+        Array<{ id?: number | string | null; body?: string | null }>
+      >(
+        repoRoot,
+        `${issueEndpoint(profile.owner, profile.name, issueNumber)}/comments?per_page=100`,
+      );
+      return comments.flatMap((comment) =>
+        comment.id ? [{ id: comment.id, body: comment.body ?? null }] : [],
+      );
+    },
+    postComment: (issueNumber, body) =>
+      postGitHubIssueComment(
+        repoRoot,
+        profile.owner,
+        profile.name,
+        issueNumber,
+        body,
+      ),
+    updateComment: (commentId, body) =>
+      ghApiWithJsonBody(
+        repoRoot,
+        `repos/${profile.owner}/${profile.name}/issues/comments/${commentId}`,
+        "PATCH",
+        { body },
+      ),
+    closeIssue: (issueNumber) =>
+      ghApiWithJsonBody(
+        repoRoot,
+        issueEndpoint(profile.owner, profile.name, issueNumber),
+        "PATCH",
+        { state: "closed", state_reason: "not_planned" },
+      ),
+    listIssues: (input) =>
+      listIssuesForTriage(repoRoot, {
+        owner: profile.owner,
+        repo: profile.name,
+        state: input.state,
+        limit: input.limit,
+        includeLabels: [...input.includeLabels],
+        excludeLabels: [...input.excludeLabels],
+      }),
   };
 }
 
@@ -1295,106 +1451,23 @@ async function runIssueTriagePreview(input: {
   issueNumber: number;
   options: CliOptions;
 }): Promise<IssueTriagePreview> {
-  const { profile, providerConfig, provider, client } = input.context;
-  const evidence = await fetchIssueTriageEvidence({
-    repoId: profile.repoId,
-    owner: profile.owner,
-    repo: profile.name,
-    issueNumber: input.issueNumber,
-    sourceProfileVersion: profile.version,
-    client,
+  const preview = await input.context.workflow.preview(input.issueNumber, {
+    createMissingLabels: input.options.issueCreateLabels,
   });
-  const triageInput = {
-    repoId: profile.repoId,
-    owner: profile.owner,
-    repo: profile.name,
-    issueNumber: input.issueNumber,
-    evidence,
-    modelProvider: providerConfig.displayName,
-    model: providerConfig.model,
-    consentMode: "explicit_repository_content_transfer" as const,
-    createdAt: nowIso(),
-  };
-  const completion = await provider.complete(
-    buildIssueTriageModelPrompt(triageInput),
-    { outputSchema: issueTriageModelOutputJsonSchema },
-  );
-  const modelResult = parseIssueTriageModelCompletion(completion.text);
-  const artifactPath = issueTriageArtifactPath(input.issueNumber);
-  const commentPreview = renderIssueTriageCommentPreview(
-    modelResult,
-    artifactPath,
-  );
-  const repoLabels = await listRepoLabels(
-    input.repoRoot,
-    profile.owner,
-    profile.name,
-  );
-  const labelConfig = input.context.config?.issueTriage?.labels;
-  const resolvedLabels = resolveIssueTriageLabels({
-    signals: modelResult.signals,
-    repoLabels,
-    config: labelConfig
-      ? {
-          mappings: labelConfig.mappings as Partial<
-            Record<IssueTriageSignal, string>
-          >,
-          preferUpstream: labelConfig.preferUpstream,
-          createMissingPresetLabels:
-            labelConfig.createMissingPresetLabels ||
-            input.options.issueCreateLabels,
-        }
-      : { createMissingPresetLabels: input.options.issueCreateLabels },
-  });
-  const writeActions = await issueTriageWriteActions(input.repoRoot, {
-    owner: profile.owner,
-    repo: profile.name,
-    issueNumber: input.issueNumber,
-    issueUpdatedAt: evidence.issue.updatedAt,
-    classification: modelResult.classification,
-    resolvedLabels,
-    commentPreview,
-    applyLabels:
-      input.options.issueApplyLabels &&
-      (input.options.triageMinConfidence === null ||
-        modelResult.confidence >= input.options.triageMinConfidence),
-    createLabels: input.options.issueCreateLabels,
-    postComment: input.options.issuePostComment,
+  const applied = await input.context.workflow.apply(preview.writePlan, {
+    labels: input.options.issueApplyLabels,
+    createMissingLabels: input.options.issueCreateLabels,
+    comment: input.options.issuePostComment,
+    close: input.options.issueCloseAllowed,
     onlySignals: input.options.triageOnlySignals,
-    closeAllowed: input.options.issueCloseAllowed,
-    closureConfig: input.context.config?.issueTriage?.closure ?? null,
-    closuresApplied: input.context.closuresApplied,
+    minConfidence: input.options.triageMinConfidence,
     dryRun: input.options.dryRun,
   });
-  if (
-    writeActions.some(
-      (action) => action.type === "close_issue" && action.status === "applied",
-    )
-  ) {
-    input.context.closuresApplied += 1;
-  }
-  const result = IssueTriageResultSchema.parse({
-    ...modelResult,
-    commentPreview,
-    resolvedLabels,
-    id: newId("issue_triage"),
-    repoId: profile.repoId,
-    issueNumber: input.issueNumber,
-    writeActions,
-    modelProvider: providerConfig.displayName,
-    model: completion.model,
-    consentMode: "explicit_repository_content_transfer",
-    sourceProfileVersion: profile.version,
-    contextArtifactVersion: null,
-    createdAt: nowIso(),
-  } satisfies IssueTriageResult);
-  if (!input.options.dryRun) {
-    await writeIssueTriageArtifact(input.repoRoot, artifactPath, {
-      input: triageInput,
-      result,
-    });
-  }
-  return { evidence, result, artifactPath };
+  return {
+    evidence: applied.evidence,
+    result: applied.result,
+    artifactPath: applied.artifactPath,
+  };
 }
 
 async function triageIssues(
@@ -1403,117 +1476,21 @@ async function triageIssues(
 ): Promise<void> {
   validateIssueTriageWriteOptions(options);
   const context = await prepareIssueTriageContext(repoRoot, options);
-  const batchConfig = context.config?.issueTriage?.batch;
-  const limit = options.triageLimit ?? batchConfig?.maxIssues ?? 100;
-  const excludeLabels =
-    options.triageExcludeLabels.length > 0
-      ? options.triageExcludeLabels
-      : (batchConfig?.excludeLabels ?? [
-          "triaged",
-          "duplicate",
-          "wontfix",
-          "invalid",
-          "closed",
-          "security",
-        ]);
-  const includeLabels = [
-    ...(options.triageLabel ? [options.triageLabel] : []),
-    ...options.triageIncludeLabels,
-    ...(batchConfig?.includeLabels ?? []),
-  ];
-  const issues = await listIssuesForTriage(repoRoot, {
-    owner: context.profile.owner,
-    repo: context.profile.name,
+  const batch = await context.workflow.batch({
     state: options.triageState,
-    limit,
-    includeLabels,
-    excludeLabels,
+    limit: options.triageLimit,
+    label: options.triageLabel,
+    includeLabels: options.triageIncludeLabels,
+    excludeLabels: options.triageExcludeLabels,
+    labels: options.issueApplyLabels,
+    createMissingLabels: options.issueCreateLabels,
+    comment: options.issuePostComment,
+    close: options.issueCloseAllowed,
+    onlySignals: options.triageOnlySignals,
+    minConfidence: options.triageMinConfidence,
+    dryRun: options.dryRun,
   });
-  const runId = newId("triage_run");
-  const records: IssueTriageBatchRecord[] = [];
-  for (const issue of issues) {
-    try {
-      const preview = await runIssueTriagePreview({
-        repoRoot,
-        context,
-        issueNumber: issue.number,
-        options,
-      });
-      if (
-        options.triageMinConfidence !== null &&
-        preview.result.confidence < options.triageMinConfidence
-      ) {
-        preview.result.writeActions = preview.result.writeActions.map(
-          (action) =>
-            action.type === "apply_label"
-              ? {
-                  ...action,
-                  status: "skipped",
-                  reason: `Confidence ${preview.result.confidence} is below --min-confidence ${options.triageMinConfidence}.`,
-                }
-              : action,
-        );
-      }
-      records.push({
-        status: "succeeded",
-        issueNumber: issue.number,
-        title: preview.evidence.issue.title,
-        artifactPath: preview.artifactPath,
-        classification: preview.result.classification,
-        agentReadiness: preview.result.agentReadiness,
-        qualityScore: preview.result.qualityScore,
-        confidence: preview.result.confidence,
-        signals: preview.result.signals,
-        resolvedLabels: preview.result.resolvedLabels.map(
-          (label) => label.label,
-        ),
-        nextAction: preview.result.maintainerSummary,
-        writeActions: preview.result.writeActions,
-      });
-    } catch (error) {
-      records.push({
-        status: "failed",
-        issueNumber: issue.number,
-        title: issue.title,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-  const report = {
-    runId,
-    owner: context.profile.owner,
-    repo: context.profile.name,
-    state: options.triageState,
-    limit,
-    label: includeLabels.join(",") || null,
-    excludedLabels: excludeLabels,
-    issueCount: issues.length,
-    provider: context.providerConfig.displayName,
-    model: context.providerConfig.model,
-    consentMode: "explicit_repository_content_transfer" as const,
-    issues: records,
-    createdAt: nowIso(),
-  };
-  const jsonPath = path.join(
-    ".open-maintainer",
-    "triage",
-    "runs",
-    `${runId}.json`,
-  );
-  const markdownPath = path.join(
-    ".open-maintainer",
-    "triage",
-    "runs",
-    `${runId}.md`,
-  );
-  if (!options.dryRun) {
-    await writeTriageRunReports(repoRoot, {
-      jsonPath,
-      markdownPath,
-      report,
-      markdown: renderTriageBatchMarkdown(report),
-    });
-  }
+  const { report, jsonPath, markdownPath, markdown } = batch;
   if (options.json) {
     console.log(JSON.stringify(report, null, 2));
     return;
@@ -1526,7 +1503,7 @@ async function triageIssues(
         outputPath,
         options.triageFormat === "json"
           ? `${JSON.stringify(report, null, 2)}\n`
-          : renderTriageBatchMarkdown(report),
+          : markdown,
       );
     }
   }
@@ -1539,7 +1516,7 @@ async function triageIssues(
   );
   console.log(
     options.triageFormat === "markdown"
-      ? renderTriageBatchMarkdown(report)
+      ? markdown
       : renderTriageBatchConsole(report, {
           jsonPath,
           markdownPath,
@@ -1560,44 +1537,6 @@ type ListedIssueForTriage = {
   number: number;
   title: string;
   labels: string[];
-};
-
-type IssueTriageBatchRecord =
-  | {
-      status: "succeeded";
-      issueNumber: number;
-      title: string;
-      artifactPath: string;
-      classification: IssueTriageResult["classification"];
-      agentReadiness: IssueTriageResult["agentReadiness"];
-      qualityScore: number;
-      confidence: number;
-      signals: IssueTriageResult["signals"];
-      resolvedLabels: string[];
-      nextAction: string;
-      writeActions: IssueTriageResult["writeActions"];
-    }
-  | {
-      status: "failed";
-      issueNumber: number;
-      title: string;
-      error: string;
-    };
-
-type IssueTriageBatchReport = {
-  runId: string;
-  owner: string;
-  repo: string;
-  state: "open" | "closed" | "all";
-  limit: number;
-  label: string | null;
-  excludedLabels: string[];
-  issueCount: number;
-  provider: string;
-  model: string;
-  consentMode: "explicit_repository_content_transfer";
-  issues: IssueTriageBatchRecord[];
-  createdAt: string;
 };
 
 async function listIssuesForTriage(
@@ -1693,103 +1632,15 @@ function renderTriageBatchConsole(
     ...renderBox("Batch summary", [
       `Issue triage run: ${report.runId}`,
       `Scanned ${report.issueCount} ${report.state} issues`,
-      ...renderTriageBatchSummary(report).split("\n"),
+      ...renderIssueTriageBatchSummary(report).split("\n"),
     ]),
     "",
-    renderTriageBatchGroups(report),
+    renderIssueTriageBatchGroups(report),
     `JSON report: ${paths.jsonPath}${paths.dryRun ? " (planned)" : ""}`,
     `Markdown report: ${paths.markdownPath}${paths.dryRun ? " (planned)" : ""}`,
     `GitHub writes: ${formatBatchGitHubWritesSummary(report)}`,
   ].join("\n");
 }
-
-function renderTriageBatchMarkdown(report: IssueTriageBatchReport): string {
-  return [
-    `# Open Maintainer Issue Triage Run ${report.runId}`,
-    "",
-    `Repository: ${report.owner}/${report.repo}`,
-    `Scanned: ${report.issueCount} ${report.state} issues`,
-    `Provider: ${report.provider}`,
-    `Model: ${report.model}`,
-    `Consent: ${report.consentMode}`,
-    "",
-    "## Summary",
-    "",
-    renderTriageBatchSummary(report),
-    "",
-    renderTriageBatchGroups(report),
-    "",
-  ].join("\n");
-}
-
-function renderTriageBatchSummary(report: IssueTriageBatchReport): string {
-  const counts = new Map<
-    IssueTriageResult["classification"] | "failed",
-    number
-  >();
-  for (const record of report.issues) {
-    const key =
-      record.status === "succeeded" ? record.classification : "failed";
-    counts.set(key, (counts.get(key) ?? 0) + 1);
-  }
-  return [
-    `Ready for maintainer review: ${counts.get("ready_for_maintainer_review") ?? 0}`,
-    `Needs author input: ${counts.get("needs_author_input") ?? 0}`,
-    `Possibly spam: ${counts.get("possibly_spam") ?? 0}`,
-    `Likely duplicate: ${counts.get("possible_duplicate") ?? 0}`,
-    `Needs human design: ${counts.get("needs_human_design") ?? 0}`,
-    `Not actionable: ${counts.get("not_actionable") ?? 0}`,
-    "Already labelled / unchanged: 0",
-    `Errors: ${counts.get("failed") ?? 0}`,
-  ].join("\n");
-}
-
-function renderTriageBatchGroups(report: IssueTriageBatchReport): string {
-  const lines: string[] = [];
-  for (const group of TRIAGE_BATCH_GROUPS) {
-    const records = report.issues.filter((record) =>
-      group.classification
-        ? record.status === "succeeded" &&
-          record.classification === group.classification
-        : record.status === "failed",
-    );
-    lines.push(`## ${group.title}`);
-    if (records.length === 0) {
-      lines.push("- none");
-      lines.push("");
-      continue;
-    }
-    for (const record of records) {
-      if (record.status === "failed") {
-        lines.push(
-          `- #${record.issueNumber} ${record.title}: error: ${record.error}`,
-        );
-      } else {
-        lines.push(
-          `- #${record.issueNumber} ${record.title}: score ${record.qualityScore}, labels ${record.resolvedLabels.join(", ") || "none"}; ${record.nextAction} (${record.artifactPath})`,
-        );
-      }
-    }
-    lines.push("");
-  }
-  return lines.join("\n");
-}
-
-const TRIAGE_BATCH_GROUPS: Array<{
-  title: string;
-  classification: IssueTriageResult["classification"] | null;
-}> = [
-  {
-    title: "Ready for maintainer review",
-    classification: "ready_for_maintainer_review",
-  },
-  { title: "Needs author input", classification: "needs_author_input" },
-  { title: "Needs human design", classification: "needs_human_design" },
-  { title: "Not actionable", classification: "not_actionable" },
-  { title: "Possible duplicate", classification: "possible_duplicate" },
-  { title: "Possibly spam", classification: "possibly_spam" },
-  { title: "Errors", classification: null },
-];
 
 function buildIssueTriageProvider(input: {
   repoRoot: string;
@@ -1936,391 +1787,6 @@ function validateIssueTriageWriteOptions(options: CliOptions): void {
   if (options.issueCreateLabels && !options.issueApplyLabels) {
     throw new Error("--create-labels requires --apply-labels.");
   }
-}
-
-async function issueTriageWriteActions(
-  repoRoot: string,
-  input: {
-    owner: string;
-    repo: string;
-    issueNumber: number;
-    issueUpdatedAt: string;
-    classification: IssueTriageResult["classification"];
-    resolvedLabels: IssueTriageResolvedLabel[];
-    commentPreview: IssueTriageResult["commentPreview"];
-    applyLabels: boolean;
-    createLabels: boolean;
-    postComment: boolean;
-    onlySignals: string[];
-    closeAllowed: boolean;
-    dryRun: boolean;
-    closureConfig: NonNullable<
-      NonNullable<OpenMaintainerConfig["issueTriage"]>["closure"]
-    > | null;
-    closuresApplied: number;
-  },
-): Promise<IssueTriageResult["writeActions"]> {
-  const labelActions = await issueTriageLabelActions(repoRoot, input);
-  const commentAction = await issueTriageCommentAction(repoRoot, input);
-  const closeAction = await issueTriageCloseAction(repoRoot, {
-    ...input,
-    commentAction,
-  });
-  return [...labelActions, commentAction, closeAction];
-}
-
-async function issueTriageCloseAction(
-  repoRoot: string,
-  input: {
-    owner: string;
-    repo: string;
-    issueNumber: number;
-    issueUpdatedAt: string;
-    classification: IssueTriageResult["classification"];
-    closeAllowed: boolean;
-    dryRun: boolean;
-    closureConfig: NonNullable<
-      NonNullable<OpenMaintainerConfig["issueTriage"]>["closure"]
-    > | null;
-    closuresApplied: number;
-    commentAction: IssueTriageResult["writeActions"][number];
-  },
-): Promise<IssueTriageResult["writeActions"][number]> {
-  const skipped = (
-    reason: string,
-  ): IssueTriageResult["writeActions"][number] => ({
-    type: "close_issue",
-    status: "skipped",
-    target: `issue:${input.issueNumber}`,
-    reason,
-  });
-  if (!input.closeAllowed) {
-    return skipped("Closure requires explicit --close-allowed.");
-  }
-  if (input.dryRun) {
-    return skipped("Dry run: no issue closure applied.");
-  }
-  const config = input.closureConfig;
-  if (!config) {
-    return skipped(
-      "Closure requires .open-maintainer.yml issueTriage.closure config.",
-    );
-  }
-  if (input.closuresApplied >= config.maxClosuresPerRun) {
-    return skipped(`Closure cap reached (${config.maxClosuresPerRun}).`);
-  }
-  if (
-    config.requireCommentBeforeClose &&
-    input.commentAction.status !== "applied"
-  ) {
-    return skipped(
-      "Closure requires a posted or updated public triage comment.",
-    );
-  }
-  if (input.classification === "possibly_spam") {
-    if (!config.allowPossibleSpam) {
-      return skipped("Config does not allow possibly_spam closure.");
-    }
-  } else if (input.classification === "needs_author_input") {
-    if (!config.allowStaleAuthorInput) {
-      return skipped("Config does not allow stale needs_author_input closure.");
-    }
-    const staleMs = config.staleAuthorInputDays * 24 * 60 * 60 * 1000;
-    const updatedAt = new Date(input.issueUpdatedAt).getTime();
-    if (!Number.isFinite(updatedAt) || Date.now() - updatedAt < staleMs) {
-      return skipped("needs_author_input issue is not stale enough to close.");
-    }
-  } else {
-    return skipped(`Closure is unsupported for ${input.classification}.`);
-  }
-  try {
-    await ghApiWithJsonBody(
-      repoRoot,
-      issueEndpoint(input.owner, input.repo, input.issueNumber),
-      "PATCH",
-      { state: "closed", state_reason: "not_planned" },
-    );
-  } catch (error) {
-    return {
-      type: "close_issue",
-      status: "failed",
-      target: `issue:${input.issueNumber}`,
-      reason: `Could not close issue: ${cliErrorMessage(error)}`,
-    };
-  }
-  return {
-    type: "close_issue",
-    status: "applied",
-    target: `issue:${input.issueNumber}`,
-    reason: `Closed ${input.classification} issue after config and CLI approval.`,
-  };
-}
-
-async function issueTriageCommentAction(
-  repoRoot: string,
-  input: {
-    owner: string;
-    repo: string;
-    issueNumber: number;
-    commentPreview: IssueTriageResult["commentPreview"];
-    postComment: boolean;
-    dryRun: boolean;
-  },
-): Promise<IssueTriageResult["writeActions"][number]> {
-  if (!input.postComment) {
-    return {
-      type: "post_comment",
-      status: "skipped",
-      target: `issue:${input.issueNumber}`,
-      reason:
-        "Issue triage is non-mutating by default; comment posting was not requested.",
-    };
-  }
-  if (input.dryRun) {
-    return {
-      type: "post_comment",
-      status: "skipped",
-      target: `issue:${input.issueNumber}`,
-      reason: "Dry run: no issue triage comment posted.",
-    };
-  }
-  let comments: Array<{ id?: number | string | null; body?: string | null }>;
-  try {
-    comments = await ghApiJson<
-      Array<{ id?: number | string | null; body?: string | null }>
-    >(
-      repoRoot,
-      `${issueEndpoint(input.owner, input.repo, input.issueNumber)}/comments?per_page=100`,
-    );
-  } catch (error) {
-    return {
-      type: "post_comment",
-      status: "failed",
-      target: `issue:${input.issueNumber}`,
-      reason: `Could not inspect existing issue triage comments: ${cliErrorMessage(error)}`,
-    };
-  }
-  const existing = comments.find((comment) =>
-    comment.body?.includes(input.commentPreview.marker),
-  );
-  if (existing?.id) {
-    try {
-      await ghApiWithJsonBody(
-        repoRoot,
-        `repos/${input.owner}/${input.repo}/issues/comments/${existing.id}`,
-        "PATCH",
-        { body: input.commentPreview.body },
-      );
-    } catch (error) {
-      return {
-        type: "update_comment",
-        status: "failed",
-        target: `comment:${existing.id}`,
-        reason: `Could not update issue triage comment: ${cliErrorMessage(error)}`,
-      };
-    }
-    return {
-      type: "update_comment",
-      status: "applied",
-      target: `comment:${existing.id}`,
-      reason: "Updated existing marked issue triage comment.",
-    };
-  }
-  try {
-    await postGitHubIssueComment(
-      repoRoot,
-      input.owner,
-      input.repo,
-      input.issueNumber,
-      input.commentPreview.body,
-    );
-  } catch (error) {
-    return {
-      type: "post_comment",
-      status: "failed",
-      target: `issue:${input.issueNumber}`,
-      reason: `Could not post issue triage comment: ${cliErrorMessage(error)}`,
-    };
-  }
-  return {
-    type: "post_comment",
-    status: "applied",
-    target: `issue:${input.issueNumber}`,
-    reason:
-      "Posted marked issue triage comment because --post-comment was set.",
-  };
-}
-
-async function issueTriageLabelActions(
-  repoRoot: string,
-  input: {
-    owner: string;
-    repo: string;
-    issueNumber: number;
-    resolvedLabels: IssueTriageResolvedLabel[];
-    applyLabels: boolean;
-    createLabels: boolean;
-    dryRun: boolean;
-    onlySignals?: string[];
-  },
-): Promise<IssueTriageResult["writeActions"]> {
-  const mappedLabels = input.resolvedLabels.filter(
-    (label) =>
-      label.source !== "none" &&
-      (input.onlySignals?.length
-        ? input.onlySignals.includes(label.signal)
-        : true),
-  );
-  if (mappedLabels.length === 0) {
-    return [
-      {
-        type: "apply_label",
-        status: "skipped",
-        target: `issue:${input.issueNumber}`,
-        reason: "No issue triage signals resolved to allowed labels.",
-      },
-    ];
-  }
-  const repoLabels = await listRepoLabelNames(
-    repoRoot,
-    input.owner,
-    input.repo,
-  );
-  if (!input.applyLabels) {
-    return mappedLabels.map((label) => ({
-      type: "apply_label",
-      status: "skipped",
-      target: label.label,
-      reason: repoLabels.has(label.label)
-        ? "Label exists; pass --apply-labels to apply it."
-        : "Label is missing; pass --apply-labels --create-labels to create and apply it.",
-    }));
-  }
-  if (input.dryRun) {
-    return mappedLabels.flatMap((label) => [
-      ...(input.createLabels
-        ? [
-            {
-              type: "create_label" as const,
-              status: "skipped" as const,
-              target: label.label,
-              reason: "Dry run: no issue labels created.",
-            },
-          ]
-        : []),
-      {
-        type: "apply_label" as const,
-        status: "skipped" as const,
-        target: label.label,
-        reason: "Dry run: no issue labels applied.",
-      },
-    ]);
-  }
-
-  const actions: IssueTriageResult["writeActions"] = [];
-  const missingLabels = mappedLabels.filter(
-    (label) => !repoLabels.has(label.label),
-  );
-  if (missingLabels.length > 0 && input.createLabels) {
-    for (const label of missingLabels) {
-      if (!label.shouldCreate) {
-        actions.push({
-          type: "create_label",
-          status: "skipped",
-          target: label.label,
-          reason:
-            "Missing preset label creation is not enabled for this label.",
-        });
-        continue;
-      }
-      try {
-        await createIssueTriageLabel(repoRoot, input.owner, input.repo, label);
-        repoLabels.add(label.label);
-        actions.push({
-          type: "create_label",
-          status: "applied",
-          target: label.label,
-          reason:
-            "Created missing issue triage label because --create-labels was set.",
-        });
-      } catch (error) {
-        actions.push({
-          type: "create_label",
-          status: "failed",
-          target: label.label,
-          reason: `Could not create issue triage label: ${cliErrorMessage(error)}`,
-        });
-      }
-    }
-  } else {
-    for (const label of missingLabels) {
-      actions.push({
-        type: "create_label",
-        status: "skipped",
-        target: label.label,
-        reason:
-          "Label is missing; pass --create-missing-preset-labels to create it.",
-      });
-    }
-  }
-
-  const issueLabels = await listIssueLabelNames(
-    repoRoot,
-    input.owner,
-    input.repo,
-    input.issueNumber,
-  );
-  const labelsToApply = mappedLabels
-    .filter((label) => repoLabels.has(label.label))
-    .filter((label) => !issueLabels.has(label.label));
-  for (const label of mappedLabels) {
-    if (issueLabels.has(label.label)) {
-      actions.push({
-        type: "apply_label",
-        status: "skipped",
-        target: label.label,
-        reason: "Issue already has this label.",
-      });
-    } else if (!repoLabels.has(label.label)) {
-      actions.push({
-        type: "apply_label",
-        status: "skipped",
-        target: label.label,
-        reason: "Label is missing and was not created.",
-      });
-    }
-  }
-  if (labelsToApply.length > 0) {
-    for (const label of labelsToApply) {
-      try {
-        await applyIssueLabel(
-          repoRoot,
-          input.owner,
-          input.repo,
-          input.issueNumber,
-          label.label,
-        );
-        actions.push({
-          type: "apply_label",
-          status: "applied",
-          target: label.label,
-          reason: "Applied issue triage label because --apply-labels was set.",
-        });
-      } catch (error) {
-        actions.push({
-          type: "apply_label",
-          status: "failed",
-          target: label.label,
-          reason: `Could not apply issue triage label: ${cliErrorMessage(error)}`,
-        });
-      }
-    }
-  }
-  return actions;
-}
-
-function cliErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 async function listRepoLabelNames(

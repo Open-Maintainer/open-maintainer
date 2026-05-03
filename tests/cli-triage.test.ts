@@ -173,6 +173,8 @@ if (method !== "GET") {
 }
 if (endpoint === "repos/acme/triage-fixture/issues") {
   const labelledFirstPage = process.env.OPEN_MAINTAINER_FAKE_GH_LABELLED_FIRST_PAGE === "1";
+  const requestedLabelsArg = args.find((arg) => arg.startsWith("labels="));
+  const requestedLabels = requestedLabelsArg ? requestedLabelsArg.replace("labels=", "").split(",").filter(Boolean) : [];
   if (labelledFirstPage && args.includes("page=1")) {
     write(Array.from({ length: 100 }, (_, index) => ({
       number: 91 + index,
@@ -192,14 +194,15 @@ if (endpoint === "repos/acme/triage-fixture/issues") {
     ]);
     process.exit(0);
   }
+  const labels = requestedLabels.map((name) => ({ name }));
   write([
-    { number: 42, title: "Triage one issue locally", labels: [], pull_request: null },
-    { number: 43, title: "Bug: dashboard provider form accepts blank base URL", labels: [], pull_request: null },
-    { number: 44, title: "Ready batch issue", labels: [], pull_request: null },
-    { number: 45, title: "Rotate GitHub App webhook credentials safely", labels: [], pull_request: null },
-    { number: 46, title: "Best crypto casino bonus partnership", labels: [], pull_request: null },
-    { number: 47, title: "Malformed provider output fixture", labels: [], pull_request: null },
-    { number: 48, title: "Beyond requested limit", labels: [], pull_request: null }
+    { number: 42, title: "Triage one issue locally", labels, pull_request: null },
+    { number: 43, title: "Bug: dashboard provider form accepts blank base URL", labels, pull_request: null },
+    { number: 44, title: "Ready batch issue", labels, pull_request: null },
+    { number: 45, title: "Rotate GitHub App webhook credentials safely", labels, pull_request: null },
+    { number: 46, title: "Best crypto casino bonus partnership", labels, pull_request: null },
+    { number: 47, title: "Malformed provider output fixture", labels, pull_request: null },
+    { number: 48, title: "Beyond requested limit", labels, pull_request: null }
   ]);
   process.exit(0);
 }

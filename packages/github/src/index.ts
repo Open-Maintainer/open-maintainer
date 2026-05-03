@@ -23,6 +23,7 @@ import type {
 import { newId, nowIso } from "@open-maintainer/shared";
 import {
   type IssueTriageEvidenceCommentInput,
+  type IssueTriageGitHubPort,
   buildIssueTriageEvidence,
   extractReferencedIssueNumbers,
 } from "@open-maintainer/triage";
@@ -940,6 +941,36 @@ export async function fetchIssueTriageEvidence(input: {
     contextArtifactVersion: input.contextArtifactVersion ?? null,
     skippedEvidence,
   });
+}
+
+export function createGitHubIssueTriageEvidencePort(
+  input: {
+    client?: GitHubRepositoryClient;
+    auth?: GitHubAppInstallationAuth;
+    maxComments?: number;
+    maxRelatedIssues?: number;
+  } = {},
+): Pick<IssueTriageGitHubPort, "fetchEvidence"> {
+  return {
+    fetchEvidence(request) {
+      const evidenceInput: Parameters<typeof fetchIssueTriageEvidence>[0] = {
+        ...request,
+      };
+      if (input.client) {
+        evidenceInput.client = input.client;
+      }
+      if (input.auth) {
+        evidenceInput.auth = input.auth;
+      }
+      if (input.maxComments !== undefined) {
+        evidenceInput.maxComments = input.maxComments;
+      }
+      if (input.maxRelatedIssues !== undefined) {
+        evidenceInput.maxRelatedIssues = input.maxRelatedIssues;
+      }
+      return fetchIssueTriageEvidence(evidenceInput);
+    },
+  };
 }
 
 async function fetchIssueCommentsForTriage(input: {
