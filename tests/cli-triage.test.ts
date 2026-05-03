@@ -578,6 +578,8 @@ describe("CLI issue triage", () => {
       {
         ...fakeCodex.env,
         ...fakeGh.env,
+        CI: "false",
+        GITHUB_ACTIONS: "false",
         GH_TOKEN: "read-only-env-token",
         OPEN_MAINTAINER_FAKE_GH_REJECT_ENV_TOKEN: "1",
       },
