@@ -13,13 +13,7 @@ import {
   createProviderConfig,
 } from "@open-maintainer/ai";
 import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
-import {
-  type ContextArtifactTarget,
-  contextArtifactInventoryFromFiles,
-  contextArtifactTargetsForSelection,
-  createContextGenerationWorkflow,
-  defaultContextArtifactPresetForProviderKind,
-} from "@open-maintainer/context";
+import { createContextGenerationOrchestrator } from "@open-maintainer/context";
 import { checkDatabase, checkRedis, store } from "@open-maintainer/db";
 import {
   createContextBranchName,
@@ -793,21 +787,7 @@ async function generateContextArtifactsForRun(input: {
     const modelProvider = buildProvider(input.provider, {
       cwd: store.repoWorktrees.get(input.repoId) ?? process.cwd(),
     });
-    const workflow = createContextGenerationWorkflow({
-      model: {
-        providerLabel: input.provider.displayName,
-        model: input.provider.model,
-        complete(prompt, options) {
-          return modelProvider.complete(prompt, {
-            outputSchema: options.outputSchema,
-          });
-        },
-      },
-      inventory: contextArtifactInventoryFromFiles({
-        files: repoFiles,
-        nextArtifactVersion:
-          (store.artifacts.get(input.repoId)?.length ?? 0) + 1,
-      }),
+    const orchestrator = createContextGenerationOrchestrator({
       events: {
         failed(error) {
           store.updateRun(input.runId, {
@@ -820,26 +800,37 @@ async function generateContextArtifactsForRun(input: {
         },
       },
     });
-    const preview = await workflow.preview({
+    const result = await orchestrator.generateFromProfile({
       repoId: input.repoId,
       profile: input.profile,
       files: repoFiles,
-      targets: artifactTargetsForDashboard({
-        providerKind: input.provider.kind,
-        context: input.context,
-        skills: input.skills,
-      }),
+      model: {
+        providerLabel: input.provider.displayName,
+        model: input.provider.model,
+        complete(prompt, options) {
+          return modelProvider.complete(prompt, {
+            outputSchema: options.outputSchema,
+          });
+        },
+      },
+      providerKind: input.provider.kind,
+      selection: {
+        ...(input.context ? { context: input.context } : {}),
+        ...(input.skills ? { skills: input.skills } : {}),
+      },
+      nextArtifactVersion: (store.artifacts.get(input.repoId)?.length ?? 0) + 1,
+      writeMode: { kind: "preview" },
     });
 
     store.updateRun(input.runId, {
       status: "succeeded",
-      artifactVersions: preview.artifacts.map((artifact) => artifact.version),
+      artifactVersions: result.artifacts.map((artifact) => artifact.version),
       safeMessage: "Context artifacts generated for preview.",
     });
-    for (const artifact of preview.artifacts) {
+    for (const artifact of result.artifacts) {
       store.addArtifact(artifact);
     }
-    return preview.artifacts;
+    return result.artifacts;
   } catch (error) {
     if (store.runs.get(input.runId)?.status !== "failed") {
       store.updateRun(input.runId, {
@@ -1620,19 +1611,6 @@ async function createGitHubAppContextPr(input: {
       auth,
     }),
   };
-}
-
-function artifactTargetsForDashboard(input: {
-  providerKind: string;
-  context: "codex" | "claude" | "both" | undefined;
-  skills: "codex" | "claude" | "both" | undefined;
-}): ContextArtifactTarget[] {
-  const defaultTarget = defaultContextArtifactPresetForProviderKind(
-    input.providerKind,
-  );
-  const context = input.context ?? defaultTarget;
-  const skills = input.skills ?? defaultTarget;
-  return contextArtifactTargetsForSelection({ context, skills });
 }
 
 function registerLocalRepository(input: {

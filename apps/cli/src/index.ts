@@ -17,14 +17,11 @@ import {
 } from "@open-maintainer/config";
 import {
   type ArtifactModel,
-  type ContextArtifactTarget,
+  type ContextGenerationArtifactSinkPort,
   type ContextGenerationStage,
-  type ContextGenerationWritePlan,
   compareProfileDrift,
   contentHash,
-  contextArtifactInventoryFromFiles,
-  contextArtifactTargetsForSelection,
-  createContextGenerationWorkflow,
+  createContextGenerationOrchestrator,
   defaultArtifactTargets,
   expectedArtifactTypes,
   isOpenMaintainerGeneratedContent,
@@ -762,44 +759,39 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
       dryRun: options.dryRun,
     }),
   );
-  const files = await scanRepository(repoRoot, { maxFiles: 800 });
-  const profile = await createProfileFromFiles(repoRoot, files);
-  const targets = resolveTargets(options);
+  assertGenerationTargetsSelected(options);
   if (!options.model) {
     throw new Error(
       "generate requires --model codex or --model claude for LLM-backed artifact content.",
     );
   }
-  const workflow = createContextGenerationWorkflow({
+  const orchestrator = createContextGenerationOrchestrator({
+    repository: {
+      scan: scanRepository,
+      profile: createProfileFromFiles,
+    },
+    defaultSink: filesystemContextArtifactSink(),
+  });
+  const result = await orchestrator.generateForWorktree({
+    repoRoot,
     model: createCliContextGenerationModelPort({
       repoRoot,
       model: options.model,
       llmModel: options.llmModel,
       allowWrite: options.allowWrite,
-      needsSkills: targets.some(
-        (target) => target === "skills" || target === "claude-skills",
-      ),
     }),
-    inventory: contextArtifactInventoryFromFiles({
-      files,
-      nextArtifactVersion: 1,
-    }),
-  });
-  const preview = await workflow.preview({
-    repoId: "local",
-    profile,
-    files,
-    targets,
-    writePolicy: {
+    selection: {
+      ...(options.context ? { context: options.context } : {}),
+      ...(options.skills ? { skills: options.skills } : {}),
+    },
+    writeMode: {
+      kind: options.dryRun ? "preview" : "write",
       force: options.force,
       refreshGenerated: options.refreshGenerated,
       removeObsoleteGenerated: options.force,
     },
   });
-  if (!options.dryRun) {
-    await applyContextGenerationWritePlan(repoRoot, preview.plan);
-  }
-  printLines(renderActionPlan("Artifact write plan", preview.plan.rows));
+  printLines(renderActionPlan("Artifact write plan", result.plan.rows));
   if (options.dryRun) {
     console.log("Dry run: no context artifacts written.");
   }
@@ -810,7 +802,6 @@ function createCliContextGenerationModelPort(input: {
   model: ArtifactModel;
   llmModel: string | null;
   allowWrite: boolean;
-  needsSkills: boolean;
 }) {
   if (!input.allowWrite) {
     throw new Error(
@@ -838,9 +829,7 @@ function createCliContextGenerationModelPort(input: {
           : options.stage === "artifact-content"
             ? "generating artifact content"
             : "generating workflow skills";
-      if (options.stage !== "skill-content" || input.needsSkills) {
-        console.log(`${label}: ${stageLabel}${model ? ` with ${model}` : ""}`);
-      }
+      console.log(`${label}: ${stageLabel}${model ? ` with ${model}` : ""}`);
       const provider =
         input.model === "codex"
           ? buildCodexCliProvider({
@@ -858,21 +847,26 @@ function createCliContextGenerationModelPort(input: {
   };
 }
 
-async function applyContextGenerationWritePlan(
-  repoRoot: string,
-  plan: ContextGenerationWritePlan,
-): Promise<void> {
-  for (const item of plan.obsoleteGeneratedPaths) {
-    await rm(path.join(repoRoot, item.path), { force: true });
-  }
-  for (const item of plan.writes) {
-    if (item.action === "skip") {
-      continue;
-    }
-    const absolutePath = path.join(repoRoot, item.path);
-    await mkdir(path.dirname(absolutePath), { recursive: true });
-    await writeFile(absolutePath, item.artifact.content);
-  }
+function filesystemContextArtifactSink(): ContextGenerationArtifactSinkPort {
+  return {
+    async apply(repoRoot, plan) {
+      const appliedPaths: string[] = [];
+      for (const item of plan.obsoleteGeneratedPaths) {
+        await rm(path.join(repoRoot, item.path), { force: true });
+        appliedPaths.push(item.path);
+      }
+      for (const item of plan.writes) {
+        if (item.action === "skip") {
+          continue;
+        }
+        const absolutePath = path.join(repoRoot, item.path);
+        await mkdir(path.dirname(absolutePath), { recursive: true });
+        await writeFile(absolutePath, item.artifact.content);
+        appliedPaths.push(item.path);
+      }
+      return appliedPaths;
+    },
+  };
 }
 
 async function doctor(
@@ -3359,27 +3353,12 @@ function isCommandName(value: string | undefined): value is CommandName {
   );
 }
 
-function resolveTargets(options: CliOptions): ContextArtifactTarget[] {
+function assertGenerationTargetsSelected(options: CliOptions): void {
   if (!options.context && !options.skills) {
     throw new Error(
       "generate requires --context codex|claude|both, --skills codex|claude|both, or both.",
     );
   }
-  return contextArtifactTargetsForSelection({
-    context: options.context ?? "codex",
-    skills: options.skills ?? "codex",
-  }).filter((target) => {
-    if (!options.context && (target === "agents" || target === "claude")) {
-      return false;
-    }
-    if (
-      !options.skills &&
-      (target === "skills" || target === "claude-skills")
-    ) {
-      return false;
-    }
-    return true;
-  });
 }
 
 function parseArtifactSelection(
