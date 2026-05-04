@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_5fbfcbee-c129-46da-8fbf-e735a8c607a2",
+  "id": "repo_profile_ea50e1a9-1913-4f1e-9e8a-c9905c0d1d91",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -335,10 +335,12 @@
     "packages/analyzer/tests/analyzer.test.ts",
     "packages/config/tests/config.test.ts",
     "packages/context/tests/render.test.ts",
+    "packages/github/tests/cli-api.test.ts",
     "packages/github/tests/webhook.test.ts",
     "packages/review/tests/local-git.test.ts",
     "packages/review/tests/model.test.ts",
     "packages/review/tests/precheck.test.ts",
+    "packages/review/tests/prompt-context.test.ts",
     "packages/review/tests/render.test.ts",
     "packages/review/tests/workflow.test.ts",
     "packages/shared/tests/schemas.test.ts",
@@ -394,6 +396,7 @@
     "tests/smoke/local-health.ts",
     "tests/smoke/mvp-demo.ts",
     "tests/v02-readiness.test.ts",
+    "tests/web-dashboard-api.test.ts",
     "tests/web-redirect.test.ts"
   ],
   "reviewRuleCandidates": [
@@ -744,6 +747,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "packages/github/tests/cli-api.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "packages/github/tests/webhook.test.ts",
       "reason": "detected repository context"
     },
@@ -757,6 +764,10 @@
     },
     {
       "path": "packages/review/tests/precheck.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "packages/review/tests/prompt-context.test.ts",
       "reason": "detected repository context"
     },
     {
@@ -940,6 +951,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "tests/web-dashboard-api.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "tests/web-redirect.test.ts",
       "reason": "detected repository context"
     }
@@ -1044,7 +1059,7 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "55740525f5bbd56f"
+      "hash": "b25eacf9cd2054c0"
     },
     {
       "path": ".open-maintainer/report.md",
@@ -1176,7 +1191,7 @@
     },
     {
       "path": "packages/context/tests/render.test.ts",
-      "hash": "ede0177002f9f6f1"
+      "hash": "d768f7a2bb51f21e"
     },
     {
       "path": "packages/context/tsconfig.json",
@@ -1193,6 +1208,10 @@
     {
       "path": "packages/github/package.json",
       "hash": "7ad5ccbb56b886cb"
+    },
+    {
+      "path": "packages/github/tests/cli-api.test.ts",
+      "hash": "0a015947b263e160"
     },
     {
       "path": "packages/github/tests/webhook.test.ts",
@@ -1217,6 +1236,10 @@
     {
       "path": "packages/review/tests/precheck.test.ts",
       "hash": "bc202b9a6f0da581"
+    },
+    {
+      "path": "packages/review/tests/prompt-context.test.ts",
+      "hash": "e7a79ba47e089b03"
     },
     {
       "path": "packages/review/tests/render.test.ts",
@@ -1280,7 +1303,7 @@
     },
     {
       "path": "tests/cli-repository-workspace.test.ts",
-      "hash": "7d5839a108069b6c"
+      "hash": "b1826a11a5053874"
     },
     {
       "path": "tests/cli-review-operation.test.ts",
@@ -1467,6 +1490,10 @@
       "hash": "6593a0f95cfb6886"
     },
     {
+      "path": "tests/web-dashboard-api.test.ts",
+      "hash": "35ba51f320793c76"
+    },
+    {
       "path": "tests/web-redirect.test.ts",
       "hash": "a6772317a9f55d70"
     },
@@ -1480,7 +1507,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-04T20:45:29.140Z",
+  "createdAt": "2026-05-04T22:25:05.583Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1859,6 +1886,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "packages/github/tests/cli-api.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "packages/github/tests/webhook.test.ts",
             "reason": "detected repository context"
           },
@@ -1872,6 +1903,10 @@
           },
           {
             "path": "packages/review/tests/precheck.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/review/tests/prompt-context.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2052,6 +2087,10 @@
           },
           {
             "path": "tests/v02-readiness.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/web-dashboard-api.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2203,6 +2242,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "packages/github/tests/cli-api.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "packages/github/tests/webhook.test.ts",
             "reason": "detected repository context"
           },
@@ -2216,6 +2259,10 @@
           },
           {
             "path": "packages/review/tests/precheck.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/review/tests/prompt-context.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2396,6 +2443,10 @@
           },
           {
             "path": "tests/v02-readiness.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/web-dashboard-api.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2730,7 +2781,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-04T20:45:29.141Z"
+    "generatedAt": "2026-05-04T22:25:05.583Z"
   },
-  "openMaintainerProfileHash": "b99dd38ecccbdf06"
+  "openMaintainerProfileHash": "b6d7ab326bd9f785"
 }

@@ -101,10 +101,12 @@ Agent Readiness: 100/100
 - Evidence: packages/ai/tests/provider.test.ts (detected repository context)
 - Evidence: packages/config/tests/config.test.ts (detected repository context)
 - Evidence: packages/context/tests/render.test.ts (detected repository context)
+- Evidence: packages/github/tests/cli-api.test.ts (detected repository context)
 - Evidence: packages/github/tests/webhook.test.ts (detected repository context)
 - Evidence: packages/review/tests/local-git.test.ts (detected repository context)
 - Evidence: packages/review/tests/model.test.ts (detected repository context)
 - Evidence: packages/review/tests/precheck.test.ts (detected repository context)
+- Evidence: packages/review/tests/prompt-context.test.ts (detected repository context)
 - Evidence: packages/review/tests/render.test.ts (detected repository context)
 - Evidence: packages/review/tests/workflow.test.ts (detected repository context)
 - Evidence: packages/shared/tests/schemas.test.ts (detected repository context)
@@ -150,6 +152,7 @@ Agent Readiness: 100/100
 - Evidence: tests/smoke/local-health.ts (detected repository context)
 - Evidence: tests/smoke/mvp-demo.ts (detected repository context)
 - Evidence: tests/v02-readiness.test.ts (detected repository context)
+- Evidence: tests/web-dashboard-api.test.ts (detected repository context)
 - Evidence: tests/web-redirect.test.ts (detected repository context)
 
 ### testing: 13/13
@@ -189,10 +192,12 @@ Agent Readiness: 100/100
 - Evidence: packages/ai/tests/provider.test.ts (detected repository context)
 - Evidence: packages/config/tests/config.test.ts (detected repository context)
 - Evidence: packages/context/tests/render.test.ts (detected repository context)
+- Evidence: packages/github/tests/cli-api.test.ts (detected repository context)
 - Evidence: packages/github/tests/webhook.test.ts (detected repository context)
 - Evidence: packages/review/tests/local-git.test.ts (detected repository context)
 - Evidence: packages/review/tests/model.test.ts (detected repository context)
 - Evidence: packages/review/tests/precheck.test.ts (detected repository context)
+- Evidence: packages/review/tests/prompt-context.test.ts (detected repository context)
 - Evidence: packages/review/tests/render.test.ts (detected repository context)
 - Evidence: packages/review/tests/workflow.test.ts (detected repository context)
 - Evidence: packages/shared/tests/schemas.test.ts (detected repository context)
@@ -238,6 +243,7 @@ Agent Readiness: 100/100
 - Evidence: tests/smoke/local-health.ts (detected repository context)
 - Evidence: tests/smoke/mvp-demo.ts (detected repository context)
 - Evidence: tests/v02-readiness.test.ts (detected repository context)
+- Evidence: tests/web-dashboard-api.test.ts (detected repository context)
 - Evidence: tests/web-redirect.test.ts (detected repository context)
 
 ### CI: 13/13
