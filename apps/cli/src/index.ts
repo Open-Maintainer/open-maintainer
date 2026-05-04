@@ -39,18 +39,15 @@ import {
 } from "@open-maintainer/github";
 import {
   assembleLocalReviewInput,
-  createPullRequestReviewWorkflow,
-  generateReview,
-  renderReviewMarkdown,
+  createReviewOrchestrator,
   reviewTriageLabelDefinitions,
   reviewTriageLabelNames,
 } from "@open-maintainer/review";
 import type {
   PullRequestReviewRun,
-  PullRequestReviewWorkflowDeps,
   ReviewInlineCommentPlan,
   ReviewInlineCommentResult,
-  ReviewModelSelection,
+  ReviewOrchestratorDeps,
   ReviewPromptContext,
   ReviewPublicationInput,
   ReviewPublicationPlan,
@@ -2059,140 +2056,38 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
     );
   }
   if (options.pr !== null) {
-    await reviewPullRequest(repoRoot, options);
-    return;
+    assertReviewModelOptions(options);
   }
 
-  const files = await scanRepository(repoRoot, { maxFiles: 800 });
-  const profile = await createProfileFromFiles(repoRoot, files);
-  const baseRef =
-    options.baseRef ??
-    (await detectDefaultBranch(repoRoot)) ??
-    profile.defaultBranch ??
-    "main";
-  const headRef = options.headRef ?? "HEAD";
-  const input = await assembleLocalReviewInput({
-    repoRoot,
-    repoId: profile.repoId,
-    baseRef,
-    headRef,
-  }).catch((error) => {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Unable to assemble review diff for ${baseRef}...${headRef}. Verify --base-ref and --head-ref. ${message}`,
-    );
-  });
-  const reviewInput = {
-    ...input,
-    prNumber: options.prNumber,
-    owner: profile.owner,
-    repo: profile.name,
-    isDraft: null,
-    mergeable: null,
-    mergeStateStatus: null,
-    reviewDecision: null,
-  };
-  const providerReview = buildReviewProvider({
-    repoRoot,
-    provider: resolveReviewProvider(options),
-    model: resolveReviewModel(options),
-    allowModelContentTransfer: options.allowModelContentTransfer,
-  });
-  const [
-    openMaintainerConfig,
-    agentsMd,
-    repoPrReviewSkill,
-    repoTestingWorkflowSkill,
-    repoOverviewSkill,
-    generatedReport,
-  ] = await Promise.all([
-    readOptionalRepoFile(repoRoot, ".open-maintainer.yml"),
-    readOptionalRepoFile(repoRoot, "AGENTS.md"),
-    readOptionalRepoFile(
-      repoRoot,
-      `.agents/skills/${profile.name}-pr-review/SKILL.md`,
-    ),
-    readOptionalRepoFile(
-      repoRoot,
-      `.agents/skills/${profile.name}-testing-workflow/SKILL.md`,
-    ),
-    readOptionalRepoFile(
-      repoRoot,
-      `.agents/skills/${profile.name}-start-task/SKILL.md`,
-    ),
-    readOptionalRepoFile(repoRoot, ".open-maintainer/report.md"),
-  ]);
-  const promptContext = {
-    ...(openMaintainerConfig ? { openMaintainerConfig } : {}),
-    ...(agentsMd ? { agentsMd } : {}),
-    ...(generatedReport ? { generatedContext: generatedReport } : {}),
-    ...(repoPrReviewSkill ? { repoPrReviewSkill } : {}),
-    ...(repoTestingWorkflowSkill ? { repoTestingWorkflowSkill } : {}),
-    ...(repoOverviewSkill ? { repoOverviewSkill } : {}),
-  };
-  const result = await generateReview({
-    profile,
-    input: reviewInput,
-    rules: profile.reviewRuleCandidates,
-    providerConfig: providerReview.providerConfig,
-    provider: providerReview.provider,
-    ...(Object.keys(promptContext).length > 0 ? { promptContext } : {}),
-  });
-  if (!options.json && options.outputPath) {
-    printLines(
-      commandHeader({
-        title: "review",
-        repoRoot,
-        dryRun: options.dryRun,
-      }),
-    );
-  }
-  if (options.outputPath) {
-    const outputPath = path.resolve(repoRoot, options.outputPath);
-    if (!options.dryRun) {
-      await mkdir(path.dirname(outputPath), { recursive: true });
-      await writeFile(outputPath, renderReviewMarkdown(result));
-    }
-    if (!options.json) {
-      printLines(
-        renderBox("Review output", [
-          `Review: ${path.relative(repoRoot, outputPath)}${options.dryRun ? " (planned)" : ""}`,
-          ...(options.dryRun ? ["Dry run: no review file written."] : []),
-        ]),
-      );
-    }
-  }
-  if (options.json) {
-    console.log(JSON.stringify(result, null, 2));
-  } else if (!options.outputPath) {
-    console.log(renderReviewMarkdown(result));
-  }
-}
-
-async function reviewPullRequest(
-  repoRoot: string,
-  options: CliOptions,
-): Promise<void> {
-  if (options.pr === null) {
-    throw new Error("Pull request review requires --pr <number>.");
-  }
-  const workflow = createPullRequestReviewWorkflow(
-    createCliPullRequestReviewWorkflowDeps(repoRoot),
+  const orchestrator = createReviewOrchestrator(
+    createCliReviewOrchestratorDeps(repoRoot, options),
   );
-  const run = await workflow.reviewPullRequest({
-    repoRoot,
-    pullNumber: options.pr,
-    model: buildReviewWorkflowModelSelection(options),
-    publication: {
-      mode: options.dryRun ? "plan" : "publish",
-      options: buildReviewPublishOptions(options),
-    },
+  const run = await orchestrator.review({
+    repository: { kind: "local", repoRoot },
+    target:
+      options.pr !== null
+        ? { kind: "pullRequest", number: options.pr }
+        : {
+            kind: "diff",
+            ...(options.baseRef ? { baseRef: options.baseRef } : {}),
+            ...(options.headRef ? { headRef: options.headRef } : {}),
+          },
+    model: { providerId: "cli-review" },
+    intent: options.dryRun ? "preview" : "apply",
+    ...(options.pr !== null
+      ? {
+          publication: {
+            mode: options.dryRun ? "plan" : "publish",
+            options: buildReviewPublishOptions(options),
+          } as const,
+        }
+      : {}),
     output: {
       ...(options.outputPath ? { markdownPath: options.outputPath } : {}),
       json: options.json,
     },
   });
-  if (!options.json) {
+  if (!options.json && (options.outputPath || options.pr !== null)) {
     printLines(
       commandHeader({
         title: "review",
@@ -2221,9 +2116,15 @@ async function reviewPullRequest(
     console.log(JSON.stringify(run.review, null, 2));
     return;
   }
+  if (options.pr === null) {
+    if (!options.outputPath) {
+      console.log(run.markdown);
+    }
+    return;
+  }
   printLines(
     renderBox("Pull request review", [
-      `Review generated for pull request #${run.target.pullNumber}.`,
+      `Review generated for pull request #${options.pr}.`,
       formatPullRequestPublicationStatus(run.publication),
     ]),
   );
@@ -2356,34 +2257,83 @@ async function preparePullRequestReview(
   };
 }
 
-function createCliPullRequestReviewWorkflowDeps(
+function createCliReviewOrchestratorDeps(
   repoRoot: string,
-): PullRequestReviewWorkflowDeps {
+  options: CliOptions,
+): ReviewOrchestratorDeps {
   return {
-    repoProfile: {
-      async load(targetRoot) {
-        const files = await scanRepository(targetRoot, { maxFiles: 800 });
-        return createProfileFromFiles(targetRoot, files);
-      },
-    },
-    pullRequests: {
-      async fetchReviewInput(input) {
-        return fetchCliPullRequestReviewInput(repoRoot, input.pullNumber, {
-          repoId: input.repoId,
-          ...(input.limits ? { limits: input.limits } : {}),
+    sources: {
+      async prepareLocal(input) {
+        const files = await scanRepository(input.repoRoot, { maxFiles: 800 });
+        const profile = await createProfileFromFiles(input.repoRoot, files);
+        if (input.target?.kind === "pullRequest") {
+          const reviewInput = await fetchCliPullRequestReviewInput(
+            input.repoRoot,
+            input.target.number,
+            {
+              repoId: profile.repoId,
+              ...(input.limits ? { limits: input.limits } : {}),
+            },
+          );
+          return { profile, input: reviewInput, repoRoot: input.repoRoot };
+        }
+        const baseRef =
+          input.target?.kind === "diff" && input.target.baseRef
+            ? input.target.baseRef
+            : ((await detectDefaultBranch(input.repoRoot)) ??
+              profile.defaultBranch ??
+              "main");
+        const headRef =
+          input.target?.kind === "diff" && input.target.headRef
+            ? input.target.headRef
+            : "HEAD";
+        const localInput = await assembleLocalReviewInput({
+          repoRoot: input.repoRoot,
+          repoId: profile.repoId,
+          baseRef,
+          headRef,
+          ...(input.limits ? input.limits : {}),
+        }).catch((error) => {
+          const message =
+            error instanceof Error ? error.message : String(error);
+          throw new Error(
+            `Unable to assemble review diff for ${baseRef}...${headRef}. Verify --base-ref and --head-ref. ${message}`,
+          );
         });
+        return {
+          profile,
+          input: {
+            ...localInput,
+            prNumber: options.prNumber,
+            owner: profile.owner,
+            repo: profile.name,
+            isDraft: null,
+            mergeable: null,
+            mergeStateStatus: null,
+            reviewDecision: null,
+          },
+          repoRoot: input.repoRoot,
+        };
       },
     },
     promptContext: {
-      load: loadReviewPromptContext,
+      async load(input) {
+        if (!input.repoRoot) {
+          return { context: {}, paths: [] };
+        }
+        return loadReviewPromptContext({
+          repoRoot: input.repoRoot,
+          profile: input.profile,
+        });
+      },
     },
     modelProviders: {
-      create(input) {
+      resolve(input) {
         return buildReviewProvider({
-          repoRoot: input.repoRoot,
-          provider: input.provider,
-          model: "model" in input ? (input.model ?? null) : null,
-          allowModelContentTransfer: true,
+          repoRoot: input.repoRoot ?? repoRoot,
+          provider: resolveReviewProvider(options),
+          model: resolveReviewModel(options),
+          allowModelContentTransfer: options.allowModelContentTransfer,
         });
       },
     },
@@ -2482,28 +2432,6 @@ async function loadReviewPromptContext(input: {
   return { context, paths };
 }
 
-function buildReviewWorkflowModelSelection(
-  options: CliOptions,
-): ReviewModelSelection {
-  const provider = resolveReviewProvider(options);
-  const model = resolveReviewModel(options);
-  if (!provider) {
-    throw new Error(
-      "review requires --model codex or --model claude because PR reviews are LLM-backed only.",
-    );
-  }
-  if (!options.allowModelContentTransfer) {
-    throw new Error(
-      "--model requires --allow-model-content-transfer because PR review sends repository content to the selected CLI backend.",
-    );
-  }
-  return {
-    provider,
-    ...(model ? { model } : {}),
-    consent: { repositoryContentTransfer: true },
-  };
-}
-
 function buildReviewPublishOptions(options: CliOptions): ReviewPublishOptions {
   const explicitPosting =
     options.reviewPostSummary || options.reviewInlineComments;
@@ -2523,9 +2451,24 @@ function buildReviewPublishOptions(options: CliOptions): ReviewPublishOptions {
   };
 }
 
+function assertReviewModelOptions(options: CliOptions): void {
+  const provider = resolveReviewProvider(options);
+  resolveReviewModel(options);
+  if (!provider) {
+    throw new Error(
+      "review requires --model codex or --model claude because PR reviews are LLM-backed only.",
+    );
+  }
+  if (!options.allowModelContentTransfer) {
+    throw new Error(
+      "--model requires --allow-model-content-transfer because PR review sends repository content to the selected CLI backend.",
+    );
+  }
+}
+
 function createGhReviewPublisher(
   repoRoot: string,
-): PullRequestReviewWorkflowDeps["publisher"] {
+): NonNullable<ReviewOrchestratorDeps["publisher"]> {
   return {
     async plan(input) {
       return planGhReviewPublication(repoRoot, input);
