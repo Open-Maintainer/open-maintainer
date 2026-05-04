@@ -8,8 +8,10 @@ import { beforeEach, describe, expect, it } from "vitest";
 import {
   type PullRequestReviewWorkflowDeps,
   type ReviewOrchestratorError,
+  type ReviewWorkflowDeps,
   createPullRequestReviewWorkflow,
   createReviewOrchestrator,
+  createReviewWorkflow,
 } from "../src";
 
 const providerConfig: ModelProviderConfig = {
@@ -596,6 +598,233 @@ describe("review orchestrator", () => {
   });
 });
 
+describe("review workflow facade", () => {
+  beforeEach(() => {
+    observedPrompts.length = 0;
+  });
+
+  it("rejects local reviews without repository-content consent before source preparation", async () => {
+    let sourceCalled = false;
+    const workflow = createReviewWorkflow(
+      createWorkflowDeps({
+        local: {
+          async assembleDiff() {
+            sourceCalled = true;
+            return reviewInput();
+          },
+        },
+      }),
+    );
+
+    await expect(
+      workflow.reviewLocal({
+        repoRoot: "/repo",
+        model: {
+          provider: "codex",
+          consent: { repositoryContentTransfer: false },
+        } as never,
+      }),
+    ).rejects.toThrow("explicit repository-content transfer consent");
+    expect(sourceCalled).toBe(false);
+  });
+
+  it("defaults local diff refs and enriches diff input with profile identity", async () => {
+    const assembleCalls: Array<{
+      baseRef: string;
+      headRef: string;
+      owner: string;
+      repo: string;
+    }> = [];
+    const workflow = createReviewWorkflow(
+      createWorkflowDeps({
+        local: {
+          async detectDefaultBranch() {
+            return null;
+          },
+          async assembleDiff(input) {
+            assembleCalls.push({
+              baseRef: input.baseRef,
+              headRef: input.headRef,
+              owner: input.profile.owner,
+              repo: input.profile.name,
+            });
+            return reviewInput({ prNumber: null });
+          },
+        },
+      }),
+    );
+
+    const run = await workflow.reviewLocal({
+      repoRoot: "/repo",
+      target: { diff: {} },
+      model: {
+        provider: "codex",
+        consent: { repositoryContentTransfer: true },
+      },
+      mode: "preview",
+    });
+
+    expect(assembleCalls).toEqual([
+      { baseRef: "main", headRef: "HEAD", owner: "acme", repo: "tool" },
+    ]);
+    expect(run.source.input).toEqual(
+      expect.objectContaining({
+        owner: "acme",
+        repo: "tool",
+        prNumber: null,
+        isDraft: null,
+      }),
+    );
+  });
+
+  it("routes local PR targets through the PR port and preserves publication planning", async () => {
+    const planInputs: unknown[] = [];
+    const workflow = createReviewWorkflow(
+      createWorkflowDeps({
+        local: {
+          async fetchPullRequest(input) {
+            expect(input.prNumber).toBe(7);
+            return reviewInput({ prNumber: input.prNumber });
+          },
+        },
+        publisher: {
+          async plan(input) {
+            planInputs.push(input);
+            return {
+              summary: {
+                action: "create",
+                body: input.markdown,
+                existingCommentId: null,
+              },
+              inline: { comments: [], skipped: [] },
+              triageLabel: null,
+            };
+          },
+          async publish() {
+            throw new Error("publish should not run in plan mode");
+          },
+        },
+      }),
+    );
+
+    const run = await workflow.reviewLocal({
+      repoRoot: "/repo",
+      target: { pr: 7 },
+      model: {
+        provider: "codex",
+        consent: { repositoryContentTransfer: true },
+      },
+      publish: {
+        mode: "plan",
+        summary: true,
+        inline: false,
+      },
+    });
+
+    expect(run.publication).toEqual(
+      expect.objectContaining({ mode: "planned" }),
+    );
+    expect(planInputs).toHaveLength(1);
+  });
+
+  it("previews stored reviews with persistence through the package boundary", async () => {
+    const storedReviews: string[] = [];
+    const workflow = createReviewWorkflow(
+      createWorkflowDeps({
+        stored: {
+          async prepareReview(input) {
+            expect(input).toEqual(
+              expect.objectContaining({
+                repoId: "repo_1",
+                target: {
+                  kind: "pullRequest",
+                  number: 7,
+                  baseRef: "main",
+                  headRef: "feature",
+                },
+              }),
+            );
+            return {
+              profile: repoProfile(),
+              input: reviewInput(),
+              repoRoot: "/repo",
+            };
+          },
+        },
+        persistence: {
+          async startRun() {
+            return runRecord("running");
+          },
+          async succeedRun(input) {
+            return {
+              ...input.run,
+              status: "succeeded",
+              externalId: input.review.id,
+            };
+          },
+          async failRun(input) {
+            return { ...input.run, status: "failed" };
+          },
+          async storeReview(input) {
+            storedReviews.push(input.review.id);
+          },
+        },
+      }),
+    );
+
+    const run = await workflow.previewStored({
+      repoId: "repo_1",
+      modelProviderId: "provider_1",
+      target: { pr: 7, baseRef: "main", headRef: "feature" },
+    });
+
+    expect(run.persistence.run?.status).toBe("succeeded");
+    expect(run.persistence.run?.externalId).toBe(run.review.id);
+    expect(storedReviews).toEqual([run.review.id]);
+  });
+
+  it("plans output without writing in preview and writes when apply semantics allow it", async () => {
+    const writes: Array<{ path: string; markdown: string }> = [];
+    const workflow = createReviewWorkflow(
+      createWorkflowDeps({
+        output: {
+          async writeMarkdown(input) {
+            writes.push({ path: input.path, markdown: input.markdown });
+          },
+        },
+      }),
+    );
+
+    const preview = await workflow.reviewPrepared({
+      profile: repoProfile(),
+      input: reviewInput(),
+      repoRoot: "/repo",
+      model: { providerConfig, provider },
+      mode: "preview",
+      output: { markdownPath: ".open-maintainer/review.md" },
+      publish: false,
+    });
+    const apply = await workflow.reviewPrepared({
+      profile: repoProfile(),
+      input: reviewInput(),
+      repoRoot: "/repo",
+      model: { providerConfig, provider },
+      mode: "apply",
+      output: { markdownPath: ".open-maintainer/review.md" },
+    });
+
+    expect(preview.output).toEqual({
+      markdownPath: ".open-maintainer/review.md",
+      written: false,
+    });
+    expect(apply.output).toEqual({
+      markdownPath: ".open-maintainer/review.md",
+      written: true,
+    });
+    expect(writes).toHaveLength(1);
+  });
+});
+
 function createDeps(
   overrides: {
     reviewInput?: ReviewInput;
@@ -655,6 +884,67 @@ function createDeps(
       },
     },
     ...(overrides.output ? { output: overrides.output } : {}),
+  };
+}
+
+function createWorkflowDeps(
+  overrides: {
+    local?: Partial<NonNullable<ReviewWorkflowDeps["local"]>>;
+    stored?: ReviewWorkflowDeps["stored"];
+    publisher?: ReviewWorkflowDeps["publisher"];
+    output?: ReviewWorkflowDeps["output"];
+    persistence?: ReviewWorkflowDeps["persistence"];
+  } = {},
+): ReviewWorkflowDeps {
+  return {
+    local: {
+      prepareProfile:
+        overrides.local?.prepareProfile ??
+        (async () => {
+          return repoProfile();
+        }),
+      detectDefaultBranch:
+        overrides.local?.detectDefaultBranch ??
+        (async () => {
+          return "main";
+        }),
+      async assembleDiff(input) {
+        if (overrides.local?.assembleDiff) {
+          return overrides.local.assembleDiff(input);
+        }
+        return reviewInput({ prNumber: null });
+      },
+      async fetchPullRequest(input) {
+        if (overrides.local?.fetchPullRequest) {
+          return overrides.local.fetchPullRequest(input);
+        }
+        return reviewInput({ prNumber: input.prNumber });
+      },
+    },
+    ...(overrides.stored ? { stored: overrides.stored } : {}),
+    promptContext: {
+      async resolve() {
+        return {
+          context: { agentsMd: "Workflow prompt context." },
+          paths: ["AGENTS.md"],
+        };
+      },
+    },
+    modelProviders: {
+      resolve() {
+        return { providerConfig, provider };
+      },
+    },
+    publisher: overrides.publisher ?? {
+      async plan() {
+        return { summary: null, inline: null, triageLabel: null };
+      },
+      async publish() {
+        return { summary: null, inline: null, triageLabel: null };
+      },
+    },
+    ...(overrides.output ? { output: overrides.output } : {}),
+    ...(overrides.persistence ? { persistence: overrides.persistence } : {}),
   };
 }
 

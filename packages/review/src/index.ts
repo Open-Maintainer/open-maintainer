@@ -108,6 +108,7 @@ export type ReviewPublicationIntent =
 export type ReviewOutputIntent = {
   markdownPath?: string;
   json?: boolean;
+  write?: "apply-only" | "always" | "never";
 };
 
 export type ReviewRepositoryRequest =
@@ -121,7 +122,12 @@ export type ReviewRepositoryRequest =
     };
 
 export type ReviewTargetRequest =
-  | { kind: "diff"; baseRef?: string; headRef?: string }
+  | {
+      kind: "diff";
+      baseRef?: string;
+      headRef?: string;
+      prNumber?: number | null;
+    }
   | {
       kind: "pullRequest";
       number: number;
@@ -140,6 +146,61 @@ export type ReviewPersistenceIntent =
       run?: true;
       review?: true;
     };
+
+export type ReviewTargetShortcut =
+  | { diff?: { baseRef?: string; headRef?: string; prNumber?: number | null } }
+  | { pr: number; baseRef?: string; headRef?: string };
+
+export type ReviewOutputShortcut =
+  | false
+  | {
+      markdownPath: string;
+      write?: "apply-only" | "always" | "never";
+    };
+
+export type ReviewPublicationShortcut =
+  | "plan"
+  | "publish"
+  | {
+      mode: "plan" | "publish";
+      summary?: boolean;
+      inline?: false | { cap?: number };
+      triageLabel?:
+        | false
+        | {
+            apply: true;
+            createMissingLabels?: boolean;
+          };
+    };
+
+export type LocalReviewRequest = {
+  repoRoot: string;
+  model: ReviewModelSelection;
+  target?: ReviewTargetShortcut;
+  output?: ReviewOutputShortcut;
+  publish?: false | ReviewPublicationShortcut;
+  mode?: "preview" | "apply";
+  limits?: Partial<ReviewContentLimits>;
+};
+
+export type StoredReviewPreviewRequest = {
+  repoId: string;
+  modelProviderId: string;
+  target?: ReviewTargetShortcut;
+  persist?: boolean;
+  limits?: Partial<ReviewContentLimits>;
+};
+
+export type PreparedReviewRequest = {
+  profile: RepoProfile;
+  input: ReviewInput;
+  repoRoot?: string | null;
+  model: ReviewModelRequest;
+  mode?: "preview" | "apply";
+  output?: ReviewOutputShortcut;
+  publish?: false | ReviewPublicationShortcut;
+  persist?: ReviewPersistenceIntent;
+};
 
 export type ReviewRequest = {
   repository: ReviewRepositoryRequest;
@@ -361,6 +422,85 @@ export type ReviewOrchestrator = {
   review(request: ReviewRequest): Promise<ReviewRun>;
 };
 
+export type LocalDiffInput = {
+  repoRoot: string;
+  profile: RepoProfile;
+  baseRef: string;
+  headRef: string;
+  limits?: Partial<ReviewContentLimits>;
+};
+
+export type LocalPullRequestInput = {
+  repoRoot: string;
+  profile: RepoProfile;
+  prNumber: number;
+  baseRef?: string;
+  headRef?: string;
+  limits?: Partial<ReviewContentLimits>;
+};
+
+export type NormalizedReviewTarget = ReviewTargetRequest;
+
+export type LocalReviewEnvironment = {
+  prepareProfile(input: { repoRoot: string }): Promise<RepoProfile>;
+  detectDefaultBranch(input: { repoRoot: string }): Promise<string | null>;
+  assembleDiff(input: LocalDiffInput): Promise<ReviewInput>;
+  fetchPullRequest?(input: LocalPullRequestInput): Promise<ReviewInput>;
+};
+
+export type StoredReviewEnvironment = {
+  prepareReview(input: {
+    repoId: string;
+    target?: NormalizedReviewTarget;
+    limits: ReviewContentLimits;
+  }): Promise<ReviewPreparedSource>;
+};
+
+export type ReviewModelResolver = {
+  resolve(input: {
+    model: ReviewModelRequest;
+    source: ReviewPreparedSource;
+  }):
+    | Promise<{ providerConfig: ModelProviderConfig; provider: ModelProvider }>
+    | { providerConfig: ModelProviderConfig; provider: ModelProvider };
+};
+
+export type ReviewPromptContextResolver = {
+  resolve(input: { source: ReviewPreparedSource }): Promise<{
+    context: ModelReviewPromptContext;
+    paths: string[];
+  }>;
+};
+
+export type ReviewPublisherPort = NonNullable<
+  PullRequestReviewWorkflowDeps["publisher"]
+>;
+
+export type ReviewOutputPort = NonNullable<
+  PullRequestReviewWorkflowDeps["output"]
+>;
+
+export type ReviewErrorMapper = {
+  map(error: unknown): Error;
+};
+
+export type ReviewWorkflowDeps = {
+  local?: LocalReviewEnvironment;
+  stored?: StoredReviewEnvironment;
+  modelProviders: ReviewModelResolver;
+  promptContext?: ReviewPromptContextResolver;
+  publisher?: ReviewPublisherPort;
+  output?: ReviewOutputPort;
+  persistence?: ReviewPersistencePort;
+  errors?: ReviewErrorMapper;
+};
+
+export type ReviewWorkflow = {
+  reviewLocal(input: LocalReviewRequest): Promise<ReviewRun>;
+  previewStored(input: StoredReviewPreviewRequest): Promise<ReviewRun>;
+  reviewPrepared(input: PreparedReviewRequest): Promise<ReviewRun>;
+};
+
 export class ReviewOrchestratorError extends Error {
   run: RunRecord | null;
 
@@ -467,6 +607,304 @@ export const reviewTriageLabelDefinitions: Record<
 export const reviewTriageLabelNames = new Set(
   Object.values(reviewTriageLabelDefinitions).map((label) => label.name),
 );
+
+const defaultReviewContentLimits: ReviewContentLimits = {
+  maxFiles: 800,
+  maxFileBytes: 128_000,
+  maxTotalBytes: 512_000,
+};
+
+export class ReviewWorkflowSourceError extends Error {
+  statusCode: 409 | 422;
+
+  constructor(statusCode: 409 | 422, message: string) {
+    super(message);
+    this.name = "ReviewWorkflowSourceError";
+    this.statusCode = statusCode;
+  }
+}
+
+export function createReviewWorkflow(deps: ReviewWorkflowDeps): ReviewWorkflow {
+  const orchestrator = createReviewOrchestrator({
+    sources: {
+      async prepareLocal(input) {
+        if (!deps.local) {
+          throw new Error("Local review requires a local environment port.");
+        }
+        const source = await prepareLocalWorkflowSource(deps.local, input);
+        assertNonEmptyReviewSource(source);
+        return source;
+      },
+      async prepareStored(input) {
+        if (!deps.stored) {
+          throw new Error("Stored review requires a stored environment port.");
+        }
+        const source = await deps.stored.prepareReview({
+          repoId: input.repoId,
+          ...(input.target ? { target: input.target } : {}),
+          limits: normalizeReviewContentLimits(input.limits),
+        });
+        assertNonEmptyReviewSource(source);
+        return source;
+      },
+    },
+    ...(deps.promptContext
+      ? {
+          promptContext: {
+            async load(input) {
+              return (
+                deps.promptContext?.resolve({
+                  source: {
+                    profile: input.profile,
+                    input: input.reviewInput,
+                    repoRoot: input.repoRoot,
+                  },
+                }) ?? { context: {}, paths: [] }
+              );
+            },
+          },
+        }
+      : {}),
+    modelProviders: {
+      resolve(input) {
+        return deps.modelProviders.resolve({
+          model: input.model,
+          source: {
+            profile: input.profile,
+            input: input.reviewInput,
+            repoRoot: input.repoRoot,
+          },
+        });
+      },
+    },
+    ...(deps.publisher ? { publisher: deps.publisher } : {}),
+    ...(deps.output ? { output: deps.output } : {}),
+    ...(deps.persistence ? { persistence: deps.persistence } : {}),
+  });
+
+  return {
+    reviewLocal(input) {
+      const publication = normalizePublicationShortcut(input.publish);
+      const output = normalizeOutputShortcut(input.output);
+      return runWorkflowRequest(deps, () =>
+        orchestrator.review({
+          repository: { kind: "local", repoRoot: input.repoRoot },
+          ...(input.target
+            ? { target: normalizeReviewTargetShortcut(input.target) }
+            : {}),
+          model: input.model,
+          intent: input.mode ?? intentForPublication(publication),
+          ...(output ? { output } : {}),
+          ...(publication !== undefined ? { publication } : {}),
+          ...(input.limits ? { limits: input.limits } : {}),
+        }),
+      );
+    },
+    previewStored(input) {
+      return runWorkflowRequest(deps, () =>
+        orchestrator.review({
+          repository: { kind: "stored", repoId: input.repoId },
+          ...(input.target
+            ? { target: normalizeReviewTargetShortcut(input.target) }
+            : {}),
+          model: { providerId: input.modelProviderId },
+          intent: "preview",
+          publication: false,
+          persistence:
+            input.persist === false ? false : { run: true, review: true },
+          ...(input.limits ? { limits: input.limits } : {}),
+        }),
+      );
+    },
+    reviewPrepared(input) {
+      const publication = normalizePublicationShortcut(input.publish);
+      const output = normalizeOutputShortcut(input.output);
+      return runWorkflowRequest(deps, () =>
+        orchestrator.review({
+          repository: {
+            kind: "prepared",
+            profile: input.profile,
+            input: input.input,
+            ...(input.repoRoot ? { repoRoot: input.repoRoot } : {}),
+          },
+          model: input.model,
+          intent: input.mode ?? intentForPublication(publication),
+          ...(output ? { output } : {}),
+          ...(publication !== undefined ? { publication } : {}),
+          ...(input.persist !== undefined
+            ? { persistence: input.persist }
+            : {}),
+        }),
+      );
+    },
+  };
+}
+
+async function runWorkflowRequest(
+  deps: ReviewWorkflowDeps,
+  request: () => Promise<ReviewRun>,
+): Promise<ReviewRun> {
+  try {
+    return await request();
+  } catch (error) {
+    if (!deps.errors) {
+      throw error;
+    }
+    throw deps.errors.map(error);
+  }
+}
+
+async function prepareLocalWorkflowSource(
+  local: LocalReviewEnvironment,
+  input: {
+    repoRoot: string;
+    target?: ReviewTargetRequest;
+    limits?: Partial<ReviewContentLimits>;
+  },
+): Promise<ReviewPreparedSource> {
+  const profile = await local.prepareProfile({ repoRoot: input.repoRoot });
+  if (input.target?.kind === "pullRequest") {
+    if (!local.fetchPullRequest) {
+      throw new ReviewWorkflowSourceError(
+        422,
+        "Pull request review requires a pull request source port.",
+      );
+    }
+    const reviewInput = await local.fetchPullRequest({
+      repoRoot: input.repoRoot,
+      profile,
+      prNumber: input.target.number,
+      ...(input.target.baseRef ? { baseRef: input.target.baseRef } : {}),
+      ...(input.target.headRef ? { headRef: input.target.headRef } : {}),
+      ...(input.limits ? { limits: input.limits } : {}),
+    });
+    return { profile, input: reviewInput, repoRoot: input.repoRoot };
+  }
+  const baseRef =
+    input.target?.kind === "diff" && input.target.baseRef
+      ? input.target.baseRef
+      : ((await local.detectDefaultBranch({ repoRoot: input.repoRoot })) ??
+        profile.defaultBranch ??
+        "main");
+  const headRef =
+    input.target?.kind === "diff" && input.target.headRef
+      ? input.target.headRef
+      : "HEAD";
+  const localInput = await local
+    .assembleDiff({
+      repoRoot: input.repoRoot,
+      profile,
+      baseRef,
+      headRef,
+      ...(input.limits ? { limits: input.limits } : {}),
+    })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new ReviewWorkflowSourceError(
+        422,
+        `Unable to assemble review diff for ${baseRef}...${headRef}. Verify --base-ref and --head-ref. ${message}`,
+      );
+    });
+  return {
+    profile,
+    input: {
+      ...localInput,
+      prNumber:
+        input.target?.kind === "diff"
+          ? (input.target.prNumber ?? null)
+          : localInput.prNumber,
+      owner: profile.owner,
+      repo: profile.name,
+      isDraft: null,
+      mergeable: null,
+      mergeStateStatus: null,
+      reviewDecision: null,
+    },
+    repoRoot: input.repoRoot,
+  };
+}
+
+function normalizeReviewTargetShortcut(
+  target: ReviewTargetShortcut,
+): ReviewTargetRequest {
+  if ("pr" in target) {
+    return {
+      kind: "pullRequest",
+      number: target.pr,
+      ...(target.baseRef ? { baseRef: target.baseRef } : {}),
+      ...(target.headRef ? { headRef: target.headRef } : {}),
+    };
+  }
+  const diff = target.diff ?? {};
+  return {
+    kind: "diff",
+    ...(diff.baseRef ? { baseRef: diff.baseRef } : {}),
+    ...(diff.headRef ? { headRef: diff.headRef } : {}),
+    ...(diff.prNumber !== undefined ? { prNumber: diff.prNumber } : {}),
+  };
+}
+
+function normalizeOutputShortcut(
+  output: ReviewOutputShortcut | undefined,
+): ReviewOutputIntent | undefined {
+  if (!output) {
+    return undefined;
+  }
+  return {
+    markdownPath: output.markdownPath,
+    ...(output.write ? { write: output.write } : {}),
+  };
+}
+
+function normalizePublicationShortcut(
+  publication: false | ReviewPublicationShortcut | undefined,
+): false | ReviewPublicationIntent | undefined {
+  if (publication === undefined || publication === false) {
+    return publication;
+  }
+  if (publication === "plan" || publication === "publish") {
+    return { mode: publication };
+  }
+  return {
+    mode: publication.mode,
+    options: {
+      ...(publication.summary !== undefined
+        ? { summary: publication.summary }
+        : {}),
+      ...(publication.inline !== undefined
+        ? { inline: publication.inline }
+        : {}),
+      ...(publication.triageLabel !== undefined
+        ? { triageLabel: publication.triageLabel }
+        : {}),
+    },
+  };
+}
+
+function intentForPublication(
+  publication: false | ReviewPublicationIntent | undefined,
+): "preview" | "apply" {
+  return publication !== undefined &&
+    publication !== false &&
+    publication.mode === "plan"
+    ? "preview"
+    : "apply";
+}
+
+function normalizeReviewContentLimits(
+  limits: Partial<ReviewContentLimits> | undefined,
+): ReviewContentLimits {
+  return { ...defaultReviewContentLimits, ...(limits ?? {}) };
+}
+
+function assertNonEmptyReviewSource(source: ReviewPreparedSource): void {
+  if (source.input.changedFiles.length === 0) {
+    throw new ReviewWorkflowSourceError(
+      422,
+      `No changed files were detected for ${source.input.baseRef}...${source.input.headRef}. Check the review target before creating a review.`,
+    );
+  }
+}
 
 export function createPullRequestReviewWorkflow(
   deps: PullRequestReviewWorkflowDeps,
@@ -697,12 +1135,14 @@ async function runReviewOutput(input: {
   if (!input.intent?.markdownPath) {
     return null;
   }
+  const writeMode = input.intent.write ?? "apply-only";
   const result = {
     markdownPath: input.intent.markdownPath,
-    written:
-      input.reviewIntent !== "preview" &&
-      input.publicationIntent !== false &&
-      input.publicationIntent?.mode !== "plan",
+    written: shouldWriteReviewOutput({
+      writeMode,
+      reviewIntent: input.reviewIntent,
+      publicationIntent: input.publicationIntent,
+    }),
   };
   if (!result.written) {
     return result;
@@ -719,6 +1159,28 @@ async function runReviewOutput(input: {
     markdown: input.markdown,
   });
   return result;
+}
+
+function shouldWriteReviewOutput(input: {
+  writeMode: "apply-only" | "always" | "never";
+  reviewIntent: ReviewRequest["intent"];
+  publicationIntent: ReviewRequest["publication"];
+}): boolean {
+  if (input.writeMode === "never") {
+    return false;
+  }
+  if (
+    input.reviewIntent === "preview" ||
+    (input.publicationIntent !== undefined &&
+      input.publicationIntent !== false &&
+      input.publicationIntent.mode === "plan")
+  ) {
+    return false;
+  }
+  if (input.writeMode === "always") {
+    return true;
+  }
+  return input.publicationIntent !== false;
 }
 
 export async function generateReview(
