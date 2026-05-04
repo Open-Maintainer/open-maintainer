@@ -1,15 +1,12 @@
 #!/usr/bin/env bun
-import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { promisify } from "node:util";
 import {
   DEFAULT_CODEX_CLI_MODEL,
   type ModelProvider,
   buildClaudeCliProvider,
   buildCodexCliProvider,
 } from "@open-maintainer/ai";
-import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
 import {
   type ArtifactModel,
   type ContextGenerationArtifactSinkPort,
@@ -34,6 +31,7 @@ import type {
 import type {
   IssueTriageEvidence,
   IssueTriageResult,
+  RepoProfile,
 } from "@open-maintainer/shared";
 import { newId, nowIso } from "@open-maintainer/shared";
 import {
@@ -45,6 +43,7 @@ import {
   createCliIssueTriageAdapters,
   createIssueTriageUseCases,
 } from "./issue-triage-use-cases";
+import { createCliRepositoryWorkspace } from "./repository-workspace";
 import {
   type ReviewOperationModelProvider,
   type ReviewOperationRequest,
@@ -97,7 +96,7 @@ type CliOptions = {
 
 type ArtifactSelection = "codex" | "claude" | "both";
 
-const execFileAsync = promisify(execFile);
+const repositoryWorkspace = createCliRepositoryWorkspace();
 
 const rootUsage = `open-maintainer <command> <repo>
 
@@ -488,7 +487,7 @@ function styleStatusLine(line: string): string {
 
 function renderAuditSummary(input: {
   repoRoot: string;
-  profile: ReturnType<typeof analyzeRepo>;
+  profile: RepoProfile;
   reportPath: string;
   options: CliOptions;
 }): string[] {
@@ -694,8 +693,8 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
 async function audit(
   repoRoot: string,
   options: CliOptions,
-): Promise<{ profile: ReturnType<typeof analyzeRepo>; reportPath: string }> {
-  const profile = await createProfile(repoRoot);
+): Promise<{ profile: RepoProfile; reportPath: string }> {
+  const profile = await repositoryWorkspace.profile(repoRoot);
   const openMaintainerDir = path.join(repoRoot, ".open-maintainer");
   const storedProfile = await readFile(
     path.join(openMaintainerDir, "profile.json"),
@@ -749,8 +748,10 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
   }
   const orchestrator = createContextGenerationOrchestrator({
     repository: {
-      scan: scanRepository,
-      profile: createProfileFromFiles,
+      scan: (scanRepoRoot, options) =>
+        repositoryWorkspace.scan(scanRepoRoot, options),
+      profile: (profileRepoRoot, files) =>
+        repositoryWorkspace.profile({ repoRoot: profileRepoRoot, files }),
     },
     defaultSink: filesystemContextArtifactSink(),
   });
@@ -860,8 +861,8 @@ async function doctor(
   fixablePaths: string[];
   profileNeedsRefresh: boolean;
 }> {
-  const profile = await createProfile(repoRoot);
-  const files = await scanRepository(repoRoot, { maxFiles: 800 });
+  const files = await repositoryWorkspace.scan(repoRoot);
+  const profile = await repositoryWorkspace.profile({ repoRoot, files });
   const filesByPath = new Map(files.map((file) => [file.path, file]));
   const paths = new Set(filesByPath.keys());
   const currentProfileHash = profileFingerprint(profile);
@@ -945,7 +946,7 @@ async function doctor(
 }
 
 function doctorRequiredArtifacts(
-  profile: ReturnType<typeof analyzeRepo>,
+  profile: RepoProfile,
   storedContextHashes: Map<string, string>,
 ): string[] {
   if (storedContextHashes.size === 0) {
@@ -962,7 +963,7 @@ function doctorRequiredArtifacts(
 }
 
 function doctorObsoleteGeneratedArtifacts(input: {
-  files: Awaited<ReturnType<typeof scanRepository>>;
+  files: Awaited<ReturnType<typeof repositoryWorkspace.scan>>;
   expectedPaths: Set<string>;
   storedContextHashes: Map<string, string>;
 }): string[] {
@@ -1103,7 +1104,7 @@ async function pr(repoRoot: string, options: CliOptions): Promise<void> {
   if (!options.createPr) {
     throw new Error("PR command requires --create.");
   }
-  const profile = await createProfile(repoRoot);
+  const profile = await repositoryWorkspace.profile(repoRoot);
   printLines(
     commandHeader({
       title: "context PR",
@@ -1622,89 +1623,6 @@ async function readOptionalRepoFile(
   return readFile(path.join(repoRoot, repoPath), "utf8").catch(() => undefined);
 }
 
-async function createProfile(repoRoot: string) {
-  const files = await scanRepository(repoRoot, { maxFiles: 800 });
-  return createProfileFromFiles(repoRoot, files);
-}
-
-async function createProfileFromFiles(
-  repoRoot: string,
-  files: Awaited<ReturnType<typeof scanRepository>>,
-) {
-  const identity = await resolveRepoIdentity(repoRoot);
-  return analyzeRepo({
-    repoId: "local",
-    owner: identity.owner,
-    name: identity.name,
-    defaultBranch: identity.defaultBranch,
-    version: 1,
-    files,
-  });
-}
-
-async function resolveRepoIdentity(repoRoot: string): Promise<{
-  owner: string;
-  name: string;
-  defaultBranch: string;
-}> {
-  const fallback = {
-    owner: path.basename(path.dirname(repoRoot)) || "local",
-    name: path.basename(repoRoot),
-    defaultBranch: "main",
-  };
-  const [remoteUrl, defaultBranch] = await Promise.all([
-    gitOutput(repoRoot, ["remote", "get-url", "origin"]),
-    detectDefaultBranch(repoRoot),
-  ]);
-  const remoteIdentity = remoteUrl ? parseGitHubRemote(remoteUrl) : null;
-  return {
-    owner: remoteIdentity?.owner ?? fallback.owner,
-    name: remoteIdentity?.name ?? fallback.name,
-    defaultBranch: defaultBranch ?? fallback.defaultBranch,
-  };
-}
-
-async function detectDefaultBranch(repoRoot: string): Promise<string | null> {
-  const symbolicRef = await gitOutput(repoRoot, [
-    "symbolic-ref",
-    "--short",
-    "refs/remotes/origin/HEAD",
-  ]);
-  if (symbolicRef?.startsWith("origin/")) {
-    return symbolicRef.slice("origin/".length);
-  }
-  return null;
-}
-
-async function gitOutput(
-  repoRoot: string,
-  args: string[],
-): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync("git", ["-C", repoRoot, ...args]);
-    return stdout.trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-function parseGitHubRemote(
-  remoteUrl: string,
-): { owner: string; name: string } | null {
-  const normalized = remoteUrl.trim().replace(/\.git$/, "");
-  const sshMatch = /^git@[^:]+:([^/]+)\/(.+)$/.exec(normalized);
-  if (sshMatch?.[1] && sshMatch[2]) {
-    return { owner: sshMatch[1], name: sshMatch[2] };
-  }
-  try {
-    const url = new URL(normalized);
-    const [owner, name] = url.pathname.replace(/^\/+/, "").split("/");
-    return owner && name ? { owner, name } : null;
-  } catch {
-    return null;
-  }
-}
-
 function parseOptions(rawOptions: string[]): CliOptions {
   const options: CliOptions = {
     force: false,
@@ -2001,9 +1919,7 @@ function parseArtifactModel(value: string): ArtifactModel {
   throw new Error("Unknown model. Expected --model codex or --model claude.");
 }
 
-function formatReadinessSuggestions(
-  profile: ReturnType<typeof analyzeRepo>,
-): string[] {
+function formatReadinessSuggestions(profile: RepoProfile): string[] {
   const suggestions = readinessSuggestions(profile);
   if (suggestions.length === 0) {
     return [];
@@ -2011,9 +1927,7 @@ function formatReadinessSuggestions(
   return ["Next steps:", ...suggestions.map((suggestion) => `- ${suggestion}`)];
 }
 
-function readinessSuggestions(
-  profile: ReturnType<typeof analyzeRepo>,
-): string[] {
+function readinessSuggestions(profile: RepoProfile): string[] {
   const suggestions = new Map<string, string>();
   for (const category of profile.agentReadiness.categories) {
     for (const missing of category.missing) {
@@ -2031,7 +1945,7 @@ function readinessSuggestions(
 function suggestionForMissingItem(
   categoryName: string,
   missing: string,
-  profile: ReturnType<typeof analyzeRepo>,
+  profile: RepoProfile,
 ): string {
   switch (missing) {
     case "README is missing.":
@@ -2081,7 +1995,7 @@ function suggestionForMissingItem(
   }
 }
 
-function defaultSkillPaths(profile: ReturnType<typeof analyzeRepo>): string[] {
+function defaultSkillPaths(profile: RepoProfile): string[] {
   const repoSlug = slugify(profile.name);
   const hints = profile.generatedFileHints
     .filter((hint) => hint.startsWith(".agents/skills/"))

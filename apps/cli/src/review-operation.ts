@@ -9,7 +9,6 @@ import {
   buildCodexCliProvider,
 } from "@open-maintainer/ai";
 import type { ModelProvider } from "@open-maintainer/ai";
-import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
 import {
   type GitHubRepositoryClient,
   planInlineReviewComments,
@@ -47,6 +46,7 @@ import type {
   ReviewResult,
   ReviewSkippedFile,
 } from "@open-maintainer/shared";
+import { createCliRepositoryWorkspace } from "./repository-workspace";
 
 const execFileAsync = promisify(execFile);
 
@@ -218,14 +218,14 @@ export function createReviewOperationRuntime(
 export function createProductionReviewOperationPorts(
   repoRoot: string,
 ): ReviewOperationPorts {
+  const repositoryWorkspace = createCliRepositoryWorkspace();
   return {
     workspace: {
       async prepareProfile(input) {
-        const files = await scanRepository(input.repoRoot, { maxFiles: 800 });
-        return createProfileFromFiles(input.repoRoot, files);
+        return repositoryWorkspace.profile(input.repoRoot);
       },
       async detectDefaultBranch(input) {
-        return detectDefaultBranch(input.repoRoot);
+        return repositoryWorkspace.defaultBranch(input.repoRoot);
       },
     },
     source: {
@@ -531,7 +531,7 @@ async function preparePullRequestReview(
 
 async function loadReviewPromptContext(input: {
   repoRoot: string;
-  profile: Awaited<ReturnType<typeof createProfileFromFiles>>;
+  profile: RepoProfile;
 }): Promise<{ context: ReviewPromptContext; paths: string[] }> {
   const candidates = [
     { key: "openMaintainerConfig", path: ".open-maintainer.yml" },
@@ -914,84 +914,6 @@ function buildReviewProvider(input: {
           ...(input.model ? { model: input.model } : {}),
         });
   return { providerConfig, provider };
-}
-
-async function createProfileFromFiles(
-  repoRoot: string,
-  files: Awaited<ReturnType<typeof scanRepository>>,
-) {
-  const identity = await resolveRepoIdentity(repoRoot);
-  return analyzeRepo({
-    repoId: "local",
-    owner: identity.owner,
-    name: identity.name,
-    defaultBranch: identity.defaultBranch,
-    version: 1,
-    files,
-  });
-}
-
-async function resolveRepoIdentity(repoRoot: string): Promise<{
-  owner: string;
-  name: string;
-  defaultBranch: string;
-}> {
-  const fallback = {
-    owner: path.basename(path.dirname(repoRoot)) || "local",
-    name: path.basename(repoRoot),
-    defaultBranch: "main",
-  };
-  const [remoteUrl, defaultBranch] = await Promise.all([
-    gitOutput(repoRoot, ["remote", "get-url", "origin"]),
-    detectDefaultBranch(repoRoot),
-  ]);
-  const remoteIdentity = remoteUrl ? parseGitHubRemote(remoteUrl) : null;
-  return {
-    owner: remoteIdentity?.owner ?? fallback.owner,
-    name: remoteIdentity?.name ?? fallback.name,
-    defaultBranch: defaultBranch ?? fallback.defaultBranch,
-  };
-}
-
-async function detectDefaultBranch(repoRoot: string): Promise<string | null> {
-  const symbolicRef = await gitOutput(repoRoot, [
-    "symbolic-ref",
-    "--short",
-    "refs/remotes/origin/HEAD",
-  ]);
-  if (symbolicRef?.startsWith("origin/")) {
-    return symbolicRef.slice("origin/".length);
-  }
-  return null;
-}
-
-async function gitOutput(
-  repoRoot: string,
-  args: string[],
-): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync("git", ["-C", repoRoot, ...args]);
-    return stdout.trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-function parseGitHubRemote(
-  remoteUrl: string,
-): { owner: string; name: string } | null {
-  const normalized = remoteUrl.trim().replace(/\.git$/, "");
-  const sshMatch = /^git@[^:]+:([^/]+)\/(.+)$/.exec(normalized);
-  if (sshMatch?.[1] && sshMatch[2]) {
-    return { owner: sshMatch[1], name: sshMatch[2] };
-  }
-  try {
-    const url = new URL(normalized);
-    const [owner, name] = url.pathname.replace(/^\/+/, "").split("/");
-    return owner && name ? { owner, name } : null;
-  } catch {
-    return null;
-  }
 }
 
 async function readOptionalRepoFile(

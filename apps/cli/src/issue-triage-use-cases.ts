@@ -9,7 +9,6 @@ import {
   buildClaudeCliProvider,
   buildCodexCliProvider,
 } from "@open-maintainer/ai";
-import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
 import { parseOpenMaintainerConfig } from "@open-maintainer/config";
 import {
   type GitHubRepositoryClient,
@@ -22,6 +21,7 @@ import type {
   IssueTriageResult,
   IssueTriageSignal,
   ModelProviderConfig,
+  RepoProfile,
 } from "@open-maintainer/shared";
 import {
   IssueTriageInputSchema,
@@ -37,6 +37,7 @@ import {
   type IssueTriageBriefResult as WorkflowIssueTriageBriefResult,
   createIssueTriageWorkflow,
 } from "@open-maintainer/triage";
+import { createCliRepositoryWorkspace } from "./repository-workspace";
 
 const execFileAsync = promisify(execFile);
 
@@ -152,7 +153,7 @@ export type BriefIssueInput = {
 
 export type BriefIssueResult = WorkflowIssueTriageBriefResult;
 
-type CliIssueTriageProfile = Awaited<ReturnType<typeof createProfileFromFiles>>;
+type CliIssueTriageProfile = RepoProfile;
 
 export function createIssueTriageUseCases(
   deps: IssueTriageUseCaseDeps,
@@ -346,10 +347,10 @@ function createUnavailableIssueTriageModelPort(): IssueTriageModelPort {
 }
 
 function createCliIssueTriageRepositoryPort(): IssueTriageRepositoryPort {
+  const repositoryWorkspace = createCliRepositoryWorkspace();
   return {
     async prepare(repoRoot) {
-      const files = await scanRepository(repoRoot, { maxFiles: 800 });
-      const profile = await createProfileFromFiles(repoRoot, files);
+      const profile = await repositoryWorkspace.profile(repoRoot);
       const config = await readOptionalRepoFile(
         repoRoot,
         ".open-maintainer.yml",
@@ -380,8 +381,7 @@ function createCliIssueTriageRepositoryPort(): IssueTriageRepositoryPort {
       return { profile, repo };
     },
     async prepareBrief(repoRoot) {
-      const files = await scanRepository(repoRoot, { maxFiles: 800 });
-      const profile = await createProfileFromFiles(repoRoot, files);
+      const profile = await repositoryWorkspace.profile(repoRoot);
       return {
         repoId: profile.repoId,
         owner: profile.owner,
@@ -972,84 +972,6 @@ async function readOptionalRepoFile(
   repoPath: string,
 ): Promise<string | undefined> {
   return readFile(path.join(repoRoot, repoPath), "utf8").catch(() => undefined);
-}
-
-async function createProfileFromFiles(
-  repoRoot: string,
-  files: Awaited<ReturnType<typeof scanRepository>>,
-) {
-  const identity = await resolveRepoIdentity(repoRoot);
-  return analyzeRepo({
-    repoId: "local",
-    owner: identity.owner,
-    name: identity.name,
-    defaultBranch: identity.defaultBranch,
-    version: 1,
-    files,
-  });
-}
-
-async function resolveRepoIdentity(repoRoot: string): Promise<{
-  owner: string;
-  name: string;
-  defaultBranch: string;
-}> {
-  const fallback = {
-    owner: path.basename(path.dirname(repoRoot)) || "local",
-    name: path.basename(repoRoot),
-    defaultBranch: "main",
-  };
-  const [remoteUrl, defaultBranch] = await Promise.all([
-    gitOutput(repoRoot, ["remote", "get-url", "origin"]),
-    detectDefaultBranch(repoRoot),
-  ]);
-  const remoteIdentity = remoteUrl ? parseGitHubRemote(remoteUrl) : null;
-  return {
-    owner: remoteIdentity?.owner ?? fallback.owner,
-    name: remoteIdentity?.name ?? fallback.name,
-    defaultBranch: defaultBranch ?? fallback.defaultBranch,
-  };
-}
-
-async function detectDefaultBranch(repoRoot: string): Promise<string | null> {
-  const symbolicRef = await gitOutput(repoRoot, [
-    "symbolic-ref",
-    "--short",
-    "refs/remotes/origin/HEAD",
-  ]);
-  if (symbolicRef?.startsWith("origin/")) {
-    return symbolicRef.slice("origin/".length);
-  }
-  return null;
-}
-
-async function gitOutput(
-  repoRoot: string,
-  args: string[],
-): Promise<string | null> {
-  try {
-    const { stdout } = await execFileAsync("git", ["-C", repoRoot, ...args]);
-    return stdout.trim() || null;
-  } catch {
-    return null;
-  }
-}
-
-function parseGitHubRemote(
-  remoteUrl: string,
-): { owner: string; name: string } | null {
-  const normalized = remoteUrl.trim().replace(/\.git$/, "");
-  const sshMatch = /^git@[^:]+:([^/]+)\/(.+)$/.exec(normalized);
-  if (sshMatch?.[1] && sshMatch[2]) {
-    return { owner: sshMatch[1], name: sshMatch[2] };
-  }
-  try {
-    const url = new URL(normalized);
-    const [owner, name] = url.pathname.replace(/^\/+/, "").split("/");
-    return owner && name ? { owner, name } : null;
-  } catch {
-    return null;
-  }
 }
 
 function issueBriefReadFirstPaths(profile: CliIssueTriageProfile): string[] {
