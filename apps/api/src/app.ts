@@ -24,9 +24,11 @@ import {
 } from "@open-maintainer/github";
 import type { GitHubAppInstallationAuth } from "@open-maintainer/github";
 import {
+  ReviewOrchestratorError,
   assembleLocalReviewInput,
-  generateReview,
+  createReviewOrchestrator,
 } from "@open-maintainer/review";
+import type { ReviewOrchestratorDeps } from "@open-maintainer/review";
 import {
   type ArtifactType,
   ArtifactTypeSchema,
@@ -434,69 +436,44 @@ export function buildApp() {
           error instanceof Error ? error.message : "Review generation blocked.",
       });
     }
-    const prepared = await prepareReviewPreviewInput({
-      repoId,
-      repo,
-      repositorySources,
-      ...(body.baseRef ? { baseRef: body.baseRef } : {}),
-      ...(body.headRef ? { headRef: body.headRef } : {}),
-      ...(body.prNumber ? { prNumber: body.prNumber } : {}),
-    }).catch((error) => ({
-      ok: false as const,
-      statusCode: 422 as const,
-      error:
-        error instanceof Error
-          ? error.message
-          : "Unable to prepare PR review preview.",
-    }));
-    if (!prepared.ok) {
-      return reply.code(prepared.statusCode).send({ error: prepared.error });
-    }
-    const { profile, reviewInput } = prepared;
-    const run = store.recordRun({
-      repoId,
-      type: "review",
-      status: "running",
-      inputSummary: `Review ${repo.fullName} ${reviewInput.baseRef}...${reviewInput.headRef}.`,
-      safeMessage: null,
-      artifactVersions: [],
-      repoProfileVersion: profile.version,
-      provider: provider?.displayName ?? null,
-      model: provider?.model ?? null,
-      externalId: null,
-    });
-    try {
-      const promptContext = await reviewPromptContextForRepository({
+    const orchestrator = createReviewOrchestrator(
+      createApiReviewOrchestratorDeps({
         repoId,
-        profile,
-        worktreeRoot: prepared.worktreeRoot,
+        repo,
+        repositorySources,
+        provider,
+      }),
+    );
+    try {
+      const run = await orchestrator.review({
+        repository: { kind: "stored", repoId },
+        target: body.prNumber
+          ? {
+              kind: "pullRequest",
+              number: body.prNumber,
+              ...(body.baseRef ? { baseRef: body.baseRef } : {}),
+              ...(body.headRef ? { headRef: body.headRef } : {}),
+            }
+          : {
+              kind: "diff",
+              ...(body.baseRef ? { baseRef: body.baseRef } : {}),
+              ...(body.headRef ? { headRef: body.headRef } : {}),
+            },
+        model: { providerId: provider.id },
+        intent: "preview",
+        publication: false,
+        persistence: { run: true, review: true },
       });
-      const review = await generateReview({
-        profile,
-        input: reviewInput,
-        rules: profile.reviewRuleCandidates,
-        providerConfig: provider,
-        provider: buildProvider(provider, {
-          ...(prepared.worktreeRoot ? { cwd: prepared.worktreeRoot } : {}),
-        }),
-        ...(Object.keys(promptContext).length > 0 ? { promptContext } : {}),
-      });
-      store.reviews.set(review.id, review);
-      store.updateRun(run.id, {
-        status: "succeeded",
-        safeMessage: `Review preview generated for ${reviewInput.baseRef}...${reviewInput.headRef}.`,
-        externalId: review.id,
-      });
-      return { run: store.runs.get(run.id), review };
+      return { run: run.persistence.run, review: run.review };
     } catch (error) {
       const message =
         error instanceof Error
           ? error.message
           : "Unable to generate review preview.";
-      store.updateRun(run.id, { status: "failed", safeMessage: message });
-      return reply.code(422).send({
+      const statusCode = reviewPreviewStatusCode(error);
+      return reply.code(statusCode).send({
         error: message,
-        run: store.runs.get(run.id),
+        run: error instanceof ReviewOrchestratorError ? error.run : null,
       });
     }
   });
@@ -1146,6 +1123,124 @@ function pullRequestNumber(prUrl: string): number {
   return match ? Number.parseInt(match[1] ?? "0", 10) : 0;
 }
 
+class ReviewPreviewSourceError extends Error {
+  statusCode: 409 | 422;
+
+  constructor(statusCode: 409 | 422, message: string) {
+    super(message);
+    this.name = "ReviewPreviewSourceError";
+    this.statusCode = statusCode;
+  }
+}
+
+function createApiReviewOrchestratorDeps(input: {
+  repoId: string;
+  repo: Repo;
+  repositorySources: RepositorySourceAnalysisRegistry;
+  provider: ModelProviderConfig;
+}): ReviewOrchestratorDeps {
+  return {
+    sources: {
+      async prepareLocal() {
+        throw new Error("API review previews use stored repository sources.");
+      },
+      async prepareStored(request) {
+        const prepared = await prepareReviewPreviewInput({
+          repoId: input.repoId,
+          repo: input.repo,
+          repositorySources: input.repositorySources,
+          ...(request.target?.baseRef
+            ? { baseRef: request.target.baseRef }
+            : {}),
+          ...(request.target?.headRef
+            ? { headRef: request.target.headRef }
+            : {}),
+          ...(request.target?.kind === "pullRequest"
+            ? { prNumber: request.target.number }
+            : {}),
+        }).catch((error) => ({
+          ok: false as const,
+          statusCode: 422 as const,
+          error:
+            error instanceof Error
+              ? error.message
+              : "Unable to prepare PR review preview.",
+        }));
+        if (!prepared.ok) {
+          throw new ReviewPreviewSourceError(
+            prepared.statusCode,
+            prepared.error,
+          );
+        }
+        return {
+          profile: prepared.profile,
+          input: prepared.reviewInput,
+          repoRoot: prepared.worktreeRoot,
+        };
+      },
+    },
+    promptContext: {
+      async load(request) {
+        return reviewPromptContextForRepository({
+          repoId: input.repoId,
+          profile: request.profile,
+          worktreeRoot: request.repoRoot,
+        });
+      },
+    },
+    modelProviders: {
+      resolve(request) {
+        assertProviderConsent(input.provider);
+        return {
+          providerConfig: input.provider,
+          provider: buildProvider(input.provider, {
+            ...(request.repoRoot ? { cwd: request.repoRoot } : {}),
+          }),
+        };
+      },
+    },
+    persistence: {
+      async startRun(request) {
+        return store.recordRun({
+          repoId: input.repoId,
+          type: "review",
+          status: "running",
+          inputSummary: `Review ${input.repo.fullName} ${request.source.input.baseRef}...${request.source.input.headRef}.`,
+          safeMessage: null,
+          artifactVersions: [],
+          repoProfileVersion: request.source.profile.version,
+          provider: input.provider.displayName,
+          model: input.provider.model,
+          externalId: null,
+        });
+      },
+      async succeedRun(request) {
+        return store.updateRun(request.run.id, {
+          status: "succeeded",
+          safeMessage: `Review preview generated for ${request.source.input.baseRef}...${request.source.input.headRef}.`,
+          externalId: request.review.id,
+        });
+      },
+      async failRun(request) {
+        return store.updateRun(request.run.id, {
+          status: "failed",
+          safeMessage:
+            request.error instanceof Error
+              ? request.error.message
+              : "Unable to generate review preview.",
+        });
+      },
+      async storeReview(request) {
+        store.reviews.set(request.review.id, request.review);
+      },
+    },
+  };
+}
+
+function reviewPreviewStatusCode(error: unknown): 409 | 422 {
+  return error instanceof ReviewPreviewSourceError ? error.statusCode : 422;
+}
+
 async function prepareReviewPreviewInput(input: {
   repoId: string;
   repo: Repo;
@@ -1350,24 +1445,52 @@ async function reviewPromptContextForRepository(input: {
   worktreeRoot: string | null;
 }) {
   const artifact = latestArtifactLookup(input.repoId);
-  const readContext = async (repoPath: string, artifactFallback?: string) =>
-    (input.worktreeRoot
-      ? await readOptionalWorktreeFile(input.worktreeRoot, repoPath)
-      : undefined) ??
-    artifact(repoPath) ??
-    (artifactFallback ? artifact(artifactFallback) : undefined);
+  const paths: string[] = [];
+  const readContext = async (repoPath: string, artifactFallback?: string) => {
+    if (input.worktreeRoot) {
+      const content = await readOptionalWorktreeFile(
+        input.worktreeRoot,
+        repoPath,
+      );
+      if (content) {
+        paths.push(repoPath);
+        return content;
+      }
+    }
+    const artifactContent = artifact(repoPath);
+    if (artifactContent) {
+      paths.push(repoPath);
+      return artifactContent;
+    }
+    if (!artifactFallback) {
+      return undefined;
+    }
+    const fallbackContent = artifact(artifactFallback);
+    if (fallbackContent) {
+      paths.push(artifactFallback);
+    }
+    return fallbackContent;
+  };
   const skillPath = (name: string) =>
     `.agents/skills/${input.profile.name}-${name}/SKILL.md`;
-  const generatedContext = [
-    artifact(".open-maintainer/report.md"),
-    artifact("CLAUDE.md"),
-    artifact(".github/copilot-instructions.md"),
-    artifact(".cursor/rules/open-maintainer.md"),
-  ]
-    .filter(Boolean)
+  const generatedContextPaths = [
+    ".open-maintainer/report.md",
+    "CLAUDE.md",
+    ".github/copilot-instructions.md",
+    ".cursor/rules/open-maintainer.md",
+  ];
+  const generatedContext = generatedContextPaths
+    .flatMap((artifactPath) => {
+      const content = artifact(artifactPath);
+      if (!content) {
+        return [];
+      }
+      paths.push(artifactPath);
+      return [content];
+    })
     .join("\n\n---\n\n");
 
-  return {
+  const context = {
     ...optionalContext(
       "openMaintainerConfig",
       await readContext(".open-maintainer.yml"),
@@ -1404,6 +1527,7 @@ async function reviewPromptContextForRepository(input: {
     ),
     ...optionalContext("generatedContext", generatedContext || undefined),
   };
+  return { context, paths };
 }
 
 function latestArtifactLookup(repoId: string) {
