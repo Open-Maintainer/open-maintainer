@@ -212,6 +212,132 @@ describe("repository source analysis registry", () => {
     expect(ensuredExisting.created).toBe(false);
     expect(ensuredExisting.run).toBeUndefined();
     expect(store.listRuns(registered.repo.id)).toHaveLength(runsBeforeEnsure);
+
+    const reusedWorkspace = await registry.prepareAnalysis({
+      repoId: registered.repo.id,
+      profilePolicy: "reuse",
+    });
+    expect(reusedWorkspace.ok).toBe(true);
+    if (!reusedWorkspace.ok) {
+      return;
+    }
+    expect(reusedWorkspace.profileCreated).toBe(false);
+    expect(reusedWorkspace.run).toBeUndefined();
+    expect(reusedWorkspace.files[0]?.path).toBe("package.json");
+
+    const refreshedWorkspace = await registry.prepareAnalysis({
+      repoId: registered.repo.id,
+      profilePolicy: "refresh",
+      createdRunMessage: "Repository profile refreshed for test.",
+    });
+    expect(refreshedWorkspace.ok).toBe(true);
+    if (!refreshedWorkspace.ok) {
+      return;
+    }
+    expect(refreshedWorkspace.profileCreated).toBe(true);
+    expect(refreshedWorkspace.profile.version).toBe(2);
+    expect(refreshedWorkspace.run?.safeMessage).toBe(
+      "Repository profile refreshed for test.",
+    );
+  });
+
+  it("prepares generation, review, and context PR workspaces", async () => {
+    const store = new MemoryStore();
+    const registry = createRepositorySourceAnalysisRegistry({ store });
+    const registered = await registry.registerSource({
+      kind: "uploaded-files",
+      name: "workspace-tool",
+      files: [
+        {
+          path: "package.json",
+          content: JSON.stringify({
+            name: "workspace-tool",
+            scripts: { test: "bun test" },
+          }),
+        },
+      ],
+    });
+    expect(registered.ok).toBe(true);
+    if (!registered.ok) {
+      return;
+    }
+
+    const missingGeneration = await registry.prepareGeneration({
+      repoId: registered.repo.id,
+    });
+    expect(missingGeneration.ok).toBe(false);
+    if (!missingGeneration.ok) {
+      expect(missingGeneration.code).toBe("NO_PROFILE");
+    }
+
+    const analysis = await registry.prepareAnalysis({
+      repoId: registered.repo.id,
+      profilePolicy: "refresh",
+    });
+    expect(analysis.ok).toBe(true);
+    if (!analysis.ok) {
+      return;
+    }
+    const generation = await registry.prepareGeneration({
+      repoId: registered.repo.id,
+    });
+    expect(generation.ok).toBe(true);
+    if (!generation.ok) {
+      return;
+    }
+    expect(generation.profile.version).toBe(analysis.profile.version);
+    expect(generation.files.map((file) => file.path)).toEqual(["package.json"]);
+    expect(generation.worktreeRoot).toBe(registered.worktreeRoot);
+
+    const review = await registry.prepareReview({ repoId: registered.repo.id });
+    expect(review.ok).toBe(true);
+    if (!review.ok) {
+      return;
+    }
+    expect(review.profileCreated).toBe(false);
+    expect(review.worktreeRoot).toBe(registered.worktreeRoot);
+
+    const contextPr = await registry.prepareContextPr({
+      repoId: registered.repo.id,
+      requireWritableWorktree: true,
+    });
+    expect(contextPr.ok).toBe(true);
+    if (!contextPr.ok) {
+      return;
+    }
+    expect(contextPr.worktreeRoot).toBe(registered.worktreeRoot);
+  });
+
+  it("reports a domain error when context PR preparation requires a missing worktree", async () => {
+    const store = new MemoryStore();
+    const repo = remoteRepo("remote_context");
+    store.repos.set(repo.id, repo);
+    store.repoFiles.set(repo.id, [
+      {
+        path: "package.json",
+        content: JSON.stringify({ scripts: { test: "bun test" } }),
+      },
+    ]);
+    const registry = createRepositorySourceAnalysisRegistry({ store });
+
+    const analysis = await registry.prepareAnalysis({
+      repoId: repo.id,
+      profilePolicy: "refresh",
+    });
+    expect(analysis.ok).toBe(true);
+    if (!analysis.ok) {
+      return;
+    }
+
+    const contextPr = await registry.prepareContextPr({
+      repoId: repo.id,
+      requireWritableWorktree: true,
+    });
+    expect(contextPr.ok).toBe(false);
+    if (!contextPr.ok) {
+      expect(contextPr.statusCode).toBe(409);
+      expect(contextPr.code).toBe("WORKTREE_UNAVAILABLE");
+    }
   });
 
   it("returns domain errors for unknown and unavailable repositories", async () => {

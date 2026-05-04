@@ -37,7 +37,12 @@ export type RegisterRepositorySourceInput =
 
 export type RepositorySourceAnalysisError = {
   statusCode: 404 | 409 | 422;
-  code: "UNKNOWN_REPO" | "NO_READABLE_FILES" | "REPOSITORY_FILES_UNAVAILABLE";
+  code:
+    | "UNKNOWN_REPO"
+    | "NO_PROFILE"
+    | "NO_READABLE_FILES"
+    | "REPOSITORY_FILES_UNAVAILABLE"
+    | "WORKTREE_UNAVAILABLE";
   message: string;
   run?: RunRecord;
 };
@@ -46,7 +51,22 @@ export type RepositorySourceAnalysisResult<T> =
   | ({ ok: true } & T)
   | ({ ok: false } & RepositorySourceAnalysisError);
 
-export interface RepositorySourceAnalysisRegistry {
+export type RepositoryAnalysisWorkspace = {
+  repo: Repo;
+  files: RepositoryFile[];
+  profile: RepoProfile;
+  profileCreated: boolean;
+  run?: RunRecord;
+  worktreeRoot: string | null;
+};
+
+export type RepositoryGenerationWorkspace = RepositoryAnalysisWorkspace;
+
+export type RepositoryReviewWorkspace = RepositoryAnalysisWorkspace;
+
+export type RepositoryContextPrWorkspace = RepositoryAnalysisWorkspace;
+
+export interface RepositoryOperations {
   registerSource(input: RegisterRepositorySourceInput): Promise<
     RepositorySourceAnalysisResult<{
       repo: Repo;
@@ -59,6 +79,32 @@ export interface RepositorySourceAnalysisRegistry {
     }>
   >;
 
+  prepareAnalysis(input: {
+    repoId: string;
+    ref?: string;
+    profilePolicy: "reuse" | "refresh";
+    createdRunMessage?: string;
+  }): Promise<RepositorySourceAnalysisResult<RepositoryAnalysisWorkspace>>;
+
+  prepareGeneration(input: {
+    repoId: string;
+  }): Promise<RepositorySourceAnalysisResult<RepositoryGenerationWorkspace>>;
+
+  prepareReview(input: {
+    repoId: string;
+    ref?: string;
+    baseRef?: string;
+    headRef?: string;
+    prNumber?: number;
+  }): Promise<RepositorySourceAnalysisResult<RepositoryReviewWorkspace>>;
+
+  prepareContextPr(input: {
+    repoId: string;
+    requireWritableWorktree?: boolean;
+  }): Promise<RepositorySourceAnalysisResult<RepositoryContextPrWorkspace>>;
+}
+
+export interface RepositorySourceAnalysisRegistry extends RepositoryOperations {
   analyzeRepository(input: {
     repoId: string;
     ref?: string;
@@ -102,7 +148,7 @@ type RegistryOptions = {
 const execFileAsync = promisify(execFile);
 const maxRepositoryFiles = 800;
 
-export function createRepositorySourceAnalysisRegistry(
+export function createRepositoryOperations(
   options: RegistryOptions,
 ): RepositorySourceAnalysisRegistry {
   const fetchRepositoryFiles =
@@ -186,50 +232,20 @@ export function createRepositorySourceAnalysisRegistry(
   }
 
   async function analyzeRepository(input: { repoId: string; ref?: string }) {
-    const repo = options.store.repos.get(input.repoId);
-    if (!repo) {
-      return unknownRepo();
-    }
-
-    const run = options.store.recordRun({
-      repoId: input.repoId,
-      type: "analysis",
-      status: "running",
-      inputSummary: `Analyze ${repo.fullName}`,
-      safeMessage: null,
-      artifactVersions: [],
-      repoProfileVersion: null,
-      provider: null,
-      model: null,
-      externalId: null,
-    });
-    const filesResult = await repositoryFilesForAnalysis({
-      repo,
+    const result = await prepareAnalysis({
       repoId: input.repoId,
       ...(input.ref ? { ref: input.ref } : {}),
+      profilePolicy: "refresh",
     });
-    if (!filesResult.ok) {
-      const failedRun = options.store.updateRun(run.id, {
-        status: "failed",
-        safeMessage: filesResult.message,
-      });
-      return {
-        ...filesResult,
-        run: failedRun,
-      };
+    if (!result.ok) {
+      return result;
     }
-
-    const profile = createProfile({
-      repo,
-      repoId: input.repoId,
-      files: filesResult.files,
-    });
-    const updatedRun = options.store.updateRun(run.id, {
-      status: "succeeded",
-      repoProfileVersion: profile.version,
-      safeMessage: "Repository profile generated.",
-    });
-    return { ok: true as const, repo, run: updatedRun, profile };
+    return {
+      ok: true as const,
+      repo: result.repo,
+      run: result.run as RunRecord,
+      profile: result.profile,
+    };
   }
 
   async function ensureProfile(input: {
@@ -237,43 +253,169 @@ export function createRepositorySourceAnalysisRegistry(
     ref?: string;
     createdRunMessage?: string;
   }) {
+    const result = await prepareAnalysis({
+      repoId: input.repoId,
+      ...(input.ref ? { ref: input.ref } : {}),
+      profilePolicy: "reuse",
+      ...(input.createdRunMessage
+        ? { createdRunMessage: input.createdRunMessage }
+        : {}),
+    });
+    if (!result.ok) {
+      return result;
+    }
+    return {
+      ok: true as const,
+      repo: result.repo,
+      profile: result.profile,
+      created: result.profileCreated,
+      ...(result.run ? { run: result.run } : {}),
+    };
+  }
+
+  async function prepareAnalysis(input: {
+    repoId: string;
+    ref?: string;
+    profilePolicy: "reuse" | "refresh";
+    createdRunMessage?: string;
+  }): Promise<RepositorySourceAnalysisResult<RepositoryAnalysisWorkspace>> {
     const repo = options.store.repos.get(input.repoId);
     if (!repo) {
       return unknownRepo();
     }
-    const existing = options.store.latestProfile(input.repoId);
-    if (existing) {
-      return { ok: true as const, repo, profile: existing, created: false };
-    }
 
+    const existingProfile = options.store.latestProfile(input.repoId);
+    const shouldCreateProfile =
+      input.profilePolicy === "refresh" || !existingProfile;
+    const run = shouldCreateProfile
+      ? options.store.recordRun({
+          repoId: input.repoId,
+          type: "analysis",
+          status: "running",
+          inputSummary: `Analyze ${repo.fullName}`,
+          safeMessage: null,
+          artifactVersions: [],
+          repoProfileVersion: null,
+          provider: null,
+          model: null,
+          externalId: null,
+        })
+      : undefined;
     const filesResult = await repositoryFilesForAnalysis({
       repo,
       repoId: input.repoId,
       ...(input.ref ? { ref: input.ref } : {}),
     });
     if (!filesResult.ok) {
-      return filesResult;
+      const failedRun = run
+        ? options.store.updateRun(run.id, {
+            status: "failed",
+            safeMessage: filesResult.message,
+          })
+        : undefined;
+      return {
+        ...filesResult,
+        ...(failedRun ? { run: failedRun } : {}),
+      };
     }
-    const profile = createProfile({
+
+    const profile = shouldCreateProfile
+      ? createProfile({
+          repo,
+          repoId: input.repoId,
+          files: filesResult.files,
+        })
+      : existingProfile;
+    const updatedRun = run
+      ? options.store.updateRun(run.id, {
+          status: "succeeded",
+          repoProfileVersion: profile.version,
+          safeMessage:
+            input.createdRunMessage ?? "Repository profile generated.",
+        })
+      : undefined;
+    return {
+      ok: true as const,
+      repo,
+      files: filesResult.files,
+      profile,
+      profileCreated: shouldCreateProfile,
+      ...(updatedRun ? { run: updatedRun } : {}),
+      worktreeRoot: options.store.repoWorktrees.get(input.repoId) ?? null,
+    };
+  }
+
+  async function prepareGeneration(input: {
+    repoId: string;
+  }): Promise<RepositorySourceAnalysisResult<RepositoryGenerationWorkspace>> {
+    return existingProfileWorkspace({
+      repoId: input.repoId,
+      missingProfileMessage:
+        "Generate a repo profile before context artifacts.",
+    });
+  }
+
+  async function prepareReview(input: {
+    repoId: string;
+    ref?: string;
+    baseRef?: string;
+    headRef?: string;
+    prNumber?: number;
+  }): Promise<RepositorySourceAnalysisResult<RepositoryReviewWorkspace>> {
+    return prepareAnalysis({
+      repoId: input.repoId,
+      ...((input.ref ?? input.baseRef)
+        ? { ref: input.ref ?? input.baseRef }
+        : {}),
+      profilePolicy: "reuse",
+      createdRunMessage: "Repository profile generated for PR review preview.",
+    });
+  }
+
+  async function prepareContextPr(input: {
+    repoId: string;
+    requireWritableWorktree?: boolean;
+  }): Promise<RepositorySourceAnalysisResult<RepositoryContextPrWorkspace>> {
+    const workspace = await existingProfileWorkspace({
+      repoId: input.repoId,
+      missingProfileMessage: "No repo profile available.",
+    });
+    if (!workspace.ok) {
+      return workspace;
+    }
+    if (input.requireWritableWorktree && !workspace.worktreeRoot) {
+      return worktreeUnavailable();
+    }
+    return workspace;
+  }
+
+  async function existingProfileWorkspace(input: {
+    repoId: string;
+    missingProfileMessage: string;
+  }): Promise<RepositorySourceAnalysisResult<RepositoryAnalysisWorkspace>> {
+    const repo = options.store.repos.get(input.repoId);
+    if (!repo) {
+      return unknownRepo();
+    }
+    const profile = options.store.latestProfile(input.repoId);
+    if (!profile) {
+      return noProfile(input.missingProfileMessage);
+    }
+    const filesResult = await repositoryFilesForAnalysis({
       repo,
       repoId: input.repoId,
+    });
+    if (!filesResult.ok) {
+      return filesResult;
+    }
+    return {
+      ok: true as const,
+      repo,
       files: filesResult.files,
-    });
-    const run = options.store.recordRun({
-      repoId: input.repoId,
-      type: "analysis",
-      status: "succeeded",
-      inputSummary: `Analyze ${repo.fullName}`,
-      safeMessage:
-        input.createdRunMessage ??
-        "Repository profile generated for PR review preview.",
-      artifactVersions: [],
-      repoProfileVersion: profile.version,
-      provider: null,
-      model: null,
-      externalId: null,
-    });
-    return { ok: true as const, repo, profile, created: true, run };
+      profile,
+      profileCreated: false,
+      worktreeRoot: options.store.repoWorktrees.get(input.repoId) ?? null,
+    };
   }
 
   async function repositoryFilesForAnalysis(input: {
@@ -355,10 +497,17 @@ export function createRepositorySourceAnalysisRegistry(
 
   return {
     registerSource,
+    prepareAnalysis,
+    prepareGeneration,
+    prepareReview,
+    prepareContextPr,
     analyzeRepository,
     ensureProfile,
   };
 }
+
+export const createRepositorySourceAnalysisRegistry =
+  createRepositoryOperations;
 
 async function defaultRepositoryFilesFetcher(input: {
   owner: string;
@@ -384,6 +533,15 @@ function unknownRepo(): RepositorySourceAnalysisResult<never> {
   };
 }
 
+function noProfile(message: string): RepositorySourceAnalysisResult<never> {
+  return {
+    ok: false,
+    statusCode: 409,
+    code: "NO_PROFILE",
+    message,
+  };
+}
+
 function noReadableFiles(
   message: string,
 ): RepositorySourceAnalysisResult<never> {
@@ -392,6 +550,16 @@ function noReadableFiles(
     statusCode: 422,
     code: "NO_READABLE_FILES",
     message,
+  };
+}
+
+function worktreeUnavailable(): RepositorySourceAnalysisResult<never> {
+  return {
+    ok: false,
+    statusCode: 409,
+    code: "WORKTREE_UNAVAILABLE",
+    message:
+      "A writable local repository worktree is required for this operation.",
   };
 }
 

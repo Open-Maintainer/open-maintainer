@@ -43,7 +43,7 @@ import Fastify from "fastify";
 import { z } from "zod";
 import {
   type RepositorySourceAnalysisRegistry,
-  createRepositorySourceAnalysisRegistry,
+  createRepositoryOperations,
 } from "./repository-source-analysis";
 
 const execFileAsync = promisify(execFile);
@@ -58,7 +58,7 @@ const UploadedRepositoryFileSchema = z.object({
 
 export function buildApp() {
   const app = Fastify({ logger: false });
-  const repositorySources = createRepositorySourceAnalysisRegistry({
+  const repositorySources = createRepositoryOperations({
     store,
     getInstallationAuth: githubAuthForInstallation,
   });
@@ -277,12 +277,13 @@ export function buildApp() {
         async: z.boolean().optional(),
       })
       .parse(request.body ?? {});
-    const profile = store.latestProfile(repoId);
-    if (!profile) {
+    const workspace = await repositorySources.prepareGeneration({ repoId });
+    if (!workspace.ok) {
       return reply
-        .code(409)
-        .send({ error: "Generate a repo profile before context artifacts." });
+        .code(workspace.statusCode)
+        .send({ error: workspace.message });
     }
+    const { profile } = workspace;
     const provider = body.providerId
       ? (store.providers.get(body.providerId) ?? null)
       : ([...store.providers.values()][0] ?? null);
@@ -361,6 +362,8 @@ export function buildApp() {
       void generateContextArtifactsForRun({
         repoId,
         profile,
+        files: workspace.files,
+        worktreeRoot: workspace.worktreeRoot,
         provider,
         runId: run.id,
         context: body.context,
@@ -376,6 +379,8 @@ export function buildApp() {
       const artifacts = await generateContextArtifactsForRun({
         repoId,
         profile,
+        files: workspace.files,
+        worktreeRoot: workspace.worktreeRoot,
         provider,
         runId: run.id,
         context: body.context,
@@ -569,19 +574,17 @@ export function buildApp() {
         const { repoId } = z
           .object({ repoId: z.string() })
           .parse(request.params);
-        const profile = store.latestProfile(repoId);
-        if (!profile) {
-          return reply.code(409).send({ error: "No repo profile available." });
+        const workspace = await repositorySources.prepareContextPr({ repoId });
+        if (!workspace.ok) {
+          return reply
+            .code(workspace.statusCode)
+            .send({ error: workspace.message });
         }
-        const repo = store.repos.get(repoId);
-        if (!repo) {
-          return reply.code(404).send({ error: "Unknown repo." });
-        }
-        const localWorktreeRoot = store.repoWorktrees.get(repoId);
+        const { profile, repo } = workspace;
         const artifacts = await artifactsForContextPr({
           repoId,
           profile,
-          worktreeRoot: localWorktreeRoot,
+          worktreeRoot: workspace.worktreeRoot,
         });
         if (artifacts.length < 2) {
           return reply.code(409).send({
@@ -601,12 +604,12 @@ export function buildApp() {
           model: artifacts[0]?.model ?? null,
           externalId: null,
         });
-        if (localWorktreeRoot) {
+        if (workspace.worktreeRoot) {
           try {
-            await requireLocalGhPrReady(localWorktreeRoot);
+            await requireLocalGhPrReady(workspace.worktreeRoot);
             const contextPr = await createLocalContextPrWithGh({
               repoId,
-              worktreeRoot: localWorktreeRoot,
+              worktreeRoot: workspace.worktreeRoot,
               defaultBranch: repo.defaultBranch,
               profileVersion: profile.version,
               artifacts,
@@ -709,15 +712,16 @@ export function buildApp() {
 async function generateContextArtifactsForRun(input: {
   repoId: string;
   profile: RepoProfile;
+  files: Array<{ path: string; content: string }>;
+  worktreeRoot: string | null;
   provider: ModelProviderConfig;
   runId: string;
   context: "codex" | "claude" | "both" | undefined;
   skills: "codex" | "claude" | "both" | undefined;
 }): Promise<GeneratedArtifact[]> {
-  const repoFiles = store.repoFiles.get(input.repoId) ?? [];
   try {
     const modelProvider = buildProvider(input.provider, {
-      cwd: store.repoWorktrees.get(input.repoId) ?? process.cwd(),
+      cwd: input.worktreeRoot ?? process.cwd(),
     });
     const orchestrator = createContextGenerationOrchestrator({
       events: {
@@ -735,7 +739,7 @@ async function generateContextArtifactsForRun(input: {
     const result = await orchestrator.generateFromProfile({
       repoId: input.repoId,
       profile: input.profile,
-      files: repoFiles,
+      files: input.files,
       model: {
         providerLabel: input.provider.displayName,
         model: input.provider.model,
@@ -780,7 +784,7 @@ async function generateContextArtifactsForRun(input: {
 async function artifactsForContextPr(input: {
   repoId: string;
   profile: RepoProfile;
-  worktreeRoot: string | undefined;
+  worktreeRoot: string | null;
 }): Promise<GeneratedArtifact[]> {
   const storedArtifacts = store.artifacts.get(input.repoId) ?? [];
   if (storedArtifacts.length >= 2) {
@@ -1168,29 +1172,37 @@ async function prepareReviewPreviewInput(input: {
           error: `No changed files were detected for PR #${input.prNumber}. Check the pull request before creating a review preview.`,
         };
       }
-      const profileResult = await latestOrCreateProfile({
+      const workspace = await input.repositorySources.prepareReview({
         repoId: input.repoId,
-        repositorySources: input.repositorySources,
         ref: githubReviewInput.baseRef,
       });
-      if (!profileResult.ok) {
+      if (!workspace.ok) {
         return {
           ok: false,
-          statusCode:
-            profileResult.statusCode === 404 ? 409 : profileResult.statusCode,
-          error: profileResult.message,
+          statusCode: workspace.statusCode === 404 ? 409 : workspace.statusCode,
+          error: workspace.message,
         };
       }
       return {
         ok: true,
-        profile: profileResult.profile,
+        profile: workspace.profile,
         reviewInput: githubReviewInput,
-        worktreeRoot: null,
+        worktreeRoot: workspace.worktreeRoot,
       };
     }
   }
 
-  const worktreeRoot = store.repoWorktrees.get(input.repoId);
+  const workspace = await input.repositorySources.prepareReview({
+    repoId: input.repoId,
+  });
+  if (!workspace.ok) {
+    return {
+      ok: false,
+      statusCode: workspace.statusCode === 404 ? 409 : workspace.statusCode,
+      error: workspace.message,
+    };
+  }
+  const worktreeRoot = workspace.worktreeRoot;
   if (!worktreeRoot) {
     return {
       ok: false,
@@ -1227,18 +1239,6 @@ async function prepareReviewPreviewInput(input: {
   const baseRef =
     input.baseRef ?? localPullRequest?.baseRef ?? input.repo.defaultBranch;
   const headRef = input.headRef ?? "HEAD";
-  const profileResult = await latestOrCreateProfile({
-    repoId: input.repoId,
-    repositorySources: input.repositorySources,
-  });
-  if (!profileResult.ok) {
-    return {
-      ok: false,
-      statusCode:
-        profileResult.statusCode === 404 ? 409 : profileResult.statusCode,
-      error: profileResult.message,
-    };
-  }
   const localReviewInput = await assembleLocalReviewInput({
     repoRoot: worktreeRoot,
     repoId: input.repoId,
@@ -1255,7 +1255,7 @@ async function prepareReviewPreviewInput(input: {
 
   return {
     ok: true,
-    profile: profileResult.profile,
+    profile: workspace.profile,
     reviewInput: {
       ...localReviewInput,
       owner: input.repo.owner,
@@ -1294,18 +1294,6 @@ async function githubReviewInputForPullRequest(input: {
     repo: input.repo.name,
     pullNumber: input.prNumber,
     auth,
-  });
-}
-
-async function latestOrCreateProfile(input: {
-  repoId: string;
-  repositorySources: RepositorySourceAnalysisRegistry;
-  ref?: string;
-}) {
-  return input.repositorySources.ensureProfile({
-    repoId: input.repoId,
-    ...(input.ref ? { ref: input.ref } : {}),
-    createdRunMessage: "Repository profile generated for PR review preview.",
   });
 }
 
