@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_e6dd52ba-ad5f-4cf7-8b36-db96a54ece2a",
+  "id": "repo_profile_04a7e8fd-edf8-455a-83b2-2c0124384e13",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -1017,7 +1017,7 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "c3f96b7a359da7ff"
+      "hash": "59e579222a1217c9"
     },
     {
       "path": ".open-maintainer/report.md",
@@ -1145,7 +1145,7 @@
     },
     {
       "path": "packages/context/tests/render.test.ts",
-      "hash": "25b437b4aa9c3227"
+      "hash": "ede0177002f9f6f1"
     },
     {
       "path": "packages/context/tsconfig.json",
@@ -1429,7 +1429,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-04T00:07:40.845Z",
+  "createdAt": "2026-05-04T00:44:33.544Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2639,7 +2639,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-04T00:07:40.846Z"
+    "generatedAt": "2026-05-04T00:44:33.544Z"
   },
-  "openMaintainerProfileHash": "7649af5373b596fd"
+  "openMaintainerProfileHash": "9d44896638a71fcc"
 }
