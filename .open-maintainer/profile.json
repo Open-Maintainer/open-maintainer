@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_6fa86e6f-7c5b-4ca2-9c90-806e6c61ee98",
+  "id": "repo_profile_451c7595-66bd-4435-8351-b8a2ef9c1cb1",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -387,6 +387,7 @@
     "tests/fixtures/with-context/package.json",
     "tests/helpers/cli.ts",
     "tests/helpers/fake-model-cli.ts",
+    "tests/issue-triage-use-cases.test.ts",
     "tests/mvp-golden.test.ts",
     "tests/smoke/compose-smoke.ts",
     "tests/smoke/local-health.ts",
@@ -910,6 +911,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "tests/issue-triage-use-cases.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "tests/mvp-golden.test.ts",
       "reason": "detected repository context"
     },
@@ -1034,11 +1039,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "d60e49135f42d405"
+      "hash": "27cf22a1ae17c137"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "25458f03d355464a"
+      "hash": "99fa69e700edc23d"
     },
     {
       "path": "AGENTS.md",
@@ -1429,6 +1434,10 @@
       "hash": "aa19aecdaa260578"
     },
     {
+      "path": "tests/issue-triage-use-cases.test.ts",
+      "hash": "ff23a5a9683f3c59"
+    },
+    {
       "path": "tests/mvp-golden.test.ts",
       "hash": "4f86c4e2949b861d"
     },
@@ -1462,7 +1471,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-04T05:24:40.782Z",
+  "createdAt": "2026-05-04T07:39:55.815Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2009,6 +2018,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "tests/issue-triage-use-cases.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/mvp-golden.test.ts",
             "reason": "detected repository context"
           },
@@ -2342,6 +2355,10 @@
           },
           {
             "path": "tests/helpers/fake-model-cli.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/issue-triage-use-cases.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2696,7 +2713,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-04T05:24:40.783Z"
+    "generatedAt": "2026-05-04T07:39:55.815Z"
   },
-  "openMaintainerProfileHash": "4a8f329c83c0bcf7"
+  "openMaintainerProfileHash": "1da42333aa3692b4"
 }
