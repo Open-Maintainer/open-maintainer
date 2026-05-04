@@ -19,7 +19,7 @@ import {
 } from "@open-maintainer/github";
 import {
   assembleLocalReviewInput,
-  createReviewOrchestrator,
+  createReviewWorkflow,
   reviewTriageLabelDefinitions,
   reviewTriageLabelNames,
 } from "@open-maintainer/review";
@@ -27,15 +27,16 @@ import type {
   PullRequestReviewRun,
   ReviewInlineCommentPlan,
   ReviewInlineCommentResult,
-  ReviewOrchestratorDeps,
+  ReviewOutputShortcut,
   ReviewPromptContext,
   ReviewPublicationInput,
   ReviewPublicationPlan,
   ReviewPublicationResult,
-  ReviewPublishOptions,
+  ReviewPublicationShortcut,
   ReviewSummaryCommentResult,
   ReviewTriageLabelPlan,
   ReviewTriageLabelResult,
+  ReviewWorkflowDeps,
 } from "@open-maintainer/review";
 import type {
   ModelProviderConfig,
@@ -150,11 +151,9 @@ export type ReviewModelProviderPort = {
     | { providerConfig: ModelProviderConfig; provider: ModelProvider };
 };
 
-export type ReviewPublisherPort = NonNullable<
-  ReviewOrchestratorDeps["publisher"]
->;
+export type ReviewPublisherPort = NonNullable<ReviewWorkflowDeps["publisher"]>;
 
-export type ReviewOutputPort = NonNullable<ReviewOrchestratorDeps["output"]>;
+export type ReviewOutputPort = NonNullable<ReviewWorkflowDeps["output"]>;
 
 export type ReviewOperationPorts = {
   workspace: RepositoryWorkspacePort;
@@ -172,33 +171,38 @@ export function createReviewOperationRuntime(
     async review(input) {
       const resolvedPorts =
         ports ?? createProductionReviewOperationPorts(input.repoRoot);
-      const orchestrator = createReviewOrchestrator(
-        createCliReviewOrchestratorDeps(input.repoRoot, input, resolvedPorts),
+      const workflow = createReviewWorkflow(
+        createCliReviewWorkflowDeps(resolvedPorts),
       );
-      const run = await orchestrator.review({
-        repository: { kind: "local", repoRoot: input.repoRoot },
+      const output = reviewOutputShortcut(input.output);
+      const run = await workflow.reviewLocal({
+        repoRoot: input.repoRoot,
         target:
           input.target.kind === "pullRequest"
-            ? { kind: "pullRequest", number: input.target.number }
+            ? { pr: input.target.number }
             : {
-                kind: "diff",
-                ...(input.target.baseRef
-                  ? { baseRef: input.target.baseRef }
-                  : {}),
-                ...(input.target.headRef
-                  ? { headRef: input.target.headRef }
-                  : {}),
+                diff: {
+                  ...(input.target.baseRef
+                    ? { baseRef: input.target.baseRef }
+                    : {}),
+                  ...(input.target.headRef
+                    ? { headRef: input.target.headRef }
+                    : {}),
+                  ...(input.target.prNumber !== undefined
+                    ? { prNumber: input.target.prNumber }
+                    : {}),
+                },
               },
         model: {
           provider: input.model.provider,
           ...(input.model.model ? { model: input.model.model } : {}),
           consent: input.model.consent,
         },
-        intent: input.intent,
+        mode: input.intent,
         ...(input.publication !== undefined
-          ? { publication: reviewPublicationIntent(input.publication) }
+          ? { publish: reviewPublicationShortcut(input.publication) }
           : {}),
-        ...(input.output ? { output: input.output } : {}),
+        ...(output ? { output } : {}),
       });
       return {
         review: run.review,
@@ -269,81 +273,33 @@ export function createProductionReviewOperationPorts(
   };
 }
 
-function createCliReviewOrchestratorDeps(
-  repoRoot: string,
-  request: ReviewOperationRequest,
+function createCliReviewWorkflowDeps(
   ports: ReviewOperationPorts,
-): ReviewOrchestratorDeps {
+): ReviewWorkflowDeps {
   return {
-    sources: {
-      async prepareLocal(input) {
-        const profile = await ports.workspace.prepareProfile({
-          repoRoot: input.repoRoot,
-        });
-        if (input.target?.kind === "pullRequest") {
-          const reviewInput = await ports.source.fetchPullRequest({
-            repoRoot: input.repoRoot,
-            profile,
-            prNumber: input.target.number,
-            ...(input.limits ? { limits: input.limits } : {}),
-          });
-          return { profile, input: reviewInput, repoRoot: input.repoRoot };
-        }
-        const baseRef =
-          input.target?.kind === "diff" && input.target.baseRef
-            ? input.target.baseRef
-            : ((await ports.workspace.detectDefaultBranch({
-                repoRoot: input.repoRoot,
-              })) ??
-              profile.defaultBranch ??
-              "main");
-        const headRef =
-          input.target?.kind === "diff" && input.target.headRef
-            ? input.target.headRef
-            : "HEAD";
-        const localInput = await ports.source
-          .assembleDiff({
-            repoRoot: input.repoRoot,
-            profile,
-            baseRef,
-            headRef,
-            ...(input.limits ? input.limits : {}),
-          })
-          .catch((error) => {
-            const message =
-              error instanceof Error ? error.message : String(error);
-            throw new Error(
-              `Unable to assemble review diff for ${baseRef}...${headRef}. Verify --base-ref and --head-ref. ${message}`,
-            );
-          });
-        return {
-          profile,
-          input: {
-            ...localInput,
-            prNumber:
-              request.target.kind === "diff"
-                ? (request.target.prNumber ?? null)
-                : localInput.prNumber,
-            owner: profile.owner,
-            repo: profile.name,
-            isDraft: null,
-            mergeable: null,
-            mergeStateStatus: null,
-            reviewDecision: null,
-          },
-          repoRoot: input.repoRoot,
-        };
+    local: {
+      prepareProfile(input) {
+        return ports.workspace.prepareProfile(input);
+      },
+      detectDefaultBranch(input) {
+        return ports.workspace.detectDefaultBranch(input);
+      },
+      assembleDiff(input) {
+        return ports.source.assembleDiff(input);
+      },
+      fetchPullRequest(input) {
+        return ports.source.fetchPullRequest(input);
       },
     },
     promptContext: {
-      async load(input) {
-        if (!input.repoRoot) {
+      async resolve(input) {
+        if (!input.source.repoRoot) {
           return { context: {}, paths: [] };
         }
         return ports.promptContext.load({
-          repoRoot: input.repoRoot,
-          profile: input.profile,
-          reviewInput: input.reviewInput,
+          repoRoot: input.source.repoRoot,
+          profile: input.source.profile,
+          reviewInput: input.source.input,
         });
       },
     },
@@ -354,15 +310,15 @@ function createCliReviewOrchestratorDeps(
             "CLI review operation requires a CLI model selection.",
           );
         }
-        if (!input.repoRoot) {
+        if (!input.source.repoRoot) {
           throw new Error(
             "CLI review operation requires a local repository root.",
           );
         }
         return ports.modelProvider.resolve({
-          repoRoot: input.repoRoot ?? repoRoot,
-          profile: input.profile,
-          reviewInput: input.reviewInput,
+          repoRoot: input.source.repoRoot,
+          profile: input.source.profile,
+          reviewInput: input.source.input,
           model: input.model,
         });
       },
@@ -372,30 +328,32 @@ function createCliReviewOrchestratorDeps(
   };
 }
 
-function reviewPublicationIntent(
+function reviewPublicationShortcut(
   publication: Exclude<ReviewOperationRequest["publication"], undefined>,
-):
-  | false
-  | {
-      mode: "plan" | "publish";
-      options: ReviewPublishOptions;
-    } {
+): false | ReviewPublicationShortcut {
   if (publication === false) {
     return publication;
   }
   return {
     mode: publication.mode,
-    options: {
-      ...(publication.summary !== undefined
-        ? { summary: publication.summary }
-        : {}),
-      ...(publication.inline !== undefined
-        ? { inline: publication.inline }
-        : {}),
-      ...(publication.triageLabel !== undefined
-        ? { triageLabel: publication.triageLabel }
-        : {}),
-    },
+    ...(publication.summary !== undefined
+      ? { summary: publication.summary }
+      : {}),
+    ...(publication.inline !== undefined ? { inline: publication.inline } : {}),
+    ...(publication.triageLabel !== undefined
+      ? { triageLabel: publication.triageLabel }
+      : {}),
+  };
+}
+
+function reviewOutputShortcut(
+  output: ReviewOperationRequest["output"] | undefined,
+): ReviewOutputShortcut | undefined {
+  if (!output?.markdownPath) {
+    return undefined;
+  }
+  return {
+    markdownPath: output.markdownPath,
   };
 }
 
@@ -612,7 +570,7 @@ async function loadReviewPromptContext(input: {
 
 function createGhReviewPublisher(
   repoRoot: string,
-): NonNullable<ReviewOrchestratorDeps["publisher"]> {
+): NonNullable<ReviewWorkflowDeps["publisher"]> {
   return {
     async plan(input) {
       return planGhReviewPublication(repoRoot, input);
