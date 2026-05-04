@@ -1,13 +1,9 @@
 import { type NextRequest, NextResponse } from "next/server";
-
-const serverApiBaseUrl =
-  process.env.API_BASE_URL ??
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "http://localhost:4000";
+import { dashboardApi } from "../../dashboard-api";
 
 export async function POST(request: NextRequest) {
   const body = (await request.json()) as unknown;
-  const response = await fetch(`${serverApiBaseUrl}/repos/local-files`, {
+  const response = await fetch(dashboardApi.url("/repos/local-files"), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),

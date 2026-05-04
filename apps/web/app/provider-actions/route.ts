@@ -1,10 +1,6 @@
 import type { NextRequest } from "next/server";
+import { dashboardApi } from "../dashboard-api";
 import { redirectToDashboard } from "../redirect";
-
-const serverApiBaseUrl =
-  process.env.API_BASE_URL ??
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "http://localhost:4000";
 
 const providerPresets = {
   codex: {
@@ -55,9 +51,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const existingResponse = await fetch(`${serverApiBaseUrl}/model-providers`);
-    if (existingResponse.ok) {
-      const existing = (await existingResponse.json()) as ProviderListResponse;
+    const existing =
+      await dashboardApi.fetchJson<ProviderListResponse>("/model-providers");
+    if (existing) {
       const matchingProvider = existing.providers?.find(
         (provider) =>
           provider.kind === preset.kind &&
@@ -72,30 +68,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const response = await fetch(`${serverApiBaseUrl}/model-providers`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        ...preset,
-        baseUrl: "http://localhost",
-        model: targetModel,
-        apiKey: "local-cli",
-        repoContentConsent,
-      }),
+    const response = await dashboardApi.postJson<{
+      provider?: { id?: unknown };
+    }>("/model-providers", {
+      ...preset,
+      baseUrl: "http://localhost",
+      model: targetModel,
+      apiKey: "local-cli",
+      repoContentConsent,
     });
     if (!response.ok) {
-      const payload = (await response.json().catch(() => ({}))) as {
-        error?: unknown;
-      };
-      const detail = typeof payload.error === "string" ? payload.error : "";
       return redirectToDashboard(request, {
         ...params,
-        providerError: detail
-          ? `${response.status}:${detail}`
-          : String(response.status),
+        providerError: response.actionError,
       });
     }
-    const payload = (await response.json()) as { provider?: { id?: unknown } };
+    const payload = response.payload;
     if (typeof payload.provider?.id === "string") {
       params.providerId = payload.provider.id;
     }

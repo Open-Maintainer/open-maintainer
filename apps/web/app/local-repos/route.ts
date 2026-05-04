@@ -1,10 +1,6 @@
 import type { NextRequest } from "next/server";
+import { dashboardApi } from "../dashboard-api";
 import { redirectToDashboard } from "../redirect";
-
-const serverApiBaseUrl =
-  process.env.API_BASE_URL ??
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "http://localhost:4000";
 
 export async function POST(request: NextRequest) {
   const form = await request.formData();
@@ -13,18 +9,19 @@ export async function POST(request: NextRequest) {
     return redirectToDashboard(request, { localRepoError: "missing-path" });
   }
 
-  const response = await fetch(`${serverApiBaseUrl}/repos/local`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ repoRoot }),
-  });
+  const response = await dashboardApi.postJson<{ repo?: { id?: unknown } }>(
+    "/repos/local",
+    { repoRoot },
+  );
   if (!response.ok) {
+    const localRepoError =
+      response.status === null ? response.actionError : String(response.status);
     return redirectToDashboard(request, {
-      localRepoError: String(response.status),
+      localRepoError,
     });
   }
 
-  const payload = (await response.json()) as { repo?: { id?: unknown } };
+  const payload = response.payload;
   const repoId = typeof payload.repo?.id === "string" ? payload.repo.id : null;
   return redirectToDashboard(request, repoId ? { repo: repoId } : {});
 }

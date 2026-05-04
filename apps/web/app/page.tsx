@@ -8,6 +8,7 @@ import type {
   RunRecord,
 } from "@open-maintainer/shared";
 import { LocalRepoPicker } from "./LocalRepoPicker";
+import { dashboardApi } from "./dashboard-api";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -41,30 +42,6 @@ type RunWithContext = RunRecord & {
   prUrl?: unknown;
 };
 
-const serverApiBaseUrl =
-  process.env.API_BASE_URL ??
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "http://localhost:4000";
-
-async function fetchJson<T>(
-  path: string,
-  init?: RequestInit,
-): Promise<T | null> {
-  try {
-    const response = await fetch(`${serverApiBaseUrl}${path}`, {
-      ...init,
-      cache: "no-store",
-      headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
-    });
-    if (!response.ok) {
-      return null;
-    }
-    return (await response.json()) as T;
-  } catch {
-    return null;
-  }
-}
-
 export default async function Dashboard({ searchParams }: DashboardProps) {
   const params: SearchParams = searchParams ? await searchParams : {};
   const requestedRepo = singleParam(params.repo ?? params.repoId);
@@ -75,27 +52,33 @@ export default async function Dashboard({ searchParams }: DashboardProps) {
   const requestedProviderId = singleParam(params.providerId);
 
   const [health, reposResponse, providersResponse] = await Promise.all([
-    fetchJson<Health>("/health"),
-    fetchJson<{ repos: Repo[] }>("/repos"),
-    fetchJson<{ providers: ProviderSummary[] }>("/model-providers"),
+    dashboardApi.fetchJson<Health>("/health"),
+    dashboardApi.fetchJson<{ repos: Repo[] }>("/repos"),
+    dashboardApi.fetchJson<{ providers: ProviderSummary[] }>(
+      "/model-providers",
+    ),
   ]);
   const repos = reposResponse?.repos ?? [];
   const repo = selectRepo({ repos, requestedRepo, repoQuery });
   const profileResponse = repo
-    ? await fetchJson<{ profile: ReadinessProfile }>(
+    ? await dashboardApi.fetchJson<{ profile: ReadinessProfile }>(
         `/repos/${repo.id}/profile`,
       )
     : null;
   const artifactsResponse = repo
-    ? await fetchJson<{ artifacts: GeneratedArtifact[] }>(
+    ? await dashboardApi.fetchJson<{ artifacts: GeneratedArtifact[] }>(
         `/repos/${repo.id}/artifacts`,
       )
     : null;
   const runsResponse = repo
-    ? await fetchJson<{ runs: RunWithContext[] }>(`/repos/${repo.id}/runs`)
+    ? await dashboardApi.fetchJson<{ runs: RunWithContext[] }>(
+        `/repos/${repo.id}/runs`,
+      )
     : null;
   const reviewsResponse = repo
-    ? await fetchJson<{ reviews: ReviewResult[] }>(`/repos/${repo.id}/reviews`)
+    ? await dashboardApi.fetchJson<{ reviews: ReviewResult[] }>(
+        `/repos/${repo.id}/reviews`,
+      )
     : null;
   const profile = profileResponse?.profile ?? null;
   const artifacts = artifactsResponse?.artifacts ?? [];

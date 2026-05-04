@@ -1,10 +1,6 @@
 import type { NextRequest } from "next/server";
+import { dashboardApi } from "../dashboard-api";
 import { redirectToDashboard } from "../redirect";
-
-const serverApiBaseUrl =
-  process.env.API_BASE_URL ??
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "http://localhost:4000";
 
 export async function POST(request: NextRequest) {
   const form = await request.formData();
@@ -18,31 +14,17 @@ export async function POST(request: NextRequest) {
   if (!reviewId || !findingId || !verdict) {
     actionError = "invalid-feedback";
   } else {
-    try {
-      const response = await fetch(
-        `${serverApiBaseUrl}/reviews/${encodeURIComponent(reviewId)}/feedback`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({
-            findingId,
-            verdict,
-            ...(reason ? { reason } : {}),
-            actor: "dashboard",
-          }),
-        },
-      );
-      if (!response.ok) {
-        actionError = String(response.status);
-        const payload = (await response.json().catch(() => ({}))) as {
-          error?: unknown;
-        };
-        if (typeof payload.error === "string") {
-          actionError = `${actionError}:${payload.error}`;
-        }
-      }
-    } catch {
-      actionError = "unreachable";
+    const response = await dashboardApi.postJson(
+      `/reviews/${encodeURIComponent(reviewId)}/feedback`,
+      {
+        findingId,
+        verdict,
+        ...(reason ? { reason } : {}),
+        actor: "dashboard",
+      },
+    );
+    if (!response.ok) {
+      actionError = response.actionError;
     }
   }
 
