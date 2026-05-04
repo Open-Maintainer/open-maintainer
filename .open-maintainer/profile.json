@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_865da8c4-5147-4a84-bd20-43ead63799db",
+  "id": "repo_profile_57115efb-4feb-4bbb-b7b3-0a410df3bc68",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -347,6 +347,7 @@
     "tests/cli-audit.test.ts",
     "tests/cli-doctor.test.ts",
     "tests/cli-help.test.ts",
+    "tests/cli-repository-workspace.test.ts",
     "tests/cli-review-operation.test.ts",
     "tests/cli-review.test.ts",
     "tests/cli-triage.test.ts",
@@ -787,6 +788,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "tests/cli-repository-workspace.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "tests/cli-review-operation.test.ts",
       "reason": "detected repository context"
     },
@@ -1039,7 +1044,7 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "f9a9fd602ccab992"
+      "hash": "16d94e81a773c727"
     },
     {
       "path": ".open-maintainer/report.md",
@@ -1263,7 +1268,7 @@
     },
     {
       "path": "tests/cli-audit.test.ts",
-      "hash": "482cd1d14509e101"
+      "hash": "d606048db52697ab"
     },
     {
       "path": "tests/cli-doctor.test.ts",
@@ -1272,6 +1277,10 @@
     {
       "path": "tests/cli-help.test.ts",
       "hash": "777e3f9d9e881c3f"
+    },
+    {
+      "path": "tests/cli-repository-workspace.test.ts",
+      "hash": "ee5894738be415ee"
     },
     {
       "path": "tests/cli-review-operation.test.ts",
@@ -1471,7 +1480,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-04T08:10:57.634Z",
+  "createdAt": "2026-05-04T08:33:38.203Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1894,6 +1903,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "tests/cli-repository-workspace.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "tests/cli-review-operation.test.ts",
             "reason": "detected repository context"
           },
@@ -2231,6 +2244,10 @@
           },
           {
             "path": "tests/cli-help.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/cli-repository-workspace.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2713,7 +2730,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-04T08:10:57.635Z"
+    "generatedAt": "2026-05-04T08:33:38.204Z"
   },
-  "openMaintainerProfileHash": "3ba40da1f8a4dc99"
+  "openMaintainerProfileHash": "fe68c9cfcb6d8f4c"
 }
