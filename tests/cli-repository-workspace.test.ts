@@ -1,11 +1,12 @@
 import path from "node:path";
-import type { AnalyzeRepoInput, AnalyzerFile } from "@open-maintainer/analyzer";
+import {
+  type AnalyzeRepoInput,
+  type AnalyzerFile,
+  type RepositoryWorkspaceDeps,
+  createRepositoryWorkspace,
+} from "@open-maintainer/analyzer";
 import type { RepoProfile } from "@open-maintainer/shared";
 import { describe, expect, it } from "vitest";
-import {
-  type CliRepositoryWorkspaceDeps,
-  createCliRepositoryWorkspace,
-} from "../apps/cli/src/repository-workspace";
 
 const sampleFiles: AnalyzerFile[] = [
   {
@@ -14,8 +15,8 @@ const sampleFiles: AnalyzerFile[] = [
   },
 ];
 
-describe("CLI repository workspace", () => {
-  it("scans with the CLI default limit and analyzes local profile defaults", async () => {
+describe("repository workspace", () => {
+  it("scans with the default limit and analyzes local profile defaults", async () => {
     const { workspace, scanCalls, analyzeCalls } = createWorkspace();
     const repoRoot = path.join("/tmp", "owner-from-path", "repo-from-path");
 
@@ -136,20 +137,20 @@ describe("CLI repository workspace", () => {
   });
 });
 
-function createWorkspace(overrides: Partial<CliRepositoryWorkspaceDeps> = {}): {
-  workspace: ReturnType<typeof createCliRepositoryWorkspace>;
+function createWorkspace(overrides: Partial<RepositoryWorkspaceDeps> = {}): {
+  workspace: ReturnType<typeof createRepositoryWorkspace>;
   scanCalls: Array<{
     repoRoot: string;
-    options: Parameters<CliRepositoryWorkspaceDeps["scanRepository"]>[1];
+    options: Parameters<RepositoryWorkspaceDeps["scanRepository"]>[1];
   }>;
   analyzeCalls: AnalyzeRepoInput[];
 } {
   const scanCalls: Array<{
     repoRoot: string;
-    options: Parameters<CliRepositoryWorkspaceDeps["scanRepository"]>[1];
+    options: Parameters<RepositoryWorkspaceDeps["scanRepository"]>[1];
   }> = [];
   const analyzeCalls: AnalyzeRepoInput[] = [];
-  const workspace = createCliRepositoryWorkspace({
+  const workspace = createRepositoryWorkspace({
     async scanRepository(repoRoot, options) {
       scanCalls.push({ repoRoot, options });
       return sampleFiles;
@@ -169,7 +170,7 @@ function createWorkspace(overrides: Partial<CliRepositoryWorkspaceDeps> = {}): {
 function gitOutputs(input: {
   remote: string | null;
   branch: string | null;
-}): CliRepositoryWorkspaceDeps["gitOutput"] {
+}): RepositoryWorkspaceDeps["gitOutput"] {
   return async (_repoRoot, args) => {
     if (args.join(" ") === "remote get-url origin") {
       return input.remote;

@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -11,6 +10,8 @@ import {
 import type { ModelProvider } from "@open-maintainer/ai";
 import {
   type GitHubRepositoryClient,
+  createGitHubCliApi,
+  execGitHubCli,
   planInlineReviewComments,
   planReviewSummaryComment,
   publishInlineReviewComments,
@@ -20,6 +21,7 @@ import {
   assembleLocalReviewInput,
   createReviewOperation,
   createReviewOperationDeps,
+  loadReviewPromptContext,
   reviewTriageLabelDefinitions,
   reviewTriageLabelNames,
 } from "@open-maintainer/review";
@@ -542,45 +544,6 @@ async function preparePullRequestReview(
   };
 }
 
-async function loadReviewPromptContext(input: {
-  repoRoot: string;
-  profile: RepoProfile;
-}): Promise<{ context: ReviewPromptContext; paths: string[] }> {
-  const candidates = [
-    { key: "openMaintainerConfig", path: ".open-maintainer.yml" },
-    { key: "agentsMd", path: "AGENTS.md" },
-    { key: "generatedContext", path: ".open-maintainer/report.md" },
-    {
-      key: "repoPrReviewSkill",
-      path: `.agents/skills/${input.profile.name}-pr-review/SKILL.md`,
-    },
-    {
-      key: "repoTestingWorkflowSkill",
-      path: `.agents/skills/${input.profile.name}-testing-workflow/SKILL.md`,
-    },
-    {
-      key: "repoOverviewSkill",
-      path: `.agents/skills/${input.profile.name}-start-task/SKILL.md`,
-    },
-  ] as const;
-  const entries = await Promise.all(
-    candidates.map(async (candidate) => ({
-      ...candidate,
-      content: await readOptionalRepoFile(input.repoRoot, candidate.path),
-    })),
-  );
-  const context: ReviewPromptContext = {};
-  const paths: string[] = [];
-  for (const entry of entries) {
-    if (!entry.content) {
-      continue;
-    }
-    context[entry.key] = entry.content;
-    paths.push(entry.path);
-  }
-  return { context, paths };
-}
-
 function createGhReviewPublisher(repoRoot: string): ReviewPublisherPort {
   return {
     async plan(input) {
@@ -927,13 +890,6 @@ function buildReviewProvider(input: {
   return { providerConfig, provider };
 }
 
-async function readOptionalRepoFile(
-  repoRoot: string,
-  repoPath: string,
-): Promise<string | undefined> {
-  return readFile(path.join(repoRoot, repoPath), "utf8").catch(() => undefined);
-}
-
 async function ghJson<T>(repoRoot: string, args: string[]): Promise<T> {
   const output = await execGh(repoRoot, args);
   return JSON.parse(output) as T;
@@ -983,14 +939,7 @@ async function ghApiJson<T>(
   endpoint: string,
   args: string[] = [],
 ): Promise<T> {
-  const output = await execGh(repoRoot, [
-    "api",
-    endpoint,
-    "--method",
-    "GET",
-    ...args,
-  ]);
-  return JSON.parse(output || "null") as T;
+  return createGitHubCliApi({ repoRoot }).json<T>(endpoint, args);
 }
 
 async function ghApiWithJsonBody<T = unknown>(
@@ -999,22 +948,11 @@ async function ghApiWithJsonBody<T = unknown>(
   method: "PATCH" | "POST",
   body: unknown,
 ): Promise<T> {
-  const directory = await mkdtemp(path.join(tmpdir(), "open-maintainer-gh-"));
-  const inputPath = path.join(directory, "body.json");
-  try {
-    await writeFile(inputPath, JSON.stringify(body));
-    const output = await execGh(repoRoot, [
-      "api",
-      endpoint,
-      "--method",
-      method,
-      "--input",
-      inputPath,
-    ]);
-    return JSON.parse(output || "null") as T;
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
+  return createGitHubCliApi({ repoRoot }).jsonWithBody<T>(
+    endpoint,
+    method,
+    body,
+  );
 }
 
 async function ghApiNoBody(
@@ -1022,36 +960,11 @@ async function ghApiNoBody(
   endpoint: string,
   method: "DELETE",
 ): Promise<void> {
-  await execGh(repoRoot, ["api", endpoint, "--method", method]);
+  await createGitHubCliApi({ repoRoot }).noBody(endpoint, method);
 }
 
 async function execGh(repoRoot: string, args: string[]): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync("gh", args, {
-      cwd: repoRoot,
-      env: gitHubCliEnv(),
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    return stdout;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `GitHub CLI command failed: gh ${args.join(" ")}. ${message}`,
-    );
-  }
-}
-
-function gitHubCliEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  if (
-    env.CI !== "true" &&
-    env.GITHUB_ACTIONS !== "true" &&
-    env.OPEN_MAINTAINER_USE_ENV_GH_TOKEN !== "1"
-  ) {
-    env.GH_TOKEN = undefined;
-    env.GITHUB_TOKEN = undefined;
-  }
-  return env;
+  return execGitHubCli(repoRoot, args);
 }
 
 async function ensureGitObject(repoRoot: string, sha: string): Promise<void> {

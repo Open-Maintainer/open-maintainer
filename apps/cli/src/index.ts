@@ -11,11 +11,11 @@ import {
 } from "@open-maintainer/ai";
 import {
   type ArtifactModel,
-  type ContextGenerationArtifactSinkPort,
   type ContextGenerationStage,
   compareProfileDrift,
   contentHash,
   createContextGenerationOrchestrator,
+  createFilesystemContextArtifactSink,
   defaultArtifactTargets,
   expectedArtifactTypes,
   isOpenMaintainerGeneratedContent,
@@ -784,7 +784,7 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
       profile: (profileRepoRoot, files) =>
         repositoryWorkspace.profile({ repoRoot: profileRepoRoot, files }),
     },
-    defaultSink: filesystemContextArtifactSink(),
+    defaultSink: createFilesystemContextArtifactSink(),
   });
   const result = await orchestrator.generateForWorktree({
     repoRoot,
@@ -857,28 +857,6 @@ function createCliContextGenerationModelPort(input: {
               outputSchema: options.outputSchema,
             });
       return provider.complete(prompt);
-    },
-  };
-}
-
-function filesystemContextArtifactSink(): ContextGenerationArtifactSinkPort {
-  return {
-    async apply(repoRoot, plan) {
-      const appliedPaths: string[] = [];
-      for (const item of plan.obsoleteGeneratedPaths) {
-        await rm(path.join(repoRoot, item.path), { force: true });
-        appliedPaths.push(item.path);
-      }
-      for (const item of plan.writes) {
-        if (item.action === "skip") {
-          continue;
-        }
-        const absolutePath = path.join(repoRoot, item.path);
-        await mkdir(path.dirname(absolutePath), { recursive: true });
-        await writeFile(absolutePath, item.artifact.content);
-        appliedPaths.push(item.path);
-      }
-      return appliedPaths;
     },
   };
 }
