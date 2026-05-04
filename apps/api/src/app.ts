@@ -25,10 +25,11 @@ import {
 import type { GitHubAppInstallationAuth } from "@open-maintainer/github";
 import {
   ReviewOrchestratorError,
+  ReviewWorkflowSourceError,
   assembleLocalReviewInput,
-  createReviewOrchestrator,
+  createReviewWorkflow,
 } from "@open-maintainer/review";
-import type { ReviewOrchestratorDeps } from "@open-maintainer/review";
+import type { ReviewWorkflowDeps } from "@open-maintainer/review";
 import {
   type ArtifactType,
   ArtifactTypeSchema,
@@ -436,8 +437,8 @@ export function buildApp() {
           error instanceof Error ? error.message : "Review generation blocked.",
       });
     }
-    const orchestrator = createReviewOrchestrator(
-      createApiReviewOrchestratorDeps({
+    const workflow = createReviewWorkflow(
+      createApiReviewWorkflowDeps({
         repoId,
         repo,
         repositorySources,
@@ -445,24 +446,21 @@ export function buildApp() {
       }),
     );
     try {
-      const run = await orchestrator.review({
-        repository: { kind: "stored", repoId },
+      const run = await workflow.previewStored({
+        repoId,
         target: body.prNumber
           ? {
-              kind: "pullRequest",
-              number: body.prNumber,
+              pr: body.prNumber,
               ...(body.baseRef ? { baseRef: body.baseRef } : {}),
               ...(body.headRef ? { headRef: body.headRef } : {}),
             }
           : {
-              kind: "diff",
-              ...(body.baseRef ? { baseRef: body.baseRef } : {}),
-              ...(body.headRef ? { headRef: body.headRef } : {}),
+              diff: {
+                ...(body.baseRef ? { baseRef: body.baseRef } : {}),
+                ...(body.headRef ? { headRef: body.headRef } : {}),
+              },
             },
-        model: { providerId: provider.id },
-        intent: "preview",
-        publication: false,
-        persistence: { run: true, review: true },
+        modelProviderId: provider.id,
       });
       return { run: run.persistence.run, review: run.review };
     } catch (error) {
@@ -1133,18 +1131,15 @@ class ReviewPreviewSourceError extends Error {
   }
 }
 
-function createApiReviewOrchestratorDeps(input: {
+function createApiReviewWorkflowDeps(input: {
   repoId: string;
   repo: Repo;
   repositorySources: RepositorySourceAnalysisRegistry;
   provider: ModelProviderConfig;
-}): ReviewOrchestratorDeps {
+}): ReviewWorkflowDeps {
   return {
-    sources: {
-      async prepareLocal() {
-        throw new Error("API review previews use stored repository sources.");
-      },
-      async prepareStored(request) {
+    stored: {
+      async prepareReview(request) {
         const prepared = await prepareReviewPreviewInput({
           repoId: input.repoId,
           repo: input.repo,
@@ -1180,11 +1175,11 @@ function createApiReviewOrchestratorDeps(input: {
       },
     },
     promptContext: {
-      async load(request) {
+      async resolve(request) {
         return reviewPromptContextForRepository({
           repoId: input.repoId,
-          profile: request.profile,
-          worktreeRoot: request.repoRoot,
+          profile: request.source.profile,
+          worktreeRoot: request.source.repoRoot,
         });
       },
     },
@@ -1194,7 +1189,9 @@ function createApiReviewOrchestratorDeps(input: {
         return {
           providerConfig: input.provider,
           provider: buildProvider(input.provider, {
-            ...(request.repoRoot ? { cwd: request.repoRoot } : {}),
+            ...(request.source.repoRoot
+              ? { cwd: request.source.repoRoot }
+              : {}),
           }),
         };
       },
@@ -1238,7 +1235,13 @@ function createApiReviewOrchestratorDeps(input: {
 }
 
 function reviewPreviewStatusCode(error: unknown): 409 | 422 {
-  return error instanceof ReviewPreviewSourceError ? error.statusCode : 422;
+  if (
+    error instanceof ReviewPreviewSourceError ||
+    error instanceof ReviewWorkflowSourceError
+  ) {
+    return error.statusCode;
+  }
+  return 422;
 }
 
 async function prepareReviewPreviewInput(input: {
