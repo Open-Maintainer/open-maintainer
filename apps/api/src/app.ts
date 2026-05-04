@@ -15,19 +15,10 @@ import {
 import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
 import {
   type ContextArtifactTarget,
-  type ModelArtifactContent,
-  type ModelSkillContent,
-  buildArtifactSynthesisPrompt,
-  buildRepoFactsSynthesisPrompt,
-  buildSkillSynthesisPrompt,
-  createContextArtifacts,
-  modelArtifactContentJsonSchema,
-  modelSkillContentJsonSchema,
-  parseModelArtifactContent,
-  parseModelSkillContent,
-  parseStructuredRepoFacts,
-  structuredContextOutputFromRepoFacts,
-  structuredRepoFactsJsonSchema,
+  contextArtifactInventoryFromFiles,
+  contextArtifactTargetsForSelection,
+  createContextGenerationWorkflow,
+  defaultContextArtifactPresetForProviderKind,
 } from "@open-maintainer/context";
 import { checkDatabase, checkRedis, store } from "@open-maintainer/db";
 import {
@@ -797,77 +788,70 @@ async function generateContextArtifactsForRun(input: {
   context: "codex" | "claude" | "both" | undefined;
   skills: "codex" | "claude" | "both" | undefined;
 }): Promise<GeneratedArtifact[]> {
-  let output: ReturnType<typeof structuredContextOutputFromRepoFacts>;
-  let modelArtifacts: ModelArtifactContent | undefined;
-  let modelSkills: ModelSkillContent | undefined;
+  const repoFiles = store.repoFiles.get(input.repoId) ?? [];
   try {
     const modelProvider = buildProvider(input.provider, {
       cwd: store.repoWorktrees.get(input.repoId) ?? process.cwd(),
     });
-    const repoFiles = store.repoFiles.get(input.repoId) ?? [];
-    const factsPrompt = buildRepoFactsSynthesisPrompt({
+    const workflow = createContextGenerationWorkflow({
+      model: {
+        providerLabel: input.provider.displayName,
+        model: input.provider.model,
+        complete(prompt, options) {
+          return modelProvider.complete(prompt, {
+            outputSchema: options.outputSchema,
+          });
+        },
+      },
+      inventory: contextArtifactInventoryFromFiles({
+        files: repoFiles,
+        nextArtifactVersion:
+          (store.artifacts.get(input.repoId)?.length ?? 0) + 1,
+      }),
+      events: {
+        failed(error) {
+          store.updateRun(input.runId, {
+            status: "failed",
+            safeMessage:
+              error instanceof Error
+                ? `Model synthesis failed: ${error.message}`
+                : "Model synthesis failed.",
+          });
+        },
+      },
+    });
+    const preview = await workflow.preview({
+      repoId: input.repoId,
       profile: input.profile,
       files: repoFiles,
+      targets: artifactTargetsForDashboard({
+        providerKind: input.provider.kind,
+        context: input.context,
+        skills: input.skills,
+      }),
     });
-    const factsCompletion = await modelProvider.complete(factsPrompt, {
-      outputSchema: structuredRepoFactsJsonSchema,
-    });
-    const repoFacts = parseStructuredRepoFacts(factsCompletion.text);
-    output = structuredContextOutputFromRepoFacts(input.profile, repoFacts);
-    const artifactPrompt = buildArtifactSynthesisPrompt({
-      profile: input.profile,
-      repoFacts,
-    });
-    const artifactCompletion = await modelProvider.complete(artifactPrompt, {
-      outputSchema: modelArtifactContentJsonSchema,
-    });
-    modelArtifacts = parseModelArtifactContent(artifactCompletion.text);
-    const skillPrompt = buildSkillSynthesisPrompt({
-      profile: input.profile,
-      repoFacts,
-      agentsMd: modelArtifacts.agentsMd,
-      files: repoFiles,
-    });
-    const skillCompletion = await modelProvider.complete(skillPrompt, {
-      outputSchema: modelSkillContentJsonSchema,
-    });
-    modelSkills = parseModelSkillContent(skillCompletion.text);
-  } catch (error) {
+
     store.updateRun(input.runId, {
-      status: "failed",
-      safeMessage:
-        error instanceof Error
-          ? `Model synthesis failed: ${error.message}`
-          : "Model synthesis failed.",
+      status: "succeeded",
+      artifactVersions: preview.artifacts.map((artifact) => artifact.version),
+      safeMessage: "Context artifacts generated for preview.",
     });
+    for (const artifact of preview.artifacts) {
+      store.addArtifact(artifact);
+    }
+    return preview.artifacts;
+  } catch (error) {
+    if (store.runs.get(input.runId)?.status !== "failed") {
+      store.updateRun(input.runId, {
+        status: "failed",
+        safeMessage:
+          error instanceof Error
+            ? `Model synthesis failed: ${error.message}`
+            : "Model synthesis failed.",
+      });
+    }
     throw error;
   }
-
-  const currentArtifactCount = store.artifacts.get(input.repoId)?.length ?? 0;
-  const artifacts = createContextArtifacts({
-    repoId: input.repoId,
-    profile: input.profile,
-    output,
-    modelArtifacts,
-    modelSkills,
-    modelProvider: input.provider.displayName,
-    model: input.provider.model,
-    nextVersion: currentArtifactCount + 1,
-    targets: artifactTargetsForDashboard({
-      providerKind: input.provider.kind,
-      context: input.context,
-      skills: input.skills,
-    }),
-  });
-  store.updateRun(input.runId, {
-    status: "succeeded",
-    artifactVersions: artifacts.map((artifact) => artifact.version),
-    safeMessage: "Context artifacts generated for preview.",
-  });
-  for (const artifact of artifacts) {
-    store.addArtifact(artifact);
-  }
-  return artifacts;
 }
 
 async function artifactsForContextPr(input: {
@@ -1643,26 +1627,12 @@ function artifactTargetsForDashboard(input: {
   context: "codex" | "claude" | "both" | undefined;
   skills: "codex" | "claude" | "both" | undefined;
 }): ContextArtifactTarget[] {
-  const defaultTarget =
-    input.providerKind === "claude-cli" ? "claude" : "codex";
+  const defaultTarget = defaultContextArtifactPresetForProviderKind(
+    input.providerKind,
+  );
   const context = input.context ?? defaultTarget;
   const skills = input.skills ?? defaultTarget;
-  const targets: ContextArtifactTarget[] = [];
-
-  if (context === "codex" || context === "both") {
-    targets.push("agents");
-  }
-  if (context === "claude" || context === "both") {
-    targets.push("claude");
-  }
-  if (skills === "codex" || skills === "both") {
-    targets.push("skills");
-  }
-  if (skills === "claude" || skills === "both") {
-    targets.push("claude-skills");
-  }
-  targets.push("profile", "report", "config");
-  return targets;
+  return contextArtifactTargetsForSelection({ context, skills });
 }
 
 function registerLocalRepository(input: {

@@ -18,25 +18,19 @@ import {
 import {
   type ArtifactModel,
   type ContextArtifactTarget,
-  buildArtifactSynthesisPrompt,
-  buildRepoFactsSynthesisPrompt,
-  buildSkillSynthesisPrompt,
+  type ContextGenerationStage,
+  type ContextGenerationWritePlan,
   compareProfileDrift,
   contentHash,
-  createContextArtifacts,
+  contextArtifactInventoryFromFiles,
+  contextArtifactTargetsForSelection,
+  createContextGenerationWorkflow,
   defaultArtifactTargets,
   expectedArtifactTypes,
-  modelArtifactContentJsonSchema,
-  modelSkillContentJsonSchema,
-  parseModelArtifactContent,
-  parseModelSkillContent,
+  isOpenMaintainerGeneratedContent,
   parseRepoProfileJson,
-  parseStructuredRepoFacts,
-  planArtifactWrites,
   profileFingerprint,
   renderReadinessReport,
-  structuredContextOutputFromRepoFacts,
-  structuredRepoFactsJsonSchema,
 } from "@open-maintainer/context";
 import {
   type GitHubRepositoryClient,
@@ -776,105 +770,109 @@ async function generate(repoRoot: string, options: CliOptions): Promise<void> {
       "generate requires --model codex or --model claude for LLM-backed artifact content.",
     );
   }
-  const modelArtifacts = await generateModelArtifacts({
-    repoRoot,
-    profile,
-    files,
-    options,
+  const workflow = createContextGenerationWorkflow({
+    model: createCliContextGenerationModelPort({
+      repoRoot,
+      model: options.model,
+      llmModel: options.llmModel,
+      allowWrite: options.allowWrite,
+      needsSkills: targets.some(
+        (target) => target === "skills" || target === "claude-skills",
+      ),
+    }),
+    inventory: contextArtifactInventoryFromFiles({
+      files,
+      nextArtifactVersion: 1,
+    }),
   });
-  const artifacts = createContextArtifacts({
+  const preview = await workflow.preview({
     repoId: "local",
     profile,
-    output: modelArtifacts.output,
-    modelArtifacts: modelArtifacts.content,
-    ...(modelArtifacts.skills ? { modelSkills: modelArtifacts.skills } : {}),
-    modelProvider: modelArtifacts.provider,
-    model: modelArtifacts.model,
-    nextVersion: 1,
+    files,
     targets,
+    writePolicy: {
+      force: options.force,
+      refreshGenerated: options.refreshGenerated,
+      removeObsoleteGenerated: options.force,
+    },
   });
-  const existingPaths = new Set(files.map((file) => file.path));
-  const existingGeneratedPaths = new Set(
-    files
-      .filter((file) => isOpenMaintainerGeneratedFile(file.content))
-      .map((file) => file.path),
-  );
-  const plan = planArtifactWrites({
-    artifacts,
-    existingPaths,
-    ...(options.refreshGenerated ? { existingGeneratedPaths } : {}),
-    force: options.force,
-  });
-  const artifactPaths = new Set(artifacts.map((artifact) => artifact.type));
-  const obsoleteGeneratedPaths = options.force
-    ? obsoleteGeneratedArtifactPaths({
-        generatedPaths: existingGeneratedPaths,
-        artifactPaths,
-        targets,
-      })
-    : [];
-  const actionRows: Array<{ action: string; target: string; reason: string }> =
-    [];
-  for (const item of obsoleteGeneratedPaths) {
-    actionRows.push({
-      action: "remove",
-      target: item,
-      reason: "obsolete generated artifact",
-    });
-    if (!options.dryRun) {
-      await rm(path.join(repoRoot, item), { force: true });
-    }
+  if (!options.dryRun) {
+    await applyContextGenerationWritePlan(repoRoot, preview.plan);
   }
-  for (const item of plan) {
-    actionRows.push({
-      action: item.action,
-      target: item.path,
-      reason: item.reason,
-    });
-    if (options.dryRun || item.action === "skip") {
+  printLines(renderActionPlan("Artifact write plan", preview.plan.rows));
+  if (options.dryRun) {
+    console.log("Dry run: no context artifacts written.");
+  }
+}
+
+function createCliContextGenerationModelPort(input: {
+  repoRoot: string;
+  model: ArtifactModel;
+  llmModel: string | null;
+  allowWrite: boolean;
+  needsSkills: boolean;
+}) {
+  if (!input.allowWrite) {
+    throw new Error(
+      "--model requires --allow-write because repository content will be sent to the selected CLI backend.",
+    );
+  }
+  const model =
+    input.llmModel ??
+    (input.model === "codex"
+      ? process.env.OPEN_MAINTAINER_CODEX_MODEL
+      : process.env.OPEN_MAINTAINER_CLAUDE_MODEL) ??
+    null;
+  const providerLabel = input.model === "codex" ? "Codex CLI" : "Claude CLI";
+  const label = input.model;
+  return {
+    providerLabel,
+    model,
+    async complete(
+      prompt: { system: string; user: string },
+      options: { outputSchema: unknown; stage: ContextGenerationStage },
+    ) {
+      const stageLabel =
+        options.stage === "repo-facts"
+          ? "analyzing repo evidence"
+          : options.stage === "artifact-content"
+            ? "generating artifact content"
+            : "generating workflow skills";
+      if (options.stage !== "skill-content" || input.needsSkills) {
+        console.log(`${label}: ${stageLabel}${model ? ` with ${model}` : ""}`);
+      }
+      const provider =
+        input.model === "codex"
+          ? buildCodexCliProvider({
+              cwd: input.repoRoot,
+              ...(model ? { model } : {}),
+              outputSchema: options.outputSchema,
+            })
+          : buildClaudeCliProvider({
+              cwd: input.repoRoot,
+              ...(model ? { model } : {}),
+              outputSchema: options.outputSchema,
+            });
+      return provider.complete(prompt);
+    },
+  };
+}
+
+async function applyContextGenerationWritePlan(
+  repoRoot: string,
+  plan: ContextGenerationWritePlan,
+): Promise<void> {
+  for (const item of plan.obsoleteGeneratedPaths) {
+    await rm(path.join(repoRoot, item.path), { force: true });
+  }
+  for (const item of plan.writes) {
+    if (item.action === "skip") {
       continue;
     }
     const absolutePath = path.join(repoRoot, item.path);
     await mkdir(path.dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, item.artifact.content);
   }
-  printLines(renderActionPlan("Artifact write plan", actionRows));
-  if (options.dryRun) {
-    console.log("Dry run: no context artifacts written.");
-  }
-}
-
-function obsoleteGeneratedArtifactPaths(input: {
-  generatedPaths: Set<string>;
-  artifactPaths: Set<string>;
-  targets: ContextArtifactTarget[];
-}): string[] {
-  const targetRoots = new Set<string>();
-  if (input.targets.includes("skills")) {
-    targetRoots.add(".agents/skills/");
-  }
-  if (input.targets.includes("claude-skills")) {
-    targetRoots.add(".claude/skills/");
-  }
-  if (targetRoots.size === 0) {
-    return [];
-  }
-  return [...input.generatedPaths]
-    .filter((generatedPath) =>
-      [...targetRoots].some((root) => generatedPath.startsWith(root)),
-    )
-    .filter((generatedPath) => !input.artifactPaths.has(generatedPath))
-    .sort();
-}
-
-function isOpenMaintainerGeneratedFile(content: string): boolean {
-  return (
-    content.includes("generated by open-maintainer") ||
-    content.includes("by: open-maintainer") ||
-    content.includes('"openMaintainerProfileHash"') ||
-    content.includes("# Open Maintainer Readiness Report") ||
-    content.includes("# Open Maintainer Report:")
-  );
 }
 
 async function doctor(
@@ -997,7 +995,7 @@ function doctorObsoleteGeneratedArtifacts(input: {
   }
   return input.files
     .filter((file) => isGeneratedContextArtifactPath(file.path))
-    .filter((file) => isOpenMaintainerGeneratedFile(file.content))
+    .filter((file) => isOpenMaintainerGeneratedContent(file.content))
     .map((file) => file.path)
     .filter((filePath) => !input.expectedPaths.has(filePath))
     .sort();
@@ -3092,138 +3090,6 @@ function parseGitHubRemote(
   }
 }
 
-async function generateModelArtifacts(input: {
-  repoRoot: string;
-  profile: ReturnType<typeof analyzeRepo>;
-  files: Awaited<ReturnType<typeof scanRepository>>;
-  options: CliOptions;
-}) {
-  if (!input.options.allowWrite) {
-    throw new Error(
-      "--model requires --allow-write because repository content will be sent to the selected CLI backend.",
-    );
-  }
-  const factsPrompt = buildRepoFactsSynthesisPrompt({
-    profile: input.profile,
-    files: input.files,
-  });
-  if (input.options.model === "codex") {
-    const model =
-      input.options.llmModel ?? process.env.OPEN_MAINTAINER_CODEX_MODEL;
-    const needsSkills = input.options.skills !== null;
-    console.log(
-      `codex: analyzing repo evidence${model ? ` with ${model}` : ""}`,
-    );
-    const factsCompletion = await buildCodexCliProvider({
-      cwd: input.repoRoot,
-      ...(model ? { model } : {}),
-      outputSchema: structuredRepoFactsJsonSchema,
-    }).complete(factsPrompt);
-    const repoFacts = parseStructuredRepoFacts(factsCompletion.text);
-    const artifactPrompt = buildArtifactSynthesisPrompt({
-      profile: input.profile,
-      repoFacts,
-    });
-    console.log(
-      `codex: generating artifact content${model ? ` with ${model}` : ""}`,
-    );
-    const artifactCompletion = await buildCodexCliProvider({
-      cwd: input.repoRoot,
-      ...(model ? { model } : {}),
-      outputSchema: modelArtifactContentJsonSchema,
-    }).complete(artifactPrompt);
-    const artifactContent = parseModelArtifactContent(artifactCompletion.text);
-    const skills = needsSkills
-      ? await generateModelSkills({
-          label: "codex",
-          complete: (prompt) =>
-            buildCodexCliProvider({
-              cwd: input.repoRoot,
-              ...(model ? { model } : {}),
-              outputSchema: modelSkillContentJsonSchema,
-            }).complete(prompt),
-          prompt: buildSkillSynthesisPrompt({
-            profile: input.profile,
-            repoFacts,
-            agentsMd: artifactContent.agentsMd,
-            files: input.files,
-          }),
-        })
-      : undefined;
-    return {
-      provider: "Codex CLI",
-      model: artifactCompletion.model,
-      output: structuredContextOutputFromRepoFacts(input.profile, repoFacts),
-      content: artifactContent,
-      skills,
-    };
-  }
-  if (input.options.model === "claude") {
-    const model =
-      input.options.llmModel ?? process.env.OPEN_MAINTAINER_CLAUDE_MODEL;
-    const needsSkills = input.options.skills !== null;
-    console.log(
-      `claude: analyzing repo evidence${model ? ` with ${model}` : ""}`,
-    );
-    const factsCompletion = await buildClaudeCliProvider({
-      cwd: input.repoRoot,
-      ...(model ? { model } : {}),
-      outputSchema: structuredRepoFactsJsonSchema,
-    }).complete(factsPrompt);
-    const repoFacts = parseStructuredRepoFacts(factsCompletion.text);
-    const artifactPrompt = buildArtifactSynthesisPrompt({
-      profile: input.profile,
-      repoFacts,
-    });
-    console.log(
-      `claude: generating artifact content${model ? ` with ${model}` : ""}`,
-    );
-    const artifactCompletion = await buildClaudeCliProvider({
-      cwd: input.repoRoot,
-      ...(model ? { model } : {}),
-      outputSchema: modelArtifactContentJsonSchema,
-    }).complete(artifactPrompt);
-    const artifactContent = parseModelArtifactContent(artifactCompletion.text);
-    const skills = needsSkills
-      ? await generateModelSkills({
-          label: "claude",
-          complete: (prompt) =>
-            buildClaudeCliProvider({
-              cwd: input.repoRoot,
-              ...(model ? { model } : {}),
-              outputSchema: modelSkillContentJsonSchema,
-            }).complete(prompt),
-          prompt: buildSkillSynthesisPrompt({
-            profile: input.profile,
-            repoFacts,
-            agentsMd: artifactContent.agentsMd,
-            files: input.files,
-          }),
-        })
-      : undefined;
-    return {
-      provider: "Claude CLI",
-      model: artifactCompletion.model,
-      output: structuredContextOutputFromRepoFacts(input.profile, repoFacts),
-      content: artifactContent,
-      skills,
-    };
-  }
-  throw new Error("Unknown model backend.");
-}
-
-async function generateModelSkills(input: {
-  label: string;
-  complete: (
-    prompt: ReturnType<typeof buildSkillSynthesisPrompt>,
-  ) => Promise<{ text: string }>;
-  prompt: ReturnType<typeof buildSkillSynthesisPrompt>;
-}) {
-  console.log(`${input.label}: generating workflow skills`);
-  const completion = await input.complete(input.prompt);
-  return parseModelSkillContent(completion.text);
-}
-
 function parseOptions(rawOptions: string[]): CliOptions {
   const options: CliOptions = {
     force: false,
@@ -3494,26 +3360,26 @@ function isCommandName(value: string | undefined): value is CommandName {
 }
 
 function resolveTargets(options: CliOptions): ContextArtifactTarget[] {
-  const targets: ContextArtifactTarget[] = [];
-  if (options.context === "codex" || options.context === "both") {
-    targets.push("agents");
-  }
-  if (options.context === "claude" || options.context === "both") {
-    targets.push("claude");
-  }
-  if (options.skills === "codex" || options.skills === "both") {
-    targets.push("skills");
-  }
-  if (options.skills === "claude" || options.skills === "both") {
-    targets.push("claude-skills");
-  }
-  if (targets.length === 0) {
+  if (!options.context && !options.skills) {
     throw new Error(
       "generate requires --context codex|claude|both, --skills codex|claude|both, or both.",
     );
   }
-  targets.push("profile", "report", "config");
-  return targets;
+  return contextArtifactTargetsForSelection({
+    context: options.context ?? "codex",
+    skills: options.skills ?? "codex",
+  }).filter((target) => {
+    if (!options.context && (target === "agents" || target === "claude")) {
+      return false;
+    }
+    if (
+      !options.skills &&
+      (target === "skills" || target === "claude-skills")
+    ) {
+      return false;
+    }
+    return true;
+  });
 }
 
 function parseArtifactSelection(
