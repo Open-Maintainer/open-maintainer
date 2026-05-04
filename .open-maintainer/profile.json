@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_03529e22-854f-4545-96c0-412a8d0db459",
+  "id": "repo_profile_5fbfcbee-c129-46da-8fbf-e735a8c607a2",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -1044,7 +1044,7 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "3a9d68c33fc4b16e"
+      "hash": "55740525f5bbd56f"
     },
     {
       "path": ".open-maintainer/report.md",
@@ -1152,7 +1152,7 @@
     },
     {
       "path": "packages/analyzer/tests/analyzer.test.ts",
-      "hash": "79a38d95dba38f59"
+      "hash": "42e04daf79c296a0"
     },
     {
       "path": "packages/analyzer/tsconfig.json",
@@ -1280,7 +1280,7 @@
     },
     {
       "path": "tests/cli-repository-workspace.test.ts",
-      "hash": "ee5894738be415ee"
+      "hash": "7d5839a108069b6c"
     },
     {
       "path": "tests/cli-review-operation.test.ts",
@@ -1464,7 +1464,7 @@
     },
     {
       "path": "tests/v02-readiness.test.ts",
-      "hash": "88f7f36a542bd6bf"
+      "hash": "6593a0f95cfb6886"
     },
     {
       "path": "tests/web-redirect.test.ts",
@@ -1480,7 +1480,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-04T10:29:49.678Z",
+  "createdAt": "2026-05-04T20:45:29.140Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2730,7 +2730,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-04T10:29:49.678Z"
+    "generatedAt": "2026-05-04T20:45:29.141Z"
   },
-  "openMaintainerProfileHash": "f0e2a35ed809401a"
+  "openMaintainerProfileHash": "b99dd38ecccbdf06"
 }
