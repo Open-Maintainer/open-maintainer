@@ -406,6 +406,202 @@ export type ArtifactWritePlanItem = {
   reason: string;
 };
 
+export type ContextGenerationStage =
+  | "repo-facts"
+  | "artifact-content"
+  | "skill-content";
+
+export type ContextGenerationModelPort = {
+  providerLabel: string;
+  model: string | null;
+  complete(
+    prompt: { system: string; user: string },
+    options: { outputSchema: unknown; stage: ContextGenerationStage },
+  ): Promise<{ text: string; model?: string | null }>;
+};
+
+export type ContextGenerationInventoryPort = {
+  nextArtifactVersion(repoId: string): Promise<number>;
+  existingPaths(repoId: string): Promise<Set<string>>;
+  existingGeneratedPaths(repoId: string): Promise<Set<string>>;
+};
+
+export type ContextGenerationWritePolicy = {
+  force?: boolean;
+  refreshGenerated?: boolean;
+  removeObsoleteGenerated?: boolean;
+};
+
+export type ContextGenerationRequest = {
+  repoId: string;
+  profile: RepoProfile;
+  files: ContextSourceFile[];
+  targets: ContextArtifactTarget[];
+  writePolicy?: ContextGenerationWritePolicy;
+};
+
+export type ContextGenerationWritePlan = {
+  writes: ArtifactWritePlanItem[];
+  obsoleteGeneratedPaths: Array<{ path: string; reason: string }>;
+  rows: Array<{ action: string; target: string; reason: string }>;
+};
+
+export type ContextArtifactSinkPort = {
+  apply(plan: ContextGenerationWritePlan): Promise<string[]>;
+};
+
+export type ContextGenerationPreview = {
+  repoFacts: StructuredRepoFacts;
+  output: StructuredContextOutput;
+  artifacts: GeneratedArtifact[];
+  plan: ContextGenerationWritePlan;
+  modelProvider: string;
+  model: string | null;
+};
+
+export type ContextGenerationWorkflow = {
+  preview(request: ContextGenerationRequest): Promise<ContextGenerationPreview>;
+  execute(
+    request: ContextGenerationRequest,
+    sink: ContextArtifactSinkPort,
+  ): Promise<ContextGenerationPreview & { appliedPaths: string[] }>;
+};
+
+export type ContextGenerationEvents = {
+  stageStarted?(stage: ContextGenerationStage): void | Promise<void>;
+  stageCompleted?(stage: ContextGenerationStage): void | Promise<void>;
+  failed?(error: unknown): void | Promise<void>;
+};
+
+export function createContextGenerationWorkflow(ports: {
+  model: ContextGenerationModelPort;
+  inventory: ContextGenerationInventoryPort;
+  events?: ContextGenerationEvents;
+}): ContextGenerationWorkflow {
+  const runStage = async (
+    stage: ContextGenerationStage,
+    prompt: { system: string; user: string },
+    outputSchema: unknown,
+  ) => {
+    await ports.events?.stageStarted?.(stage);
+    try {
+      const completion = await ports.model.complete(prompt, {
+        outputSchema,
+        stage,
+      });
+      await ports.events?.stageCompleted?.(stage);
+      return completion;
+    } catch (error) {
+      throw new Error(
+        `Context generation ${stage} failed: ${errorMessage(error)}`,
+      );
+    }
+  };
+
+  const preview = async (
+    request: ContextGenerationRequest,
+  ): Promise<ContextGenerationPreview> => {
+    try {
+      const factsCompletion = await runStage(
+        "repo-facts",
+        buildRepoFactsSynthesisPrompt({
+          profile: request.profile,
+          files: request.files,
+        }),
+        structuredRepoFactsJsonSchema,
+      );
+      const repoFacts = parseStageOutput(
+        "repo-facts",
+        factsCompletion.text,
+        parseStructuredRepoFacts,
+      );
+      const output = structuredContextOutputFromRepoFacts(
+        request.profile,
+        repoFacts,
+      );
+
+      const artifactCompletion = await runStage(
+        "artifact-content",
+        buildArtifactSynthesisPrompt({
+          profile: request.profile,
+          repoFacts,
+        }),
+        modelArtifactContentJsonSchema,
+      );
+      const modelArtifacts = parseStageOutput(
+        "artifact-content",
+        artifactCompletion.text,
+        parseModelArtifactContent,
+      );
+
+      const needsSkills = request.targets.some(
+        (target) => target === "skills" || target === "claude-skills",
+      );
+      const modelSkills = needsSkills
+        ? parseStageOutput(
+            "skill-content",
+            (
+              await runStage(
+                "skill-content",
+                buildSkillSynthesisPrompt({
+                  profile: request.profile,
+                  repoFacts,
+                  agentsMd: modelArtifacts.agentsMd,
+                  files: request.files,
+                }),
+                modelSkillContentJsonSchema,
+              )
+            ).text,
+            parseModelSkillContent,
+          )
+        : undefined;
+
+      const nextVersion = await ports.inventory.nextArtifactVersion(
+        request.repoId,
+      );
+      const artifacts = createContextArtifacts({
+        repoId: request.repoId,
+        profile: request.profile,
+        output,
+        modelArtifacts,
+        ...(modelSkills ? { modelSkills } : {}),
+        modelProvider: ports.model.providerLabel,
+        model: artifactCompletion.model ?? ports.model.model,
+        nextVersion,
+        targets: request.targets,
+      });
+      const plan = await buildContextGenerationWritePlan({
+        repoId: request.repoId,
+        artifacts,
+        targets: request.targets,
+        writePolicy: request.writePolicy ?? {},
+        inventory: ports.inventory,
+      });
+
+      return {
+        repoFacts,
+        output,
+        artifacts,
+        plan,
+        modelProvider: ports.model.providerLabel,
+        model: artifactCompletion.model ?? ports.model.model,
+      };
+    } catch (error) {
+      await ports.events?.failed?.(error);
+      throw error;
+    }
+  };
+
+  return {
+    preview,
+    async execute(request, sink) {
+      const generated = await preview(request);
+      const appliedPaths = await sink.apply(generated.plan);
+      return { ...generated, appliedPaths };
+    },
+  };
+}
+
 export function renderOpenMaintainerYaml(
   profile: RepoProfile,
   artifactVersion: number,
@@ -1604,6 +1800,162 @@ export function planArtifactWrites(input: {
         "existing maintainer-owned file preserved; rerun with --force to overwrite",
     };
   });
+}
+
+async function buildContextGenerationWritePlan(input: {
+  repoId: string;
+  artifacts: GeneratedArtifact[];
+  targets: ContextArtifactTarget[];
+  writePolicy: ContextGenerationWritePolicy;
+  inventory: ContextGenerationInventoryPort;
+}): Promise<ContextGenerationWritePlan> {
+  const existingPaths = await input.inventory.existingPaths(input.repoId);
+  const existingGeneratedPaths =
+    input.writePolicy.refreshGenerated ||
+    input.writePolicy.removeObsoleteGenerated
+      ? await input.inventory.existingGeneratedPaths(input.repoId)
+      : new Set<string>();
+  const writes = planArtifactWrites({
+    artifacts: input.artifacts,
+    existingPaths,
+    ...(input.writePolicy.refreshGenerated ? { existingGeneratedPaths } : {}),
+    ...(input.writePolicy.force !== undefined
+      ? { force: input.writePolicy.force }
+      : {}),
+  });
+  const artifactPaths = new Set(
+    input.artifacts.map((artifact) => artifact.type),
+  );
+  const obsoleteGeneratedPaths = input.writePolicy.removeObsoleteGenerated
+    ? obsoleteGeneratedArtifactPaths({
+        generatedPaths: existingGeneratedPaths,
+        artifactPaths,
+        targets: input.targets,
+      }).map((repoPath) => ({
+        path: repoPath,
+        reason: "obsolete generated artifact",
+      }))
+    : [];
+
+  return {
+    writes,
+    obsoleteGeneratedPaths,
+    rows: [
+      ...obsoleteGeneratedPaths.map((item) => ({
+        action: "remove",
+        target: item.path,
+        reason: item.reason,
+      })),
+      ...writes.map((item) => ({
+        action: item.action,
+        target: item.path,
+        reason: item.reason,
+      })),
+    ],
+  };
+}
+
+export function isOpenMaintainerGeneratedContent(content: string): boolean {
+  return (
+    content.includes("generated by open-maintainer") ||
+    content.includes("by: open-maintainer") ||
+    content.includes('"openMaintainerProfileHash"') ||
+    content.includes("# Open Maintainer Readiness Report") ||
+    content.includes("# Open Maintainer Report:")
+  );
+}
+
+export function contextArtifactInventoryFromFiles(input: {
+  files: ContextSourceFile[];
+  nextArtifactVersion: number;
+}): ContextGenerationInventoryPort {
+  const existingPaths = new Set(input.files.map((file) => file.path));
+  const existingGeneratedPaths = new Set(
+    input.files
+      .filter((file) => isOpenMaintainerGeneratedContent(file.content))
+      .map((file) => file.path),
+  );
+  return {
+    async nextArtifactVersion() {
+      return input.nextArtifactVersion;
+    },
+    async existingPaths() {
+      return existingPaths;
+    },
+    async existingGeneratedPaths() {
+      return existingGeneratedPaths;
+    },
+  };
+}
+
+export function obsoleteGeneratedArtifactPaths(input: {
+  generatedPaths: Set<string>;
+  artifactPaths: Set<string>;
+  targets: ContextArtifactTarget[];
+}): string[] {
+  const targetRoots = new Set<string>();
+  if (input.targets.includes("skills")) {
+    targetRoots.add(".agents/skills/");
+  }
+  if (input.targets.includes("claude-skills")) {
+    targetRoots.add(".claude/skills/");
+  }
+  if (targetRoots.size === 0) {
+    return [];
+  }
+  return [...input.generatedPaths]
+    .filter((generatedPath) =>
+      [...targetRoots].some((root) => generatedPath.startsWith(root)),
+    )
+    .filter((generatedPath) => !input.artifactPaths.has(generatedPath))
+    .sort();
+}
+
+export type ContextArtifactPreset = "codex" | "claude" | "both";
+
+export function contextArtifactTargetsForSelection(input: {
+  context: ContextArtifactPreset;
+  skills: ContextArtifactPreset;
+}): ContextArtifactTarget[] {
+  const targets: ContextArtifactTarget[] = [];
+  if (input.context === "codex" || input.context === "both") {
+    targets.push("agents");
+  }
+  if (input.context === "claude" || input.context === "both") {
+    targets.push("claude");
+  }
+  if (input.skills === "codex" || input.skills === "both") {
+    targets.push("skills");
+  }
+  if (input.skills === "claude" || input.skills === "both") {
+    targets.push("claude-skills");
+  }
+  targets.push("profile", "report", "config");
+  return targets;
+}
+
+export function defaultContextArtifactPresetForProviderKind(
+  providerKind: string,
+): ContextArtifactPreset {
+  return providerKind === "claude-cli" ? "claude" : "codex";
+}
+
+function parseStageOutput<T>(
+  stage: ContextGenerationStage,
+  text: string,
+  parse: (text: string) => T,
+): T {
+  try {
+    return parse(text);
+  } catch (error) {
+    throw new Error(
+      `Context generation ${stage} failed: ${errorMessage(error)}`,
+    );
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function commandLines(profile: RepoProfile): string[] {
