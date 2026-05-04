@@ -374,7 +374,7 @@ describe("MVP API", () => {
     ).toBe(true);
   });
 
-  it("creates PR-number-only review previews without a preexisting profile", async () => {
+  it("creates PR-number-only review previews from an existing profile", async () => {
     const repoRoot = await createLocalPullRequestRepo();
     const fakeCodex = await createFakeCodexCli();
     const fakeGh = await createFakeGhCli();
@@ -390,6 +390,11 @@ describe("MVP API", () => {
       });
       expect(registered.statusCode).toBe(200);
       const repoId = registered.json().repo.id;
+      const analysis = await app.inject({
+        method: "POST",
+        url: `/repos/${repoId}/analyze`,
+      });
+      expect(analysis.statusCode).toBe(200);
 
       const provider = await app.inject({
         method: "POST",

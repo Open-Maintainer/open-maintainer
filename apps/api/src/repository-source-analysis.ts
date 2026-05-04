@@ -1,0 +1,630 @@
+import { execFile } from "node:child_process";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
+import type { MemoryStore } from "@open-maintainer/db";
+import {
+  type GitHubAppInstallationAuth,
+  fetchRepositoryFilesForAnalysis,
+} from "@open-maintainer/github";
+import type {
+  Installation,
+  Repo,
+  RepoProfile,
+  RunRecord,
+} from "@open-maintainer/shared";
+import { nowIso } from "@open-maintainer/shared";
+
+export type RepositoryFile = {
+  path: string;
+  content: string;
+};
+
+export type RegisterRepositorySourceInput =
+  | {
+      kind: "local-worktree";
+      repoRoot: string;
+      owner?: string;
+      name?: string;
+    }
+  | {
+      kind: "uploaded-files";
+      name?: string;
+      files: RepositoryFile[];
+    };
+
+export type RepositorySourceAnalysisError = {
+  statusCode: 404 | 409 | 422;
+  code: "UNKNOWN_REPO" | "NO_READABLE_FILES" | "REPOSITORY_FILES_UNAVAILABLE";
+  message: string;
+  run?: RunRecord;
+};
+
+export type RepositorySourceAnalysisResult<T> =
+  | ({ ok: true } & T)
+  | ({ ok: false } & RepositorySourceAnalysisError);
+
+export interface RepositorySourceAnalysisRegistry {
+  registerSource(input: RegisterRepositorySourceInput): Promise<
+    RepositorySourceAnalysisResult<{
+      repo: Repo;
+      fileCount: number;
+      source:
+        | "local-worktree"
+        | "uploaded-files"
+        | "uploaded-files-mounted-worktree";
+      worktreeRoot: string | null;
+    }>
+  >;
+
+  analyzeRepository(input: {
+    repoId: string;
+    ref?: string;
+  }): Promise<
+    RepositorySourceAnalysisResult<{
+      repo: Repo;
+      run: RunRecord;
+      profile: RepoProfile;
+    }>
+  >;
+
+  ensureProfile(input: {
+    repoId: string;
+    ref?: string;
+    createdRunMessage?: string;
+  }): Promise<
+    RepositorySourceAnalysisResult<{
+      repo: Repo;
+      profile: RepoProfile;
+      created: boolean;
+      run?: RunRecord;
+    }>
+  >;
+}
+
+type RepositoryFilesFetcher = (input: {
+  owner: string;
+  repo: string;
+  ref: string;
+  auth?: GitHubAppInstallationAuth;
+}) => Promise<{ files: RepositoryFile[] }>;
+
+type RegistryOptions = {
+  store: MemoryStore;
+  fetchRepositoryFiles?: RepositoryFilesFetcher;
+  getInstallationAuth?: (
+    installationId: string,
+  ) => GitHubAppInstallationAuth | null;
+};
+
+const execFileAsync = promisify(execFile);
+const maxRepositoryFiles = 800;
+
+export function createRepositorySourceAnalysisRegistry(
+  options: RegistryOptions,
+): RepositorySourceAnalysisRegistry {
+  const fetchRepositoryFiles =
+    options.fetchRepositoryFiles ?? defaultRepositoryFilesFetcher;
+  const getInstallationAuth = options.getInstallationAuth ?? (() => null);
+
+  async function registerSource(input: RegisterRepositorySourceInput) {
+    if (input.kind === "local-worktree") {
+      const repoRoot = path.resolve(input.repoRoot);
+      const files = await scanRepository(repoRoot, {
+        maxFiles: maxRepositoryFiles,
+      });
+      if (files.length === 0) {
+        return noReadableFiles(
+          "No readable repository files were found at the selected path.",
+        );
+      }
+
+      const owner =
+        (input.owner ?? path.basename(path.dirname(repoRoot))) || "local";
+      const name = (input.name ?? path.basename(repoRoot)) || "repository";
+      const repo = await registerLocalRepository({
+        owner,
+        name,
+        files,
+        worktreeRoot: repoRoot,
+        defaultBranch: await detectLocalDefaultBranch(repoRoot),
+      });
+
+      return {
+        ok: true as const,
+        repo,
+        fileCount: files.length,
+        source: "local-worktree" as const,
+        worktreeRoot: repoRoot,
+      };
+    }
+
+    const files = input.files.flatMap((file) => {
+      const normalizedPath = normalizeUploadedPath(file.path);
+      return normalizedPath ? [{ ...file, path: normalizedPath }] : [];
+    });
+    if (files.length === 0) {
+      return noReadableFiles(
+        "No readable repository files were provided by the selected directory.",
+      );
+    }
+
+    const repoName = input.name ?? "uploaded-repo";
+    const mountedWorktree = await resolveMountedWorktreeForUploadedFiles({
+      name: repoName,
+      files,
+    });
+    const pendingRepo = localRepositoryRecord({
+      owner: "local",
+      name: repoName,
+    });
+    const worktreeRoot =
+      mountedWorktree?.worktreeRoot ??
+      (await materializeRepositoryFiles(pendingRepo.id, files));
+    const repo = await registerLocalRepository({
+      owner: "local",
+      name: repoName,
+      files: mountedWorktree?.files ?? files,
+      id: pendingRepo.id,
+      worktreeRoot,
+      ...(mountedWorktree
+        ? { defaultBranch: mountedWorktree.defaultBranch }
+        : {}),
+    });
+
+    return {
+      ok: true as const,
+      repo,
+      fileCount: files.length,
+      source: mountedWorktree
+        ? ("uploaded-files-mounted-worktree" as const)
+        : ("uploaded-files" as const),
+      worktreeRoot,
+    };
+  }
+
+  async function analyzeRepository(input: { repoId: string; ref?: string }) {
+    const repo = options.store.repos.get(input.repoId);
+    if (!repo) {
+      return unknownRepo();
+    }
+
+    const run = options.store.recordRun({
+      repoId: input.repoId,
+      type: "analysis",
+      status: "running",
+      inputSummary: `Analyze ${repo.fullName}`,
+      safeMessage: null,
+      artifactVersions: [],
+      repoProfileVersion: null,
+      provider: null,
+      model: null,
+      externalId: null,
+    });
+    const filesResult = await repositoryFilesForAnalysis({
+      repo,
+      repoId: input.repoId,
+      ...(input.ref ? { ref: input.ref } : {}),
+    });
+    if (!filesResult.ok) {
+      const failedRun = options.store.updateRun(run.id, {
+        status: "failed",
+        safeMessage: filesResult.message,
+      });
+      return {
+        ...filesResult,
+        run: failedRun,
+      };
+    }
+
+    const profile = createProfile({
+      repo,
+      repoId: input.repoId,
+      files: filesResult.files,
+    });
+    const updatedRun = options.store.updateRun(run.id, {
+      status: "succeeded",
+      repoProfileVersion: profile.version,
+      safeMessage: "Repository profile generated.",
+    });
+    return { ok: true as const, repo, run: updatedRun, profile };
+  }
+
+  async function ensureProfile(input: {
+    repoId: string;
+    ref?: string;
+    createdRunMessage?: string;
+  }) {
+    const repo = options.store.repos.get(input.repoId);
+    if (!repo) {
+      return unknownRepo();
+    }
+    const existing = options.store.latestProfile(input.repoId);
+    if (existing) {
+      return { ok: true as const, repo, profile: existing, created: false };
+    }
+
+    const filesResult = await repositoryFilesForAnalysis({
+      repo,
+      repoId: input.repoId,
+      ...(input.ref ? { ref: input.ref } : {}),
+    });
+    if (!filesResult.ok) {
+      return filesResult;
+    }
+    const profile = createProfile({
+      repo,
+      repoId: input.repoId,
+      files: filesResult.files,
+    });
+    const run = options.store.recordRun({
+      repoId: input.repoId,
+      type: "analysis",
+      status: "succeeded",
+      inputSummary: `Analyze ${repo.fullName}`,
+      safeMessage:
+        input.createdRunMessage ??
+        "Repository profile generated for PR review preview.",
+      artifactVersions: [],
+      repoProfileVersion: profile.version,
+      provider: null,
+      model: null,
+      externalId: null,
+    });
+    return { ok: true as const, repo, profile, created: true, run };
+  }
+
+  async function repositoryFilesForAnalysis(input: {
+    repoId: string;
+    repo: Repo;
+    ref?: string;
+  }): Promise<
+    | { ok: true; files: RepositoryFile[] }
+    | {
+        ok: false;
+        statusCode: 409;
+        code: "REPOSITORY_FILES_UNAVAILABLE";
+        message: string;
+      }
+  > {
+    const auth = getInstallationAuth(input.repo.installationId);
+    if (!auth) {
+      const files = options.store.repoFiles.get(input.repoId) ?? [];
+      if (files.length > 0) {
+        return { ok: true, files };
+      }
+      return repositoryFilesUnavailable();
+    }
+    const fetched = await fetchRepositoryFiles({
+      owner: input.repo.owner,
+      repo: input.repo.name,
+      ref: input.ref ?? input.repo.defaultBranch,
+      auth,
+    });
+    const files = fetched.files.map((file) => ({
+      path: file.path,
+      content: file.content,
+    }));
+    options.store.repoFiles.set(input.repoId, files);
+    return { ok: true, files };
+  }
+
+  function createProfile(input: {
+    repoId: string;
+    repo: Repo;
+    files: RepositoryFile[];
+  }): RepoProfile {
+    const version = (options.store.profiles.get(input.repoId)?.length ?? 0) + 1;
+    const profile = analyzeRepo({
+      repoId: input.repoId,
+      owner: input.repo.owner,
+      name: input.repo.name,
+      defaultBranch: input.repo.defaultBranch,
+      version,
+      files: input.files,
+    });
+    options.store.addProfile(profile);
+    return profile;
+  }
+
+  async function registerLocalRepository(input: {
+    owner: string;
+    name: string;
+    files: RepositoryFile[];
+    id?: string;
+    worktreeRoot?: string;
+    defaultBranch?: string;
+  }): Promise<Repo> {
+    const repo = localRepositoryRecord(input);
+
+    options.store.installations.set(repo.installationId, localInstallation());
+    options.store.repos.set(repo.id, repo);
+    options.store.repoFiles.set(repo.id, input.files);
+    if (input.worktreeRoot) {
+      options.store.repoWorktrees.set(repo.id, input.worktreeRoot);
+    } else {
+      options.store.repoWorktrees.delete(repo.id);
+    }
+    options.store.profiles.delete(repo.id);
+    options.store.artifacts.delete(repo.id);
+
+    return repo;
+  }
+
+  return {
+    registerSource,
+    analyzeRepository,
+    ensureProfile,
+  };
+}
+
+async function defaultRepositoryFilesFetcher(input: {
+  owner: string;
+  repo: string;
+  ref: string;
+  auth?: GitHubAppInstallationAuth;
+}): Promise<{ files: RepositoryFile[] }> {
+  const fetched = await fetchRepositoryFilesForAnalysis(input);
+  return {
+    files: fetched.files.map((file) => ({
+      path: file.path,
+      content: file.content,
+    })),
+  };
+}
+
+function unknownRepo(): RepositorySourceAnalysisResult<never> {
+  return {
+    ok: false,
+    statusCode: 404,
+    code: "UNKNOWN_REPO",
+    message: "Unknown repo.",
+  };
+}
+
+function noReadableFiles(
+  message: string,
+): RepositorySourceAnalysisResult<never> {
+  return {
+    ok: false,
+    statusCode: 422,
+    code: "NO_READABLE_FILES",
+    message,
+  };
+}
+
+function repositoryFilesUnavailable(): {
+  ok: false;
+  statusCode: 409;
+  code: "REPOSITORY_FILES_UNAVAILABLE";
+  message: string;
+} {
+  return {
+    ok: false,
+    statusCode: 409,
+    code: "REPOSITORY_FILES_UNAVAILABLE",
+    message:
+      "Repository files are unavailable. Configure GitHub App credentials with contents read permission or seed local files for development.",
+  };
+}
+
+function localRepositoryRecord(input: {
+  owner: string;
+  name: string;
+  id?: string;
+  defaultBranch?: string;
+}): Repo {
+  return {
+    id: input.id ?? `local_${slugId(input.owner)}_${slugId(input.name)}`,
+    installationId: "installation_local",
+    owner: input.owner,
+    name: input.name,
+    fullName: `${input.owner}/${input.name}`,
+    defaultBranch: input.defaultBranch ?? "local",
+    private: true,
+    permissions: { contents: true, metadata: true, pull_requests: false },
+  };
+}
+
+function localInstallation(): Installation {
+  const createdAt = nowIso();
+  return {
+    id: "installation_local",
+    accountLogin: "local",
+    accountType: "Local",
+    repositorySelection: "selected",
+    permissions: {
+      contents: "local",
+      metadata: "local",
+      pull_requests: "mock",
+    },
+    createdAt,
+  };
+}
+
+async function resolveMountedWorktreeForUploadedFiles(input: {
+  name: string;
+  files: RepositoryFile[];
+}): Promise<{
+  worktreeRoot: string;
+  files: RepositoryFile[];
+  defaultBranch: string;
+} | null> {
+  for (const candidateRoot of mountedWorktreeCandidates()) {
+    try {
+      await requireGitRepository(candidateRoot);
+      const candidateFiles = await scanRepository(candidateRoot, {
+        maxFiles: maxRepositoryFiles,
+      });
+      if (
+        uploadedFilesMatchMountedWorktree({
+          uploadName: input.name,
+          uploadedFiles: input.files,
+          candidateRoot,
+          candidateFiles,
+        })
+      ) {
+        return {
+          worktreeRoot: candidateRoot,
+          files: candidateFiles,
+          defaultBranch: await detectLocalDefaultBranch(candidateRoot),
+        };
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function mountedWorktreeCandidates(): string[] {
+  const configuredRoots = (
+    process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS ??
+    process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOT ??
+    ""
+  )
+    .split(path.delimiter)
+    .map((candidate) => candidate.trim())
+    .filter((candidate) => candidate.length > 0);
+  const candidates = [...configuredRoots, process.cwd(), "/app"];
+  return [...new Set(candidates.map((candidate) => path.resolve(candidate)))];
+}
+
+function uploadedFilesMatchMountedWorktree(input: {
+  uploadName: string;
+  uploadedFiles: RepositoryFile[];
+  candidateRoot: string;
+  candidateFiles: RepositoryFile[];
+}): boolean {
+  const uploadedPackageName = packageNameFromFiles(input.uploadedFiles);
+  const candidatePackageName = packageNameFromFiles(input.candidateFiles);
+  if (
+    uploadedPackageName &&
+    candidatePackageName &&
+    uploadedPackageName === candidatePackageName
+  ) {
+    return true;
+  }
+
+  const uploadedSlug = slugId(input.uploadName);
+  const candidateSlug = slugId(path.basename(input.candidateRoot));
+  const uploadedPackageJson = rootFileContent(
+    input.uploadedFiles,
+    "package.json",
+  );
+  const candidatePackageJson = rootFileContent(
+    input.candidateFiles,
+    "package.json",
+  );
+  return (
+    uploadedSlug === candidateSlug &&
+    !!uploadedPackageJson &&
+    uploadedPackageJson === candidatePackageJson
+  );
+}
+
+function packageNameFromFiles(files: RepositoryFile[]): string | null {
+  const packageJson = rootFileContent(files, "package.json");
+  if (!packageJson) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(packageJson) as { name?: unknown };
+    return typeof parsed.name === "string" ? parsed.name : null;
+  } catch {
+    return null;
+  }
+}
+
+function rootFileContent(
+  files: RepositoryFile[],
+  filePath: string,
+): string | null {
+  return files.find((file) => file.path === filePath)?.content ?? null;
+}
+
+async function materializeRepositoryFiles(
+  repoId: string,
+  files: RepositoryFile[],
+): Promise<string> {
+  const base =
+    process.env.OPEN_MAINTAINER_LOCAL_REPO_CACHE ??
+    path.join(tmpdir(), "open-maintainer", "local-repos");
+  const root = path.join(base, repoId);
+  await rm(root, { recursive: true, force: true });
+  for (const file of files) {
+    const normalizedPath = normalizeUploadedPath(file.path);
+    if (!normalizedPath) {
+      continue;
+    }
+    const destination = path.join(root, normalizedPath);
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, file.content, "utf8");
+  }
+  return root;
+}
+
+function normalizeUploadedPath(value: string): string | null {
+  const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "");
+  const parts = normalized
+    .split("/")
+    .filter((part) => part.length > 0 && part !== ".");
+  if (parts.length === 0 || parts.some((part) => part === "..")) {
+    return null;
+  }
+  return parts.join("/");
+}
+
+async function detectLocalDefaultBranch(repoRoot: string): Promise<string> {
+  try {
+    return (await runGit(repoRoot, ["symbolic-ref", "--short", "HEAD"])).trim();
+  } catch {
+    return "local";
+  }
+}
+
+async function requireGitRepository(cwd: string): Promise<void> {
+  try {
+    await runGit(cwd, ["rev-parse", "--show-toplevel"]);
+  } catch {
+    throw new Error("Not a Git checkout.");
+  }
+}
+
+async function runGit(cwd: string, args: string[]): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(
+      process.env.OPEN_MAINTAINER_GIT_COMMAND ?? "git",
+      args,
+      {
+        cwd,
+        maxBuffer: 1024 * 1024,
+        timeout: 120_000,
+      },
+    );
+    return stdout;
+  } catch {
+    throw new Error(`git ${args.join(" ")} failed.`);
+  }
+}
+
+function slugId(value: string): string {
+  let slug = "";
+  let needsSeparator = false;
+
+  for (const character of value.toLowerCase()) {
+    const isAsciiLetter = character >= "a" && character <= "z";
+    const isDigit = character >= "0" && character <= "9";
+    if (isAsciiLetter || isDigit) {
+      if (needsSeparator && slug.length > 0) {
+        slug += "_";
+      }
+      slug += character;
+      needsSeparator = false;
+    } else {
+      needsSeparator = slug.length > 0;
+    }
+  }
+
+  return slug || "repo";
+}

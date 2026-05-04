@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import cors from "@fastify/cors";
@@ -12,14 +11,13 @@ import {
   buildProvider,
   createProviderConfig,
 } from "@open-maintainer/ai";
-import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
+import { scanRepository } from "@open-maintainer/analyzer";
 import { createContextGenerationOrchestrator } from "@open-maintainer/context";
 import { checkDatabase, checkRedis, store } from "@open-maintainer/db";
 import {
   createContextBranchName,
   createContextPr,
   fetchPullRequestReviewContext,
-  fetchRepositoryFilesForAnalysis,
   mapInstallationEvent,
   renderContextPrBody,
   verifyWebhookSignature,
@@ -33,7 +31,6 @@ import {
   type ArtifactType,
   ArtifactTypeSchema,
   type GeneratedArtifact,
-  type Installation,
   type ModelProviderConfig,
   type Repo,
   type RepoProfile,
@@ -44,6 +41,10 @@ import {
 } from "@open-maintainer/shared";
 import Fastify from "fastify";
 import { z } from "zod";
+import {
+  type RepositorySourceAnalysisRegistry,
+  createRepositorySourceAnalysisRegistry,
+} from "./repository-source-analysis";
 
 const execFileAsync = promisify(execFile);
 const sensitiveRouteRateLimit = {
@@ -57,6 +58,10 @@ const UploadedRepositoryFileSchema = z.object({
 
 export function buildApp() {
   const app = Fastify({ logger: false });
+  const repositorySources = createRepositorySourceAnalysisRegistry({
+    store,
+    getInstallationAuth: githubAuthForInstallation,
+  });
   app.register(cors, { origin: true });
   app.register(formBody);
 
@@ -97,26 +102,14 @@ export function buildApp() {
         const body = z
           .object({ repoRoot: z.string().min(1).max(500) })
           .parse(request.body ?? {});
-        const repoRoot = path.resolve(body.repoRoot);
-        const files = await scanRepository(repoRoot, { maxFiles: 800 });
-        if (files.length === 0) {
-          return reply.code(422).send({
-            error:
-              "No readable repository files were found at the selected path.",
-          });
-        }
-
-        const owner = path.basename(path.dirname(repoRoot)) || "local";
-        const name = path.basename(repoRoot) || "repository";
-        const repo = registerLocalRepository({
-          owner,
-          name,
-          files,
-          worktreeRoot: repoRoot,
-          defaultBranch: await detectLocalDefaultBranch(repoRoot),
+        const result = await repositorySources.registerSource({
+          kind: "local-worktree",
+          repoRoot: path.resolve(body.repoRoot),
         });
-
-        return { repo, files: files.length };
+        if (!result.ok) {
+          return reply.code(result.statusCode).send({ error: result.message });
+        }
+        return { repo: result.repo, files: result.fileCount };
       },
     );
 
@@ -130,40 +123,15 @@ export function buildApp() {
             files: z.array(UploadedRepositoryFileSchema).min(1).max(800),
           })
           .parse(request.body ?? {});
-        const files = body.files.flatMap((file) => {
-          const normalizedPath = normalizeUploadedPath(file.path);
-          return normalizedPath ? [{ ...file, path: normalizedPath }] : [];
+        const result = await repositorySources.registerSource({
+          kind: "uploaded-files",
+          files: body.files,
+          ...(body.name ? { name: body.name } : {}),
         });
-        if (files.length === 0) {
-          return reply.code(422).send({
-            error:
-              "No readable repository files were provided by the selected directory.",
-          });
+        if (!result.ok) {
+          return reply.code(result.statusCode).send({ error: result.message });
         }
-
-        const repoName = body.name ?? "uploaded-repo";
-        const mountedWorktree = await resolveMountedWorktreeForUploadedFiles({
-          name: repoName,
-          files,
-        });
-        const pendingRepo = localRepositoryRecord({
-          owner: "local",
-          name: repoName,
-        });
-        const worktreeRoot =
-          mountedWorktree?.worktreeRoot ??
-          (await materializeRepositoryFiles(pendingRepo.id, files));
-        const repo = registerLocalRepository({
-          owner: "local",
-          name: repoName,
-          files: mountedWorktree?.files ?? files,
-          id: pendingRepo.id,
-          worktreeRoot,
-          ...(mountedWorktree
-            ? { defaultBranch: mountedWorktree.defaultBranch }
-            : {}),
-        });
-        return { repo, files: files.length };
+        return { repo: result.repo, files: result.fileCount };
       },
     );
   });
@@ -232,53 +200,16 @@ export function buildApp() {
         const { repoId } = z
           .object({ repoId: z.string() })
           .parse(request.params);
-        const repo = store.repos.get(repoId);
-        if (!repo) {
-          return reply.code(404).send({ error: "Unknown repo." });
-        }
-        const run = store.recordRun({
+        const result = await repositorySources.analyzeRepository({
           repoId,
-          type: "analysis",
-          status: "running",
-          inputSummary: `Analyze ${repo.fullName}`,
-          safeMessage: null,
-          artifactVersions: [],
-          repoProfileVersion: null,
-          provider: null,
-          model: null,
-          externalId: null,
         });
-        const filesResult = await repositoryFilesForAnalysis({
-          repoId,
-          repo,
-        });
-        if (!filesResult.ok) {
-          store.updateRun(run.id, {
-            status: "failed",
-            safeMessage: filesResult.error,
-          });
-          return reply.code(409).send({
-            error: store.runs.get(run.id)?.safeMessage,
-            run: store.runs.get(run.id),
+        if (!result.ok) {
+          return reply.code(result.statusCode).send({
+            error: result.message,
+            ...(result.run ? { run: result.run } : {}),
           });
         }
-        const files = filesResult.files;
-        const version = (store.profiles.get(repoId)?.length ?? 0) + 1;
-        const profile = analyzeRepo({
-          repoId,
-          owner: repo.owner,
-          name: repo.name,
-          defaultBranch: repo.defaultBranch,
-          version,
-          files,
-        });
-        store.addProfile(profile);
-        store.updateRun(run.id, {
-          status: "succeeded",
-          repoProfileVersion: profile.version,
-          safeMessage: "Repository profile generated.",
-        });
-        return { run: store.runs.get(run.id), profile };
+        return { run: result.run, profile: result.profile };
       },
     );
   });
@@ -501,6 +432,7 @@ export function buildApp() {
     const prepared = await prepareReviewPreviewInput({
       repoId,
       repo,
+      repositorySources,
       ...(body.baseRef ? { baseRef: body.baseRef } : {}),
       ...(body.headRef ? { headRef: body.headRef } : {}),
       ...(body.prNumber ? { prNumber: body.prNumber } : {}),
@@ -1213,6 +1145,7 @@ function pullRequestNumber(prUrl: string): number {
 async function prepareReviewPreviewInput(input: {
   repoId: string;
   repo: Repo;
+  repositorySources: RepositorySourceAnalysisRegistry;
   baseRef?: string;
   headRef?: string;
   prNumber?: number;
@@ -1237,11 +1170,16 @@ async function prepareReviewPreviewInput(input: {
       }
       const profileResult = await latestOrCreateProfile({
         repoId: input.repoId,
-        repo: input.repo,
+        repositorySources: input.repositorySources,
         ref: githubReviewInput.baseRef,
       });
       if (!profileResult.ok) {
-        return profileResult;
+        return {
+          ok: false,
+          statusCode:
+            profileResult.statusCode === 404 ? 409 : profileResult.statusCode,
+          error: profileResult.message,
+        };
       }
       return {
         ok: true,
@@ -1291,10 +1229,15 @@ async function prepareReviewPreviewInput(input: {
   const headRef = input.headRef ?? "HEAD";
   const profileResult = await latestOrCreateProfile({
     repoId: input.repoId,
-    repo: input.repo,
+    repositorySources: input.repositorySources,
   });
   if (!profileResult.ok) {
-    return profileResult;
+    return {
+      ok: false,
+      statusCode:
+        profileResult.statusCode === 404 ? 409 : profileResult.statusCode,
+      error: profileResult.message,
+    };
   }
   const localReviewInput = await assembleLocalReviewInput({
     repoRoot: worktreeRoot,
@@ -1356,43 +1299,14 @@ async function githubReviewInputForPullRequest(input: {
 
 async function latestOrCreateProfile(input: {
   repoId: string;
-  repo: Repo;
+  repositorySources: RepositorySourceAnalysisRegistry;
   ref?: string;
-}): Promise<
-  | { ok: true; profile: RepoProfile }
-  | { ok: false; statusCode: 409; error: string }
-> {
-  const existing = store.latestProfile(input.repoId);
-  if (existing) {
-    return { ok: true, profile: existing };
-  }
-  const filesResult = await repositoryFilesForAnalysis(input);
-  if (!filesResult.ok) {
-    return { ok: false, statusCode: 409, error: filesResult.error };
-  }
-  const version = (store.profiles.get(input.repoId)?.length ?? 0) + 1;
-  const profile = analyzeRepo({
+}) {
+  return input.repositorySources.ensureProfile({
     repoId: input.repoId,
-    owner: input.repo.owner,
-    name: input.repo.name,
-    defaultBranch: input.repo.defaultBranch,
-    version,
-    files: filesResult.files,
+    ...(input.ref ? { ref: input.ref } : {}),
+    createdRunMessage: "Repository profile generated for PR review preview.",
   });
-  store.addProfile(profile);
-  store.recordRun({
-    repoId: input.repoId,
-    type: "analysis",
-    status: "succeeded",
-    inputSummary: `Analyze ${input.repo.fullName}`,
-    safeMessage: "Repository profile generated for PR review preview.",
-    artifactVersions: [],
-    repoProfileVersion: profile.version,
-    provider: null,
-    model: null,
-    externalId: null,
-  });
-  return { ok: true, profile };
 }
 
 async function localPullRequestMetadata(input: {
@@ -1543,40 +1457,6 @@ function githubAuthForInstallation(
   };
 }
 
-async function repositoryFilesForAnalysis(input: {
-  repoId: string;
-  repo: Repo;
-  ref?: string;
-}): Promise<
-  | { ok: true; files: Array<{ path: string; content: string }> }
-  | { ok: false; error: string }
-> {
-  const auth = githubAuthForInstallation(input.repo.installationId);
-  if (!auth) {
-    const files = store.repoFiles.get(input.repoId) ?? [];
-    if (files.length > 0) {
-      return { ok: true, files };
-    }
-    return {
-      ok: false,
-      error:
-        "Repository files are unavailable. Configure GitHub App credentials with contents read permission or seed local files for development.",
-    };
-  }
-  const fetched = await fetchRepositoryFilesForAnalysis({
-    owner: input.repo.owner,
-    repo: input.repo.name,
-    ref: input.ref ?? input.repo.defaultBranch,
-    auth,
-  });
-  const files = fetched.files.map((file) => ({
-    path: file.path,
-    content: file.content,
-  }));
-  store.repoFiles.set(input.repoId, files);
-  return { ok: true, files };
-}
-
 async function createGitHubAppContextPr(input: {
   repoId: string;
   repo: Repo;
@@ -1613,222 +1493,10 @@ async function createGitHubAppContextPr(input: {
   };
 }
 
-function registerLocalRepository(input: {
-  owner: string;
-  name: string;
-  files: Array<{ path: string; content: string }>;
-  id?: string;
-  worktreeRoot?: string;
-  defaultBranch?: string;
-}): Repo {
-  const repo = localRepositoryRecord(input);
-
-  store.installations.set(repo.installationId, localInstallation());
-  store.repos.set(repo.id, repo);
-  store.repoFiles.set(repo.id, input.files);
-  if (input.worktreeRoot) {
-    store.repoWorktrees.set(repo.id, input.worktreeRoot);
-  } else {
-    store.repoWorktrees.delete(repo.id);
-  }
-  store.profiles.delete(repo.id);
-  store.artifacts.delete(repo.id);
-
-  return repo;
-}
-
-function localRepositoryRecord(input: {
-  owner: string;
-  name: string;
-  id?: string;
-  defaultBranch?: string;
-}): Repo {
-  return {
-    id: input.id ?? `local_${slugId(input.owner)}_${slugId(input.name)}`,
-    installationId: "installation_local",
-    owner: input.owner,
-    name: input.name,
-    fullName: `${input.owner}/${input.name}`,
-    defaultBranch: input.defaultBranch ?? "local",
-    private: true,
-    permissions: { contents: true, metadata: true, pull_requests: false },
-  };
-}
-
 async function detectLocalDefaultBranch(repoRoot: string): Promise<string> {
   try {
     return (await runGit(repoRoot, ["symbolic-ref", "--short", "HEAD"])).trim();
   } catch {
     return "local";
   }
-}
-
-function localInstallation(): Installation {
-  const createdAt = nowIso();
-  return {
-    id: "installation_local",
-    accountLogin: "local",
-    accountType: "Local",
-    repositorySelection: "selected",
-    permissions: {
-      contents: "local",
-      metadata: "local",
-      pull_requests: "mock",
-    },
-    createdAt,
-  };
-}
-
-async function resolveMountedWorktreeForUploadedFiles(input: {
-  name: string;
-  files: Array<{ path: string; content: string }>;
-}): Promise<{
-  worktreeRoot: string;
-  files: Array<{ path: string; content: string }>;
-  defaultBranch: string;
-} | null> {
-  for (const candidateRoot of mountedWorktreeCandidates()) {
-    try {
-      await requireGitRepository(candidateRoot);
-      const candidateFiles = await scanRepository(candidateRoot, {
-        maxFiles: 800,
-      });
-      if (
-        uploadedFilesMatchMountedWorktree({
-          uploadName: input.name,
-          uploadedFiles: input.files,
-          candidateRoot,
-          candidateFiles,
-        })
-      ) {
-        return {
-          worktreeRoot: candidateRoot,
-          files: candidateFiles,
-          defaultBranch: await detectLocalDefaultBranch(candidateRoot),
-        };
-      }
-    } catch {}
-  }
-  return null;
-}
-
-function mountedWorktreeCandidates(): string[] {
-  const configuredRoots = (
-    process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOTS ??
-    process.env.OPEN_MAINTAINER_DASHBOARD_REPO_ROOT ??
-    ""
-  )
-    .split(path.delimiter)
-    .map((candidate) => candidate.trim())
-    .filter((candidate) => candidate.length > 0);
-  const candidates = [...configuredRoots, process.cwd(), "/app"];
-  return [...new Set(candidates.map((candidate) => path.resolve(candidate)))];
-}
-
-function uploadedFilesMatchMountedWorktree(input: {
-  uploadName: string;
-  uploadedFiles: Array<{ path: string; content: string }>;
-  candidateRoot: string;
-  candidateFiles: Array<{ path: string; content: string }>;
-}): boolean {
-  const uploadedPackageName = packageNameFromFiles(input.uploadedFiles);
-  const candidatePackageName = packageNameFromFiles(input.candidateFiles);
-  if (
-    uploadedPackageName &&
-    candidatePackageName &&
-    uploadedPackageName === candidatePackageName
-  ) {
-    return true;
-  }
-
-  const uploadedSlug = slugId(input.uploadName);
-  const candidateSlug = slugId(path.basename(input.candidateRoot));
-  const uploadedPackageJson = rootFileContent(
-    input.uploadedFiles,
-    "package.json",
-  );
-  const candidatePackageJson = rootFileContent(
-    input.candidateFiles,
-    "package.json",
-  );
-  return (
-    uploadedSlug === candidateSlug &&
-    !!uploadedPackageJson &&
-    uploadedPackageJson === candidatePackageJson
-  );
-}
-
-function packageNameFromFiles(
-  files: Array<{ path: string; content: string }>,
-): string | null {
-  const packageJson = rootFileContent(files, "package.json");
-  if (!packageJson) {
-    return null;
-  }
-  try {
-    const parsed = JSON.parse(packageJson) as { name?: unknown };
-    return typeof parsed.name === "string" ? parsed.name : null;
-  } catch {
-    return null;
-  }
-}
-
-function rootFileContent(
-  files: Array<{ path: string; content: string }>,
-  filePath: string,
-): string | null {
-  return files.find((file) => file.path === filePath)?.content ?? null;
-}
-
-async function materializeRepositoryFiles(
-  repoId: string,
-  files: Array<{ path: string; content: string }>,
-): Promise<string> {
-  const base =
-    process.env.OPEN_MAINTAINER_LOCAL_REPO_CACHE ??
-    path.join(tmpdir(), "open-maintainer", "local-repos");
-  const root = path.join(base, repoId);
-  await rm(root, { recursive: true, force: true });
-  for (const file of files) {
-    const normalizedPath = normalizeUploadedPath(file.path);
-    if (!normalizedPath) {
-      continue;
-    }
-    const destination = path.join(root, normalizedPath);
-    await mkdir(path.dirname(destination), { recursive: true });
-    await writeFile(destination, file.content, "utf8");
-  }
-  return root;
-}
-
-function normalizeUploadedPath(value: string): string | null {
-  const normalized = value.replaceAll("\\", "/").replace(/^\/+/, "");
-  const parts = normalized
-    .split("/")
-    .filter((part) => part.length > 0 && part !== ".");
-  if (parts.length === 0 || parts.some((part) => part === "..")) {
-    return null;
-  }
-  return parts.join("/");
-}
-
-function slugId(value: string): string {
-  let slug = "";
-  let needsSeparator = false;
-
-  for (const character of value.toLowerCase()) {
-    const isAsciiLetter = character >= "a" && character <= "z";
-    const isDigit = character >= "0" && character <= "9";
-    if (isAsciiLetter || isDigit) {
-      if (needsSeparator && slug.length > 0) {
-        slug += "_";
-      }
-      slug += character;
-      needsSeparator = false;
-    } else {
-      needsSeparator = slug.length > 0;
-    }
-  }
-
-  return slug || "repo";
 }
