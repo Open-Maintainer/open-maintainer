@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import {
@@ -11,10 +10,6 @@ import {
   buildCodexCliProvider,
 } from "@open-maintainer/ai";
 import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
-import {
-  type OpenMaintainerConfig,
-  parseOpenMaintainerConfig,
-} from "@open-maintainer/config";
 import {
   type ArtifactModel,
   type ContextGenerationArtifactSinkPort,
@@ -29,10 +24,6 @@ import {
   profileFingerprint,
   renderReadinessReport,
 } from "@open-maintainer/context";
-import {
-  type GitHubRepositoryClient,
-  createGitHubIssueTriageEvidencePort,
-} from "@open-maintainer/github";
 import type {
   PullRequestReviewRun,
   ReviewInlineCommentResult,
@@ -42,28 +33,18 @@ import type {
 } from "@open-maintainer/review";
 import type {
   IssueTriageEvidence,
-  IssueTriageInput,
-  IssueTriageResolvedLabel,
   IssueTriageResult,
-  IssueTriageSignal,
-  ModelProviderConfig,
 } from "@open-maintainer/shared";
+import { newId, nowIso } from "@open-maintainer/shared";
 import {
-  IssueTriageInputSchema,
-  IssueTriageResultSchema,
-  newId,
-  nowIso,
-} from "@open-maintainer/shared";
-import {
-  type IssueTriageArtifactPort,
   type IssueTriageBatchReport,
-  type IssueTriageGitHubPort,
-  type IssueTriageModelPort,
-  type IssueTriageRepoContextPort,
-  createIssueTriageWorkflow,
   renderIssueTriageBatchGroups,
   renderIssueTriageBatchSummary,
 } from "@open-maintainer/triage";
+import {
+  createCliIssueTriageAdapters,
+  createIssueTriageUseCases,
+} from "./issue-triage-use-cases";
 import {
   type ReviewOperationModelProvider,
   type ReviewOperationRequest,
@@ -1146,13 +1127,18 @@ async function triageIssue(
   if (options.issueNumber === null) {
     throw new Error("triage issue requires --number <n>.");
   }
-  validateIssueTriageWriteOptions(options);
-  const context = await prepareIssueTriageContext(repoRoot, options);
-  const { evidence, result, artifactPath } = await runIssueTriagePreview({
+  const useCases = createIssueTriageUseCases(createCliIssueTriageAdapters());
+  const { evidence, result, artifactPath } = await useCases.triageOne({
     repoRoot,
-    context,
     issueNumber: options.issueNumber,
-    options,
+    model: {
+      provider: options.model,
+      model: options.llmModel,
+      consent: {
+        repositoryContentTransfer: options.allowModelContentTransfer,
+      },
+    },
+    writeIntent: buildIssueTriageWriteIntent(options),
   });
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));
@@ -1180,18 +1166,10 @@ async function triageBrief(
   if (options.issueNumber === null) {
     throw new Error("triage brief requires --number <n>.");
   }
-  const artifactPath = issueTriageArtifactPath(options.issueNumber);
-  const artifact = await readIssueTriageArtifact(repoRoot, artifactPath);
-  if (
-    artifact.result.agentReadiness !== "agent_ready" &&
-    !options.issueBriefAllowNonAgentReady
-  ) {
-    throw new Error(
-      `Issue #${options.issueNumber} is ${artifact.result.agentReadiness}; pass --allow-non-agent-ready to generate an override brief.`,
-    );
-  }
-  const workflow = await prepareIssueTriageBriefWorkflow(repoRoot);
-  const briefResult = await workflow.brief(options.issueNumber, {
+  const useCases = createIssueTriageUseCases(createCliIssueTriageAdapters());
+  const briefResult = await useCases.briefIssue({
+    repoRoot,
+    issueNumber: options.issueNumber,
     allowNonAgentReady: options.issueBriefAllowNonAgentReady,
     dryRun: options.dryRun,
     outputPath: options.outputPath,
@@ -1227,278 +1205,33 @@ async function triageBrief(
   }
 }
 
-type IssueTriageContext = {
-  profile: Awaited<ReturnType<typeof createProfileFromFiles>>;
-  providerConfig: ModelProviderConfig;
-  provider: ModelProvider;
-  client: GitHubRepositoryClient;
-  config: OpenMaintainerConfig | null;
-  workflow: ReturnType<typeof createIssueTriageWorkflow>;
-};
-
-type IssueTriagePreview = {
-  evidence: IssueTriageEvidence;
-  result: IssueTriageResult;
-  artifactPath: string;
-};
-
-async function prepareIssueTriageContext(
-  repoRoot: string,
-  options: CliOptions,
-): Promise<IssueTriageContext> {
-  const files = await scanRepository(repoRoot, { maxFiles: 800 });
-  const profile = await createProfileFromFiles(repoRoot, files);
-  const provider = buildIssueTriageProvider({
-    repoRoot,
-    provider: options.model,
-    model: options.llmModel,
-    allowModelContentTransfer: options.allowModelContentTransfer,
-  });
-  const client = buildGhIssueTriageClient(repoRoot);
-  const config = await readOptionalRepoFile(repoRoot, ".open-maintainer.yml")
-    .then((source) => (source ? parseOpenMaintainerConfig(source) : null))
-    .catch(() => null);
-  const repoContext: IssueTriageRepoContextPort = {
-    repoId: profile.repoId,
-    owner: profile.owner,
-    repo: profile.name,
-    sourceProfileVersion: profile.version,
-    contextArtifactVersion: null,
-    closure: config?.issueTriage?.closure ?? null,
-    batch: config?.issueTriage?.batch ?? null,
-    validationCommands: profile.commands,
-    readFirstPaths: issueBriefReadFirstPaths(profile),
-  };
-  if (config?.issueTriage?.labels) {
-    repoContext.labels = {
-      mappings: config.issueTriage.labels.mappings as Partial<
-        Record<IssueTriageSignal, string>
-      >,
-      preferUpstream: config.issueTriage.labels.preferUpstream,
-      createMissingPresetLabels:
-        config.issueTriage.labels.createMissingPresetLabels,
-    };
-  }
-  return {
-    profile,
-    providerConfig: provider.providerConfig,
-    provider: provider.provider,
-    client,
-    config,
-    workflow: createIssueTriageWorkflow({
-      repo: repoContext,
-      github: createCliIssueTriageGitHubPort(repoRoot, profile, client),
-      model: createCliIssueTriageModelPort(provider),
-      artifacts: createCliIssueTriageArtifactPort(repoRoot),
-    }),
-  };
-}
-
-async function prepareIssueTriageBriefWorkflow(
-  repoRoot: string,
-): Promise<ReturnType<typeof createIssueTriageWorkflow>> {
-  const profile = await createProfile(repoRoot);
-  return createIssueTriageWorkflow({
-    repo: {
-      repoId: profile.repoId,
-      owner: profile.owner,
-      repo: profile.name,
-      sourceProfileVersion: profile.version,
-      validationCommands: profile.commands,
-      readFirstPaths: issueBriefReadFirstPaths(profile),
-    },
-    github: createUnavailableIssueTriageGitHubPort(),
-    model: {
-      provider: "Local artifact",
-      model: "none",
-      async complete() {
-        throw new Error("Model calls are not used for issue triage briefs.");
-      },
-    },
-    artifacts: createCliIssueTriageArtifactPort(repoRoot),
-  });
-}
-
-function createUnavailableIssueTriageGitHubPort(): IssueTriageGitHubPort {
-  const unavailable = async () => {
-    throw new Error("GitHub calls are not used for issue triage briefs.");
-  };
-  return {
-    fetchEvidence: unavailable,
-    listRepoLabels: unavailable,
-    listRepoLabelNames: unavailable,
-    listIssueLabelNames: unavailable,
-    createLabel: unavailable,
-    applyLabel: unavailable,
-    listTriageComments: unavailable,
-    postComment: unavailable,
-    updateComment: unavailable,
-    closeIssue: unavailable,
-    listIssues: unavailable,
-  };
-}
-
-function createCliIssueTriageModelPort(input: {
-  providerConfig: ModelProviderConfig;
-  provider: ModelProvider;
-}): IssueTriageModelPort {
-  return {
-    provider: input.providerConfig.displayName,
-    model: input.providerConfig.model,
-    async complete(prompt, options) {
-      return input.provider.complete(prompt, options);
-    },
-  };
-}
-
-function createCliIssueTriageArtifactPort(
-  repoRoot: string,
-): IssueTriageArtifactPort {
-  return {
-    writeIssue: (artifactPath, artifact) =>
-      writeIssueTriageArtifact(repoRoot, artifactPath, artifact),
-    readIssue: (artifactPath) =>
-      readIssueTriageArtifact(repoRoot, artifactPath),
-    async writeBatchReport(input) {
-      await writeTriageRunReports(repoRoot, input);
-    },
-    async writeBriefMarkdown(outputPath, markdown) {
-      const absolutePath = path.resolve(repoRoot, outputPath);
-      await mkdir(path.dirname(absolutePath), { recursive: true });
-      await writeFile(absolutePath, markdown);
-    },
-  };
-}
-
-function createCliIssueTriageGitHubPort(
-  repoRoot: string,
-  profile: Awaited<ReturnType<typeof createProfileFromFiles>>,
-  client: GitHubRepositoryClient,
-): IssueTriageGitHubPort {
-  const evidencePort = createGitHubIssueTriageEvidencePort({ client });
-  return {
-    fetchEvidence: evidencePort.fetchEvidence,
-    listRepoLabels: () => listRepoLabels(repoRoot, profile.owner, profile.name),
-    listRepoLabelNames: () =>
-      listRepoLabelNames(repoRoot, profile.owner, profile.name),
-    listIssueLabelNames: (issueNumber) =>
-      listIssueLabelNames(repoRoot, profile.owner, profile.name, issueNumber),
-    createLabel: (label) =>
-      createIssueTriageLabel(repoRoot, profile.owner, profile.name, label),
-    applyLabel: (issueNumber, label) =>
-      applyIssueLabel(
-        repoRoot,
-        profile.owner,
-        profile.name,
-        issueNumber,
-        label,
-      ),
-    async listTriageComments(issueNumber) {
-      const comments = await ghApiJson<
-        Array<{ id?: number | string | null; body?: string | null }>
-      >(
-        repoRoot,
-        `${issueEndpoint(profile.owner, profile.name, issueNumber)}/comments?per_page=100`,
-      );
-      return comments.flatMap((comment) =>
-        comment.id ? [{ id: comment.id, body: comment.body ?? null }] : [],
-      );
-    },
-    postComment: (issueNumber, body) =>
-      postGitHubIssueComment(
-        repoRoot,
-        profile.owner,
-        profile.name,
-        issueNumber,
-        body,
-      ),
-    updateComment: (commentId, body) =>
-      ghApiWithJsonBody(
-        repoRoot,
-        `repos/${profile.owner}/${profile.name}/issues/comments/${commentId}`,
-        "PATCH",
-        { body },
-      ),
-    closeIssue: (issueNumber) =>
-      ghApiWithJsonBody(
-        repoRoot,
-        issueEndpoint(profile.owner, profile.name, issueNumber),
-        "PATCH",
-        { state: "closed", state_reason: "not_planned" },
-      ),
-    listIssues: (input) =>
-      listIssuesForTriage(repoRoot, {
-        owner: profile.owner,
-        repo: profile.name,
-        state: input.state,
-        limit: input.limit,
-        includeLabels: [...input.includeLabels],
-        excludeLabels: [...input.excludeLabels],
-      }),
-  };
-}
-
-async function runIssueTriagePreview(input: {
-  repoRoot: string;
-  context: IssueTriageContext;
-  issueNumber: number;
-  options: CliOptions;
-}): Promise<IssueTriagePreview> {
-  const preview = await input.context.workflow.preview(input.issueNumber, {
-    createMissingLabels: input.options.issueCreateLabels,
-  });
-  const applied = await input.context.workflow.apply(preview.writePlan, {
-    labels: input.options.issueApplyLabels,
-    createMissingLabels: input.options.issueCreateLabels,
-    comment: input.options.issuePostComment,
-    close: input.options.issueCloseAllowed,
-    onlySignals: input.options.triageOnlySignals,
-    minConfidence: input.options.triageMinConfidence,
-    dryRun: input.options.dryRun,
-  });
-  return {
-    evidence: applied.evidence,
-    result: applied.result,
-    artifactPath: applied.artifactPath,
-  };
-}
-
 async function triageIssues(
   repoRoot: string,
   options: CliOptions,
 ): Promise<void> {
-  validateIssueTriageWriteOptions(options);
-  const context = await prepareIssueTriageContext(repoRoot, options);
-  const batch = await context.workflow.batch({
+  const useCases = createIssueTriageUseCases(createCliIssueTriageAdapters());
+  const batch = await useCases.triageBatch({
+    repoRoot,
+    model: {
+      provider: options.model,
+      model: options.llmModel,
+      consent: {
+        repositoryContentTransfer: options.allowModelContentTransfer,
+      },
+    },
     state: options.triageState,
     limit: options.triageLimit,
     label: options.triageLabel,
     includeLabels: options.triageIncludeLabels,
     excludeLabels: options.triageExcludeLabels,
-    labels: options.issueApplyLabels,
-    createMissingLabels: options.issueCreateLabels,
-    comment: options.issuePostComment,
-    close: options.issueCloseAllowed,
-    onlySignals: options.triageOnlySignals,
-    minConfidence: options.triageMinConfidence,
-    dryRun: options.dryRun,
+    format: options.triageFormat,
+    outputPath: options.outputPath,
+    writeIntent: buildIssueTriageWriteIntent(options),
   });
   const { report, jsonPath, markdownPath, markdown } = batch;
   if (options.json) {
     console.log(JSON.stringify(report, null, 2));
     return;
-  }
-  if (options.outputPath) {
-    const outputPath = path.resolve(repoRoot, options.outputPath);
-    if (!options.dryRun) {
-      await mkdir(path.dirname(outputPath), { recursive: true });
-      await writeFile(
-        outputPath,
-        options.triageFormat === "json"
-          ? `${JSON.stringify(report, null, 2)}\n`
-          : markdown,
-      );
-    }
   }
   printLines(
     commandHeader({
@@ -1526,97 +1259,6 @@ async function triageIssues(
   }
 }
 
-type ListedIssueForTriage = {
-  number: number;
-  title: string;
-  labels: string[];
-};
-
-async function listIssuesForTriage(
-  repoRoot: string,
-  input: {
-    owner: string;
-    repo: string;
-    state: "open" | "closed" | "all";
-    limit: number;
-    includeLabels: string[];
-    excludeLabels: string[];
-  },
-): Promise<ListedIssueForTriage[]> {
-  const issues: ListedIssueForTriage[] = [];
-  const skipAlreadyLabelled = input.includeLabels.length === 0;
-  const pageSize = 100;
-  for (let page = 1; issues.length < input.limit; page += 1) {
-    const args = [
-      "-F",
-      `state=${input.state}`,
-      "-F",
-      `per_page=${pageSize}`,
-      "-F",
-      `page=${page}`,
-      ...(input.includeLabels.length > 0
-        ? ["-F", `labels=${input.includeLabels.join(",")}`]
-        : []),
-    ];
-    const pageItems = await ghApiJson<
-      Array<{
-        number?: number | null;
-        title?: string | null;
-        labels?: Array<string | { name?: string | null }> | null;
-        pull_request?: unknown;
-      }>
-    >(repoRoot, `repos/${input.owner}/${input.repo}/issues`, args);
-    for (const item of pageItems) {
-      if (issues.length >= input.limit) {
-        break;
-      }
-      if (item.pull_request || !item.number || !item.title) {
-        continue;
-      }
-      const labels = (item.labels ?? [])
-        .map((label) => (typeof label === "string" ? label : label.name))
-        .filter((label): label is string => Boolean(label));
-      if (
-        labels.some((label) =>
-          input.excludeLabels.some(
-            (excluded) =>
-              normalizeSimpleLabel(label) === normalizeSimpleLabel(excluded),
-          ),
-        )
-      ) {
-        continue;
-      }
-      if (skipAlreadyLabelled && labels.length > 0) {
-        continue;
-      }
-      issues.push({ number: item.number, title: item.title, labels });
-    }
-    if (pageItems.length < pageSize) {
-      break;
-    }
-  }
-  return issues;
-}
-
-async function writeTriageRunReports(
-  repoRoot: string,
-  input: {
-    jsonPath: string;
-    markdownPath: string;
-    report: IssueTriageBatchReport;
-    markdown: string;
-  },
-): Promise<void> {
-  const absoluteJsonPath = path.join(repoRoot, input.jsonPath);
-  const absoluteMarkdownPath = path.join(repoRoot, input.markdownPath);
-  await mkdir(path.dirname(absoluteJsonPath), { recursive: true });
-  await writeFile(
-    absoluteJsonPath,
-    `${JSON.stringify(input.report, null, 2)}\n`,
-  );
-  await writeFile(absoluteMarkdownPath, input.markdown);
-}
-
 function renderTriageBatchConsole(
   report: IssueTriageBatchReport,
   paths: { jsonPath: string; markdownPath: string; dryRun?: boolean },
@@ -1635,268 +1277,16 @@ function renderTriageBatchConsole(
   ].join("\n");
 }
 
-function buildIssueTriageProvider(input: {
-  repoRoot: string;
-  provider: ArtifactModel | null;
-  model: string | null;
-  allowModelContentTransfer: boolean;
-}): { providerConfig: ModelProviderConfig; provider: ModelProvider } {
-  if (!input.provider) {
-    throw new Error(
-      "triage issue requires --model codex or --model claude because issue triage is LLM-backed only.",
-    );
-  }
-  if (!input.allowModelContentTransfer) {
-    throw new Error(
-      "--model requires --allow-model-content-transfer because issue triage sends repository context and issue content to the selected CLI backend.",
-    );
-  }
-  const createdAt = new Date(0).toISOString();
-  const codexModel =
-    input.model ??
-    process.env.OPEN_MAINTAINER_CODEX_MODEL ??
-    DEFAULT_CODEX_CLI_MODEL;
-  const providerConfig: ModelProviderConfig =
-    input.provider === "codex"
-      ? {
-          id: "model_provider_cli_issue_triage_codex",
-          kind: "codex-cli",
-          displayName: "Codex CLI",
-          baseUrl: "http://localhost",
-          model: codexModel,
-          encryptedApiKey: "local-cli",
-          repoContentConsent: true,
-          createdAt,
-          updatedAt: createdAt,
-        }
-      : {
-          id: "model_provider_cli_issue_triage_claude",
-          kind: "claude-cli",
-          displayName: "Claude CLI",
-          baseUrl: "http://localhost",
-          model: input.model ?? "claude-cli",
-          encryptedApiKey: "local-cli",
-          repoContentConsent: true,
-          createdAt,
-          updatedAt: createdAt,
-        };
-  const provider =
-    input.provider === "codex"
-      ? buildCodexCliProvider({
-          cwd: input.repoRoot,
-          model: codexModel,
-        })
-      : buildClaudeCliProvider({
-          cwd: input.repoRoot,
-          ...(input.model ? { model: input.model } : {}),
-        });
-  return { providerConfig, provider };
-}
-
-function buildGhIssueTriageClient(repoRoot: string): GitHubRepositoryClient {
+function buildIssueTriageWriteIntent(options: CliOptions) {
   return {
-    repos: {
-      async getContent() {
-        throw new Error(
-          "Repository content fetching is not used for issue triage.",
-        );
-      },
-      async createOrUpdateFileContents() {
-        throw new Error("Repository writes are not used for issue triage.");
-      },
-    },
-    git: {
-      async getRef() {
-        throw new Error("Git ref reads are not used for issue triage.");
-      },
-      async createRef() {
-        throw new Error("Git ref writes are not used for issue triage.");
-      },
-      async updateRef() {
-        throw new Error("Git ref writes are not used for issue triage.");
-      },
-    },
-    pulls: {
-      async list() {
-        return { data: [] };
-      },
-      async create() {
-        throw new Error("Pull request writes are not used for issue triage.");
-      },
-      async update() {
-        throw new Error("Pull request writes are not used for issue triage.");
-      },
-    },
-    issues: {
-      async get(input) {
-        return {
-          data: await ghApiJson(
-            repoRoot,
-            issueEndpoint(input.owner, input.repo, input.issue_number),
-          ),
-        };
-      },
-      async listComments(input) {
-        const args = [
-          "-F",
-          `per_page=${input.per_page ?? 100}`,
-          "-F",
-          `page=${input.page ?? 1}`,
-        ];
-        return {
-          data: await ghApiJson(
-            repoRoot,
-            `${issueEndpoint(input.owner, input.repo, input.issue_number)}/comments`,
-            args,
-          ),
-        };
-      },
-    },
-    search: {
-      async issuesAndPullRequests(input) {
-        const args = [
-          "-F",
-          `q=${input.q}`,
-          "-F",
-          `per_page=${input.per_page ?? 10}`,
-          "-F",
-          `page=${input.page ?? 1}`,
-        ];
-        return { data: await ghApiJson(repoRoot, "search/issues", args) };
-      },
-    },
+    dryRun: options.dryRun,
+    labels: options.issueApplyLabels,
+    createMissingLabels: options.issueCreateLabels,
+    comment: options.issuePostComment,
+    close: options.issueCloseAllowed,
+    onlySignals: options.triageOnlySignals,
+    minConfidence: options.triageMinConfidence,
   };
-}
-
-function issueEndpoint(
-  owner: string,
-  repo: string,
-  issueNumber: number,
-): string {
-  return `repos/${owner}/${repo}/issues/${issueNumber}`;
-}
-
-function validateIssueTriageWriteOptions(options: CliOptions): void {
-  if (options.issueCreateLabels && !options.issueApplyLabels) {
-    throw new Error("--create-labels requires --apply-labels.");
-  }
-}
-
-async function listRepoLabelNames(
-  repoRoot: string,
-  owner: string,
-  repo: string,
-): Promise<Set<string>> {
-  return new Set(
-    (await listRepoLabels(repoRoot, owner, repo)).map((label) => label.name),
-  );
-}
-
-async function listRepoLabels(
-  repoRoot: string,
-  owner: string,
-  repo: string,
-): Promise<
-  Array<{
-    id?: string;
-    name: string;
-    color?: string;
-    description?: string | null;
-  }>
-> {
-  const labels = await ghApiJson<Array<{ name?: string | null }>>(
-    repoRoot,
-    `repos/${owner}/${repo}/labels?per_page=100`,
-  );
-  return labels.flatMap((label) =>
-    label.name ? [{ ...label, name: label.name }] : [],
-  );
-}
-
-async function listIssueLabelNames(
-  repoRoot: string,
-  owner: string,
-  repo: string,
-  issueNumber: number,
-): Promise<Set<string>> {
-  const labels = await ghApiJson<Array<{ name?: string | null }>>(
-    repoRoot,
-    `${issueEndpoint(owner, repo, issueNumber)}/labels?per_page=100`,
-  );
-  return new Set(labels.flatMap((label) => (label.name ? [label.name] : [])));
-}
-
-async function createIssueTriageLabel(
-  repoRoot: string,
-  owner: string,
-  repo: string,
-  label: IssueTriageResolvedLabel,
-): Promise<void> {
-  await createGitHubLabel(
-    repoRoot,
-    owner,
-    repo,
-    label.label,
-    label.color ?? "5319e7",
-    {
-      description:
-        label.description ?? "Open Maintainer issue triage preset label.",
-    },
-  );
-}
-
-async function applyIssueLabel(
-  repoRoot: string,
-  owner: string,
-  repo: string,
-  issueNumber: number,
-  label: string,
-): Promise<void> {
-  await editGitHubIssueLabels(repoRoot, owner, repo, issueNumber, {
-    addLabel: label,
-  });
-}
-
-async function writeIssueTriageArtifact(
-  repoRoot: string,
-  artifactPath: string,
-  artifact: { input: IssueTriageInput; result: IssueTriageResult },
-): Promise<void> {
-  const absolutePath = path.join(repoRoot, artifactPath);
-  await mkdir(path.dirname(absolutePath), { recursive: true });
-  await writeFile(absolutePath, `${JSON.stringify(artifact, null, 2)}\n`);
-}
-
-function issueTriageArtifactPath(issueNumber: number): string {
-  return path.join(
-    ".open-maintainer",
-    "triage",
-    "issues",
-    `${issueNumber}.json`,
-  );
-}
-
-async function readIssueTriageArtifact(
-  repoRoot: string,
-  artifactPath: string,
-): Promise<{ input: IssueTriageInput; result: IssueTriageResult }> {
-  const raw = JSON.parse(
-    await readFile(path.join(repoRoot, artifactPath), "utf8"),
-  ) as { input?: unknown; result?: unknown };
-  return {
-    input: IssueTriageInputSchema.parse(raw.input),
-    result: IssueTriageResultSchema.parse(raw.result),
-  };
-}
-
-function issueBriefReadFirstPaths(
-  profile: Awaited<ReturnType<typeof createProfile>>,
-): string[] {
-  return [
-    ...profile.existingContextFiles,
-    ...profile.importantDocs,
-    ...profile.repoTemplates,
-  ].slice(0, 12);
 }
 
 function formatIssueTriageSummary(
@@ -1991,10 +1381,6 @@ function formatBatchGitHubWritesSummary(
     return "skipped (preview-only default)";
   }
   return `applied (${appliedCount} action${appliedCount === 1 ? "" : "s"})`;
-}
-
-function normalizeSimpleLabel(label: string): string {
-  return label.toLowerCase().trim().replace(/[_/]+/g, "-").replace(/\s+/g, "-");
 }
 
 function formatCommentActionSummary(
@@ -2201,141 +1587,6 @@ function formatPublishedReviewStatus(input: {
       ? ` Created ${input.triageLabel?.created} triage labels.`
       : "";
   return `PR comments posted: ${parts.join(", ")}.${labelNote}`;
-}
-
-async function ghJson<T>(repoRoot: string, args: string[]): Promise<T> {
-  const output = await execGh(repoRoot, args);
-  return JSON.parse(output) as T;
-}
-
-async function createGitHubLabel(
-  repoRoot: string,
-  owner: string,
-  repo: string,
-  label: string,
-  color: string,
-  options: { description: string },
-): Promise<void> {
-  await ghApiWithJsonBody(repoRoot, `repos/${owner}/${repo}/labels`, "POST", {
-    name: label,
-    color,
-    description: options.description,
-  });
-}
-
-async function editGitHubIssueLabels(
-  repoRoot: string,
-  owner: string,
-  repo: string,
-  issueNumber: number,
-  options: { addLabel?: string; removeLabel?: string },
-): Promise<void> {
-  if (options.addLabel) {
-    await ghApiWithJsonBody(
-      repoRoot,
-      `repos/${owner}/${repo}/issues/${issueNumber}/labels`,
-      "POST",
-      { labels: [options.addLabel] },
-    );
-  }
-  if (options.removeLabel) {
-    await ghApiNoBody(
-      repoRoot,
-      `repos/${owner}/${repo}/issues/${issueNumber}/labels/${encodeURIComponent(options.removeLabel)}`,
-      "DELETE",
-    );
-  }
-}
-
-async function postGitHubIssueComment(
-  repoRoot: string,
-  owner: string,
-  repo: string,
-  issueNumber: number,
-  body: string,
-): Promise<void> {
-  await ghApiWithJsonBody(
-    repoRoot,
-    `repos/${owner}/${repo}/issues/${issueNumber}/comments`,
-    "POST",
-    { body },
-  );
-}
-
-async function ghApiJson<T>(
-  repoRoot: string,
-  endpoint: string,
-  args: string[] = [],
-): Promise<T> {
-  const output = await execGh(repoRoot, [
-    "api",
-    endpoint,
-    "--method",
-    "GET",
-    ...args,
-  ]);
-  return JSON.parse(output || "null") as T;
-}
-
-async function ghApiWithJsonBody<T = unknown>(
-  repoRoot: string,
-  endpoint: string,
-  method: "PATCH" | "POST",
-  body: unknown,
-): Promise<T> {
-  const directory = await mkdtemp(path.join(tmpdir(), "open-maintainer-gh-"));
-  const inputPath = path.join(directory, "body.json");
-  try {
-    await writeFile(inputPath, JSON.stringify(body));
-    const output = await execGh(repoRoot, [
-      "api",
-      endpoint,
-      "--method",
-      method,
-      "--input",
-      inputPath,
-    ]);
-    return JSON.parse(output || "null") as T;
-  } finally {
-    await rm(directory, { recursive: true, force: true });
-  }
-}
-
-async function ghApiNoBody(
-  repoRoot: string,
-  endpoint: string,
-  method: "DELETE",
-): Promise<void> {
-  await execGh(repoRoot, ["api", endpoint, "--method", method]);
-}
-
-async function execGh(repoRoot: string, args: string[]): Promise<string> {
-  try {
-    const { stdout } = await execFileAsync("gh", args, {
-      cwd: repoRoot,
-      env: gitHubCliEnv(),
-      maxBuffer: 8 * 1024 * 1024,
-    });
-    return stdout;
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `GitHub CLI command failed: gh ${args.join(" ")}. ${message}`,
-    );
-  }
-}
-
-function gitHubCliEnv(): NodeJS.ProcessEnv {
-  const env = { ...process.env };
-  if (
-    env.CI !== "true" &&
-    env.GITHUB_ACTIONS !== "true" &&
-    env.OPEN_MAINTAINER_USE_ENV_GH_TOKEN !== "1"
-  ) {
-    env.GH_TOKEN = undefined;
-    env.GITHUB_TOKEN = undefined;
-  }
-  return env;
 }
 
 function resolveReviewProvider(options: CliOptions): ArtifactModel | null {
