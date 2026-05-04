@@ -4,7 +4,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
-import { analyzeRepo, scanRepository } from "../src";
+import {
+  analyzeRepo,
+  guideRepositoryProfile,
+  prepareRepositoryProfile,
+  scanRepository,
+} from "../src";
 
 const execFileAsync = promisify(execFile);
 
@@ -134,6 +139,143 @@ describe("analyzeRepo", () => {
       ".claude/skills/repo-overview/SKILL.md",
     );
     expect(profile.agentReadiness.missingItems).toContain(
+      "agent instructions: AGENTS.md or CLAUDE.md is missing.",
+    );
+  });
+
+  it("prepares a persisted-compatible profile with guidance from file input", async () => {
+    const result = await prepareRepositoryProfile({
+      files: [
+        { path: "README.md", content: "# Tool" },
+        {
+          path: "package.json",
+          content: JSON.stringify({
+            scripts: {
+              test: "vitest run",
+              lint: "biome check .",
+              build: "tsc -b",
+            },
+          }),
+        },
+        {
+          path: "src/auth.ts",
+          content: "export const token = process.env.GH_TOKEN;",
+        },
+      ],
+      identity: {
+        repoId: "repo_1",
+        owner: "acme",
+        name: "tool",
+        defaultBranch: "main",
+        version: 2,
+      },
+      purpose: "review",
+    });
+
+    expect(result.profile).toEqual(
+      expect.objectContaining({
+        repoId: "repo_1",
+        owner: "acme",
+        name: "tool",
+        defaultBranch: "main",
+        version: 2,
+      }),
+    );
+    expect(result.source).toEqual({
+      filesAnalyzed: 3,
+      scannedFromFilesystem: false,
+      usedGitVisibleFiles: false,
+      truncated: false,
+    });
+    expect(result.guidance.readiness).toBe(result.profile.agentReadiness);
+    expect(result.guidance.summary).toEqual(
+      expect.objectContaining({
+        status: "needs_human_attention",
+        score: result.profile.agentReadiness.score,
+      }),
+    );
+    expect(result.guidance.summary.primaryMissingItems).toContain(
+      "testing: No test files detected.",
+    );
+    expect(
+      result.guidance.validation.defaultCommands.map(
+        (command) => command.command,
+      ),
+    ).toEqual(["biome check .", "vitest run", "tsc -b"]);
+    expect(result.guidance.validation.commandsBySurface.root).toHaveLength(3);
+    expect(result.guidance.risk.paths).toEqual(["src/auth.ts"]);
+    expect(result.guidance.risk.notes).toContain(
+      "Risk-sensitive paths detected: src/auth.ts.",
+    );
+    expect(
+      result.guidance.suggestedActions.map((action) => action.kind),
+    ).toContain("risk");
+  });
+
+  it("prepares a profile by scanning a Git worktree and reports source metadata", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "open-maintainer-profile-"));
+    await writeFile(path.join(root, "README.md"), "# Fixture");
+    await writeFile(
+      path.join(root, "package.json"),
+      JSON.stringify({ scripts: { test: "bun test" } }),
+    );
+    await execFileAsync("git", ["init"], { cwd: root });
+    await execFileAsync("git", ["add", "README.md"], { cwd: root });
+
+    const result = await prepareRepositoryProfile({
+      repoRoot: root,
+      identity: {
+        repoId: "repo_fs",
+        owner: "acme",
+        name: "fixture",
+        version: 4,
+      },
+      scan: { maxFiles: 10 },
+    });
+
+    expect(result.profile.repoId).toBe("repo_fs");
+    expect(result.profile.version).toBe(4);
+    expect(result.profile.importantDocs).toEqual(["README.md"]);
+    expect(result.profile.commands.map((command) => command.command)).toEqual([
+      "bun test",
+    ]);
+    expect(result.source).toEqual({
+      filesAnalyzed: 2,
+      scannedFromFilesystem: true,
+      usedGitVisibleFiles: true,
+      truncated: false,
+    });
+  });
+
+  it("guides an existing profile for review, context, and triage without rescanning", () => {
+    const profile = analyzeRepo({
+      repoId: "repo_1",
+      owner: "acme",
+      name: "tool",
+      defaultBranch: "main",
+      version: 1,
+      files: [
+        { path: "README.md", content: "# Tool" },
+        {
+          path: "package.json",
+          content: JSON.stringify({
+            scripts: {
+              test: "vitest run",
+              lint: "biome check .",
+              build: "tsc -b",
+            },
+          }),
+        },
+      ],
+    });
+
+    const review = guideRepositoryProfile(profile, "review");
+    const context = guideRepositoryProfile(profile, "context");
+    const triage = guideRepositoryProfile(profile, "triage");
+
+    expect(review.validation.defaultCommands[0]?.name).toBe("lint");
+    expect(triage.validation.defaultCommands[0]?.name).toBe("test");
+    expect(context.summary.primaryMissingItems[0]).toBe(
       "agent instructions: AGENTS.md or CLAUDE.md is missing.",
     );
   });

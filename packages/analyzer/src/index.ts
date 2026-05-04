@@ -29,6 +29,84 @@ export type ScanRepositoryOptions = {
   maxBytesPerFile?: number;
 };
 
+export type RepositoryIdentity = {
+  repoId?: string;
+  owner?: string;
+  name?: string;
+  defaultBranch?: string;
+  version?: number;
+};
+
+export type RepositoryProfilePurpose =
+  | "workspace"
+  | "context"
+  | "review"
+  | "triage";
+
+export type RepositoryProfileInput =
+  | string
+  | {
+      repoRoot: string;
+      identity?: RepositoryIdentity;
+      scan?: ScanRepositoryOptions;
+      purpose?: RepositoryProfilePurpose;
+      previousProfile?: RepoProfile;
+    }
+  | {
+      files: readonly AnalyzerFile[];
+      identity: Required<RepositoryIdentity>;
+      purpose?: RepositoryProfilePurpose;
+      previousProfile?: RepoProfile;
+    };
+
+export type RepositoryProfileGuidance = {
+  readiness: RepoProfile["agentReadiness"];
+  summary: {
+    status: "ready" | "needs_context" | "needs_human_attention";
+    score: number;
+    primaryMissingItems: string[];
+  };
+  suggestedActions: Array<{
+    kind: "setup" | "testing" | "ci" | "docs" | "risk" | "generated-files";
+    title: string;
+    reason: string;
+    evidence: EvidenceReference[];
+  }>;
+  validation: {
+    defaultCommands: DetectedCommand[];
+    commandsBySurface: Record<string, DetectedCommand[]>;
+  };
+  risk: {
+    areas: string[];
+    paths: string[];
+    notes: string[];
+  };
+};
+
+export type RepositoryProfileSource = {
+  filesAnalyzed: number;
+  scannedFromFilesystem: boolean;
+  usedGitVisibleFiles: boolean;
+  truncated: boolean;
+};
+
+export type RepositoryProfileResult = {
+  profile: RepoProfile;
+  guidance: RepositoryProfileGuidance;
+  source: RepositoryProfileSource;
+};
+
+export type RepositoryProfilerDeps = {
+  scanRepository(
+    repoRoot: string,
+    options?: ScanRepositoryOptions,
+  ): Promise<AnalyzerFile[]>;
+  analyzeRepo(input: AnalyzeRepoInput): RepoProfile;
+  resolveIdentity(
+    repoRoot: string,
+  ): RepositoryIdentity | Promise<RepositoryIdentity>;
+};
+
 const defaultScanOptions = {
   maxFiles: 400,
   maxBytesPerFile: 128_000,
@@ -115,16 +193,30 @@ export async function scanRepository(
   repoRoot: string,
   options: ScanRepositoryOptions = {},
 ): Promise<AnalyzerFile[]> {
+  return (await scanRepositoryWithSource(repoRoot, options)).files;
+}
+
+type RepositoryProfileScanResult = {
+  files: AnalyzerFile[];
+  source: RepositoryProfileSource;
+};
+
+async function scanRepositoryWithSource(
+  repoRoot: string,
+  options: ScanRepositoryOptions = {},
+): Promise<RepositoryProfileScanResult> {
   const absoluteRoot = path.resolve(repoRoot);
   const maxFiles = options.maxFiles ?? defaultScanOptions.maxFiles;
   const maxBytesPerFile =
     options.maxBytesPerFile ?? defaultScanOptions.maxBytesPerFile;
   const files: AnalyzerFile[] = [];
   const gitVisibleFiles = await listGitVisibleFiles(absoluteRoot);
+  let truncated = false;
 
   if (gitVisibleFiles) {
     for (const relativePath of gitVisibleFiles) {
       if (files.length >= maxFiles) {
+        truncated = true;
         break;
       }
       if (shouldSkipRepoPath(relativePath) || !shouldReadFile(relativePath)) {
@@ -141,11 +233,20 @@ export async function scanRepository(
       }
       files.push({ path: relativePath, content });
     }
-    return files;
+    return {
+      files,
+      source: {
+        filesAnalyzed: files.length,
+        scannedFromFilesystem: true,
+        usedGitVisibleFiles: true,
+        truncated,
+      },
+    };
   }
 
   async function visit(directory: string): Promise<void> {
     if (files.length >= maxFiles) {
+      truncated = true;
       return;
     }
     const entries = await readdir(directory, { withFileTypes: true }).catch(
@@ -154,6 +255,7 @@ export async function scanRepository(
     entries.sort((left, right) => left.name.localeCompare(right.name));
     for (const entry of entries) {
       if (files.length >= maxFiles) {
+        truncated = true;
         return;
       }
       const absolutePath = path.join(directory, entry.name);
@@ -186,7 +288,122 @@ export async function scanRepository(
   }
 
   await visit(absoluteRoot);
-  return files;
+  return {
+    files,
+    source: {
+      filesAnalyzed: files.length,
+      scannedFromFilesystem: true,
+      usedGitVisibleFiles: false,
+      truncated,
+    },
+  };
+}
+
+export function createRepositoryProfiler(
+  deps: Partial<RepositoryProfilerDeps> = {},
+): {
+  prepare(input: RepositoryProfileInput): Promise<RepositoryProfileResult>;
+  guide(
+    profile: RepoProfile,
+    purpose?: RepositoryProfilePurpose,
+  ): RepositoryProfileGuidance;
+} {
+  const resolved: RepositoryProfilerDeps = {
+    scanRepository: deps.scanRepository ?? scanRepository,
+    analyzeRepo: deps.analyzeRepo ?? analyzeRepo,
+    resolveIdentity: deps.resolveIdentity ?? inferRepositoryIdentity,
+  };
+  const hasCustomScanner = Boolean(deps.scanRepository);
+
+  async function prepare(
+    input: RepositoryProfileInput,
+  ): Promise<RepositoryProfileResult> {
+    if (isFilesProfileInput(input)) {
+      const identity = completeRepositoryIdentity(
+        input.identity,
+        undefined,
+        input.previousProfile,
+      );
+      const profile = resolved.analyzeRepo({
+        ...identity,
+        files: Array.from(input.files),
+      });
+      return {
+        profile,
+        guidance: guideRepositoryProfile(profile, input.purpose),
+        source: sourceForFileInput(input.files.length),
+      };
+    }
+
+    const repoRoot = typeof input === "string" ? input : input.repoRoot;
+    const scanOptions = typeof input === "string" ? {} : (input.scan ?? {});
+    const scanResult = hasCustomScanner
+      ? await scanWithCustomDependency(
+          resolved.scanRepository,
+          repoRoot,
+          scanOptions,
+        )
+      : await scanRepositoryWithSource(repoRoot, scanOptions);
+    const resolvedIdentity = await resolved.resolveIdentity(repoRoot);
+    const inputIdentity =
+      typeof input === "string" ? {} : (input.identity ?? {});
+    const identity = completeRepositoryIdentity(
+      { ...resolvedIdentity, ...inputIdentity },
+      repoRoot,
+      typeof input === "string" ? undefined : input.previousProfile,
+    );
+    const profile = resolved.analyzeRepo({
+      ...identity,
+      files: scanResult.files,
+    });
+    const purpose = typeof input === "string" ? undefined : input.purpose;
+    return {
+      profile,
+      guidance: guideRepositoryProfile(profile, purpose),
+      source: scanResult.source,
+    };
+  }
+
+  return {
+    prepare,
+    guide: guideRepositoryProfile,
+  };
+}
+
+export async function prepareRepositoryProfile(
+  input: RepositoryProfileInput,
+): Promise<RepositoryProfileResult> {
+  return createRepositoryProfiler().prepare(input);
+}
+
+export function guideRepositoryProfile(
+  profile: RepoProfile,
+  purpose: RepositoryProfilePurpose = "workspace",
+): RepositoryProfileGuidance {
+  return {
+    readiness: profile.agentReadiness,
+    summary: {
+      status: readinessStatus(profile),
+      score: profile.agentReadiness.score,
+      primaryMissingItems: prioritizeMissingItems(
+        profile.agentReadiness.missingItems,
+        purpose,
+      ),
+    },
+    suggestedActions: buildSuggestedActions(profile),
+    validation: {
+      defaultCommands: selectDefaultValidationCommands(
+        profile.commands,
+        purpose,
+      ),
+      commandsBySurface: groupCommandsBySurface(profile.commands),
+    },
+    risk: {
+      areas: [...profile.detectedRiskAreas],
+      paths: dedupeStrings(profile.riskHintPaths),
+      notes: buildRiskNotes(profile),
+    },
+  };
 }
 
 async function listGitVisibleFiles(repoRoot: string): Promise<string[] | null> {
@@ -688,6 +905,255 @@ export function scoreAgentReadiness(
     missingItems,
     generatedAt: nowIso(),
   };
+}
+
+function isFilesProfileInput(
+  input: RepositoryProfileInput,
+): input is Extract<
+  RepositoryProfileInput,
+  { files: readonly AnalyzerFile[] }
+> {
+  return typeof input === "object" && "files" in input;
+}
+
+async function scanWithCustomDependency(
+  scanner: RepositoryProfilerDeps["scanRepository"],
+  repoRoot: string,
+  options: ScanRepositoryOptions,
+): Promise<RepositoryProfileScanResult> {
+  const files = await scanner(repoRoot, options);
+  const maxFiles = options.maxFiles ?? defaultScanOptions.maxFiles;
+  return {
+    files,
+    source: {
+      filesAnalyzed: files.length,
+      scannedFromFilesystem: true,
+      usedGitVisibleFiles: false,
+      truncated: files.length >= maxFiles,
+    },
+  };
+}
+
+function sourceForFileInput(filesAnalyzed: number): RepositoryProfileSource {
+  return {
+    filesAnalyzed,
+    scannedFromFilesystem: false,
+    usedGitVisibleFiles: false,
+    truncated: false,
+  };
+}
+
+function inferRepositoryIdentity(repoRoot: string): RepositoryIdentity {
+  const absoluteRoot = path.resolve(repoRoot);
+  return {
+    owner: path.basename(path.dirname(absoluteRoot)) || "local",
+    name: path.basename(absoluteRoot) || "repository",
+    defaultBranch: "main",
+  };
+}
+
+function completeRepositoryIdentity(
+  identity: RepositoryIdentity,
+  repoRoot: string | undefined,
+  previousProfile: RepoProfile | undefined,
+): Required<RepositoryIdentity> {
+  const inferred = repoRoot ? inferRepositoryIdentity(repoRoot) : {};
+  return {
+    repoId: identity.repoId ?? previousProfile?.repoId ?? "local",
+    owner:
+      identity.owner ?? previousProfile?.owner ?? inferred.owner ?? "local",
+    name:
+      identity.name ?? previousProfile?.name ?? inferred.name ?? "repository",
+    defaultBranch:
+      identity.defaultBranch ??
+      previousProfile?.defaultBranch ??
+      inferred.defaultBranch ??
+      "main",
+    version: identity.version ?? (previousProfile?.version ?? 0) + 1,
+  };
+}
+
+function readinessStatus(
+  profile: RepoProfile,
+): RepositoryProfileGuidance["summary"]["status"] {
+  if (
+    profile.agentReadiness.score >= 90 &&
+    profile.agentReadiness.missingItems.length === 0
+  ) {
+    return "ready";
+  }
+
+  const riskCategory = profile.agentReadiness.categories.find(
+    (category) => category.name === "risk handling",
+  );
+  if ((riskCategory?.missing.length ?? 0) > 0) {
+    return "needs_human_attention";
+  }
+
+  return "needs_context";
+}
+
+function prioritizeMissingItems(
+  missingItems: string[],
+  purpose: RepositoryProfilePurpose,
+): string[] {
+  return [...missingItems]
+    .sort(
+      (left, right) =>
+        missingItemPriority(left, purpose) -
+          missingItemPriority(right, purpose) || left.localeCompare(right),
+    )
+    .slice(0, 5);
+}
+
+function missingItemPriority(
+  missingItem: string,
+  purpose: RepositoryProfilePurpose,
+): number {
+  const category = missingItem.split(":")[0] ?? "";
+  const purposePriorities: Record<RepositoryProfilePurpose, string[]> = {
+    workspace: ["setup clarity", "architecture clarity", "testing", "CI"],
+    context: [
+      "agent instructions",
+      "generated-file handling",
+      "docs",
+      "architecture clarity",
+    ],
+    review: ["testing", "CI", "risk handling", "generated-file handling"],
+    triage: ["setup clarity", "testing", "CI", "docs"],
+  };
+  const priority = purposePriorities[purpose].indexOf(category);
+  return priority === -1 ? purposePriorities[purpose].length : priority;
+}
+
+function buildSuggestedActions(
+  profile: RepoProfile,
+): RepositoryProfileGuidance["suggestedActions"] {
+  return profile.agentReadiness.categories.flatMap((category) => {
+    if (category.missing.length === 0) {
+      return [];
+    }
+    const kind = actionKindForCategory(category.name);
+    return [
+      {
+        kind,
+        title: actionTitleForKind(kind, category.name),
+        reason: `${category.name}: ${category.missing.join(" ")}`,
+        evidence: category.evidence,
+      },
+    ];
+  });
+}
+
+function actionKindForCategory(
+  categoryName: RepoProfile["agentReadiness"]["categories"][number]["name"],
+): RepositoryProfileGuidance["suggestedActions"][number]["kind"] {
+  if (categoryName === "testing") {
+    return "testing";
+  }
+  if (categoryName === "CI") {
+    return "ci";
+  }
+  if (categoryName === "risk handling") {
+    return "risk";
+  }
+  if (categoryName === "generated-file handling") {
+    return "generated-files";
+  }
+  if (categoryName === "docs" || categoryName === "agent instructions") {
+    return "docs";
+  }
+  return "setup";
+}
+
+function actionTitleForKind(
+  kind: RepositoryProfileGuidance["suggestedActions"][number]["kind"],
+  categoryName: string,
+): string {
+  const titles: Record<
+    RepositoryProfileGuidance["suggestedActions"][number]["kind"],
+    string
+  > = {
+    setup: "Clarify repository setup",
+    testing: "Define test validation",
+    ci: "Add CI validation",
+    docs: "Document agent context",
+    risk: "Document risk-sensitive paths",
+    "generated-files": "Document generated-file handling",
+  };
+  return titles[kind] ?? `Improve ${categoryName}`;
+}
+
+function selectDefaultValidationCommands(
+  commands: DetectedCommand[],
+  purpose: RepositoryProfilePurpose,
+): DetectedCommand[] {
+  const priorities =
+    purpose === "triage"
+      ? ["test", "lint", "check", "typecheck", "build", "smoke"]
+      : ["lint", "check", "typecheck", "test", "build", "smoke"];
+  const selected: DetectedCommand[] = [];
+  for (const priority of priorities) {
+    selected.push(
+      ...commands.filter((command) => commandMatches(command.name, priority)),
+    );
+  }
+  const deduped = dedupeCommands(selected);
+  return deduped.length > 0 ? deduped : commands.slice(0, 5);
+}
+
+function commandMatches(commandName: string, priority: string): boolean {
+  return commandName === priority || commandName.startsWith(`${priority}:`);
+}
+
+function groupCommandsBySurface(
+  commands: DetectedCommand[],
+): Record<string, DetectedCommand[]> {
+  const grouped: Record<string, DetectedCommand[]> = {};
+  for (const command of commands) {
+    const surface = commandSurface(command.source);
+    grouped[surface] = [...(grouped[surface] ?? []), command];
+  }
+  return grouped;
+}
+
+function commandSurface(source: string): string {
+  const directory = path.posix.dirname(source);
+  if (directory === ".") {
+    return "root";
+  }
+  const [topLevel, second] = directory.split("/");
+  if ((topLevel === "apps" || topLevel === "packages") && second) {
+    return `${topLevel}/${second}`;
+  }
+  return topLevel ?? "root";
+}
+
+function buildRiskNotes(profile: RepoProfile): string[] {
+  const notes = [...profile.detectedRiskAreas];
+  if (profile.riskHintPaths.length > 0) {
+    notes.push(
+      `Risk-sensitive paths detected: ${profile.riskHintPaths.join(", ")}.`,
+    );
+  }
+  if (profile.environmentVariables.length > 0) {
+    notes.push(
+      `Environment variables detected: ${profile.environmentVariables.join(", ")}.`,
+    );
+  }
+  if (profile.ownershipHints.length === 0) {
+    notes.push("No ownership hints detected.");
+  }
+  if (profile.generatedFilePaths.length > 0) {
+    notes.push(
+      `Generated files detected: ${profile.generatedFilePaths.join(", ")}.`,
+    );
+  }
+  return dedupeStrings(notes);
+}
+
+function dedupeStrings(values: string[]): string[] {
+  return [...new Set(values)];
 }
 
 function normalizeRepoPath(repoPath: string): string {
