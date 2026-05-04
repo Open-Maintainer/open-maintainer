@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_451c7595-66bd-4435-8351-b8a2ef9c1cb1",
+  "id": "repo_profile_865da8c4-5147-4a84-bd20-43ead63799db",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -1039,11 +1039,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "27cf22a1ae17c137"
+      "hash": "f9a9fd602ccab992"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "99fa69e700edc23d"
+      "hash": "395645bcfb4bfcb1"
     },
     {
       "path": "AGENTS.md",
@@ -1219,7 +1219,7 @@
     },
     {
       "path": "packages/review/tests/workflow.test.ts",
-      "hash": "499821b8659f38a9"
+      "hash": "a2e5e4578f08487e"
     },
     {
       "path": "packages/review/tsconfig.json",
@@ -1471,7 +1471,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-04T07:39:55.815Z",
+  "createdAt": "2026-05-04T08:10:57.634Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2713,7 +2713,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-04T07:39:55.815Z"
+    "generatedAt": "2026-05-04T08:10:57.635Z"
   },
-  "openMaintainerProfileHash": "1da42333aa3692b4"
+  "openMaintainerProfileHash": "3ba40da1f8a4dc99"
 }
