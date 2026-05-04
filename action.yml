@@ -471,54 +471,25 @@ runs:
         GH_TOKEN: ${{ inputs.github-token || github.token }}
       run: |
         set -euo pipefail
-        branch_name="${{ inputs.refresh-branch }}"
-        title="${{ inputs.refresh-title }}"
-        base_branch="${{ github.event.repository.default_branch || github.ref_name }}"
-        body_path="$RUNNER_TEMP/open-maintainer-refresh-pr-body.md"
-        git config user.name "open-maintainer"
-        git config user.email "open-maintainer@users.noreply.github.com"
-        git checkout -B "$branch_name"
-        for artifact_path in \
-          AGENTS.md \
-          CLAUDE.md \
-          .github/copilot-instructions.md \
-          .cursor/rules/open-maintainer.mdc \
-          .agents/skills \
-          .claude/skills \
-          .open-maintainer/profile.json \
-          .open-maintainer/report.md \
-          .open-maintainer.yml; do
-          if [ -e "$artifact_path" ]; then
-            git add -- "$artifact_path"
-          fi
-        done
-        if git diff --cached --quiet; then
-          echo "No writable Open Maintainer context artifacts changed."
-          echo "pr-url=" >> "$GITHUB_OUTPUT"
-          exit 0
+        args=(
+          "context-pr"
+          "$GITHUB_WORKSPACE"
+          "--create"
+          "--refresh-branch"
+          "${{ inputs.refresh-branch }}"
+          "--refresh-title"
+          "${{ inputs.refresh-title }}"
+          "--base-ref"
+          "${{ github.event.repository.default_branch || github.ref_name }}"
+          "--audit-summary-path"
+          "${{ steps.summary.outputs.summary-path }}"
+        )
+        if [ "${{ inputs.force }}" = "true" ]; then
+          args+=("--force")
         fi
-        git commit -m "chore: refresh Open Maintainer context"
-        git push --force-with-lease origin "$branch_name"
-        {
-          echo "## Open Maintainer Context Refresh"
-          echo
-          echo "This pull request refreshes generated Open Maintainer context artifacts."
-          echo
-          echo "- Mode: ${{ inputs.mode }}"
-          echo "- Generation provider: ${{ inputs.generation-provider }}"
-          echo "- Maintainer-owned files preserved by default: ${{ inputs.force != 'true' }}"
-          echo
-          echo "### Audit Summary"
-          echo
-          cat "${{ steps.summary.outputs.summary-path }}"
-        } >"$body_path"
-        existing_url="$(gh pr list --head "$branch_name" --base "$base_branch" --state open --json url --jq '.[0].url // empty')"
-        if [ -n "$existing_url" ]; then
-          gh pr edit "$existing_url" --title "$title" --body-file "$body_path"
-          pr_url="$existing_url"
-        else
-          pr_url="$(gh pr create --base "$base_branch" --head "$branch_name" --title "$title" --body-file "$body_path")"
-        fi
+        output="$(bun run --cwd "$GITHUB_ACTION_PATH" cli "${args[@]}")"
+        echo "$output"
+        pr_url="$(printf '%s\n' "$output" | sed -n 's/^Refresh PR: //p' | tail -n 1)"
         echo "pr-url=$pr_url" >> "$GITHUB_OUTPUT"
         echo "Refresh PR: $pr_url" >> "$GITHUB_STEP_SUMMARY"
     - name: Apply audit result

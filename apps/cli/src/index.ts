@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
+import { execFile } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import {
   DEFAULT_CODEX_CLI_MODEL,
   type ModelProvider,
@@ -21,6 +23,11 @@ import {
   profileFingerprint,
   renderReadinessReport,
 } from "@open-maintainer/context";
+import {
+  type ContextPrPublishInput,
+  type ContextPrPublisher,
+  createContextPrWorkflow,
+} from "@open-maintainer/github";
 import type {
   PullRequestReviewRun,
   ReviewInlineCommentResult,
@@ -29,11 +36,12 @@ import type {
   ReviewTriageLabelResult,
 } from "@open-maintainer/review";
 import type {
+  GeneratedArtifact,
   IssueTriageEvidence,
   IssueTriageResult,
   RepoProfile,
 } from "@open-maintainer/shared";
-import { newId, nowIso } from "@open-maintainer/shared";
+import { ArtifactTypeSchema, newId, nowIso } from "@open-maintainer/shared";
 import {
   type IssueTriageBatchReport,
   renderIssueTriageBatchGroups,
@@ -92,11 +100,15 @@ type CliOptions = {
   issuePostComment: boolean;
   issueCloseAllowed: boolean;
   issueBriefAllowNonAgentReady: boolean;
+  refreshBranch: string | null;
+  refreshTitle: string | null;
+  auditSummaryPath: string | null;
 };
 
 type ArtifactSelection = "codex" | "claude" | "both";
 
 const repositoryWorkspace = createCliRepositoryWorkspace();
+const execFileAsync = promisify(execFile);
 
 const rootUsage = `open-maintainer <command> <repo>
 
@@ -111,6 +123,7 @@ Commands:
   triage issues <repo>                  Preview model-backed triage for a bounded issue batch
   triage brief <repo>                   Generate an agent-safe task brief from a local triage artifact
   pr <repo> --create                    Print a dry-run PR summary for generated artifacts
+  context-pr <repo> --create            Open or update a context refresh PR with git and gh
 
 Help:
   open-maintainer --help
@@ -306,6 +319,21 @@ Options:
 
 Examples:
   open-maintainer pr ./repo --create
+`,
+  "context-pr": `open-maintainer context-pr <repo> --create
+
+Open or update a context refresh pull request for already-generated artifacts.
+
+Options:
+  --create                              Required; open or update the PR
+  --refresh-branch <branch>             Branch used for the context refresh PR
+  --refresh-title <title>               Pull request title
+  --base-ref <branch>                   Base branch for the pull request
+  --audit-summary-path <path>           Markdown audit summary included in the PR body
+  --force                               Overwrite maintainer-owned context files
+
+Examples:
+  open-maintainer context-pr . --create --refresh-branch open-maintainer/context-refresh
 `,
 } as const;
 
@@ -682,6 +710,9 @@ export async function main(argv = process.argv.slice(2)): Promise<number> {
         return 0;
       case "pr":
         await pr(repoRoot, options);
+        return 0;
+      case "context-pr":
+        await contextPr(repoRoot, options);
         return 0;
     }
   } catch (error) {
@@ -1119,6 +1150,331 @@ async function pr(repoRoot: string, options: CliOptions): Promise<void> {
       "Use the GitHub App API flow to create a real remote PR with installation credentials.",
     ]),
   );
+}
+
+async function contextPr(repoRoot: string, options: CliOptions): Promise<void> {
+  if (!options.createPr) {
+    throw new Error("context-pr command requires --create.");
+  }
+  const profile = await repositoryWorkspace.profile(repoRoot);
+  const summaryMarkdown = options.auditSummaryPath
+    ? await readFile(path.resolve(repoRoot, options.auditSummaryPath), "utf8")
+    : undefined;
+  const publisher: ContextPrPublisher = {
+    publish: publishWorkspaceContextPr,
+  };
+  const defaultBranch = options.baseRef ?? profile.defaultBranch;
+  const workflow = createContextPrWorkflow({
+    state: {
+      runs: {
+        start: () => null,
+        succeed: () => null,
+        fail: () => null,
+      },
+      contextPrs: {
+        save: () => undefined,
+      },
+    },
+    repositorySources: {
+      async prepareRegisteredRepo() {
+        throw new Error("The CLI context-pr command only supports workspaces.");
+      },
+      async prepareWorkspace(input) {
+        return {
+          repoId: "local",
+          owner: input.repository.owner,
+          name: input.repository.name,
+          defaultBranch,
+          profileVersion: profile.version,
+          profile,
+          worktreeRoot: input.root,
+        };
+      },
+    },
+    artifactCatalog: {
+      collect: collectWorkspaceContextPrArtifacts,
+    },
+    publishers: {
+      localGh: publisher,
+      githubApp: publisher,
+      actionGh: publisher,
+    },
+  });
+  const result = await workflow.open({
+    target: {
+      kind: "workspace",
+      root: repoRoot,
+      repository: {
+        owner: profile.owner,
+        name: profile.name,
+        defaultBranch,
+      },
+    },
+    origin: {
+      kind: "github-action",
+      branchName: options.refreshBranch ?? "open-maintainer/context-refresh",
+      title: options.refreshTitle ?? "Update Open Maintainer context",
+      ...(summaryMarkdown ? { summaryMarkdown } : {}),
+    },
+    writePolicy: options.force ? "force" : "preserve-maintainer-owned",
+  });
+  if (!result.ok) {
+    throw new Error(result.message);
+  }
+  console.log(`Refresh PR: ${result.contextPr.prUrl ?? ""}`);
+}
+
+async function collectWorkspaceContextPrArtifacts(input: {
+  repoId: string;
+  profileVersion: number;
+  worktreeRoot: string | null;
+}): Promise<GeneratedArtifact[]> {
+  if (!input.worktreeRoot) {
+    return [];
+  }
+  const files = await repositoryWorkspace.scan(input.worktreeRoot);
+  const timestamp = nowIso();
+  const artifacts: GeneratedArtifact[] = [];
+  for (const file of files) {
+    const parsed = ArtifactTypeSchema.safeParse(file.path);
+    if (!parsed.success || parsed.data === "repo_profile") {
+      continue;
+    }
+    artifacts.push({
+      id: newId("artifact"),
+      repoId: input.repoId,
+      type: parsed.data,
+      version: artifacts.length + 1,
+      content: file.content,
+      sourceProfileVersion: input.profileVersion,
+      modelProvider: null,
+      model: null,
+      createdAt: timestamp,
+    });
+  }
+  return artifacts;
+}
+
+async function publishWorkspaceContextPr(
+  input: ContextPrPublishInput,
+): Promise<{
+  id: string;
+  repoId: string;
+  branchName: string;
+  commitSha: string | null;
+  prNumber: number | null;
+  prUrl: string | null;
+  artifactVersions: number[];
+  status: "succeeded";
+  createdAt: string;
+}> {
+  if (!input.repo.worktreeRoot) {
+    throw new Error("A writable workspace is required.");
+  }
+  const cwd = input.repo.worktreeRoot;
+  await runCliGit(cwd, ["checkout", "-B", input.branchName]);
+  const written = await writeWorkspaceContextArtifacts(input);
+  await runCliGit(cwd, ["add", "--", ...written.map((item) => item.path)]);
+  if (!(await cliGitHasStagedChanges(cwd))) {
+    throw new Error("No writable Open Maintainer context artifacts changed.");
+  }
+  await runCliGit(cwd, [
+    "commit",
+    "-m",
+    "chore: refresh Open Maintainer context",
+  ]);
+  const commitSha = (await runCliGit(cwd, ["rev-parse", "HEAD"])).trim();
+  await runCliGit(cwd, [
+    "push",
+    "--force-with-lease",
+    "origin",
+    input.branchName,
+  ]);
+  const prUrl = await openOrUpdateCliPullRequest(cwd, input);
+  return {
+    id: newId("context_pr"),
+    repoId: input.repo.repoId,
+    branchName: input.branchName,
+    commitSha,
+    prNumber: pullRequestNumber(prUrl),
+    prUrl,
+    artifactVersions: written.map(({ artifact }) => artifact.version),
+    status: "succeeded",
+    createdAt: nowIso(),
+  };
+}
+
+async function writeWorkspaceContextArtifacts(
+  input: ContextPrPublishInput,
+): Promise<Array<{ path: string; artifact: GeneratedArtifact }>> {
+  if (!input.repo.worktreeRoot) {
+    return [];
+  }
+  const written: Array<{ path: string; artifact: GeneratedArtifact }> = [];
+  for (const { artifact, path: artifactPath } of input.writableArtifacts) {
+    const destination = path.join(input.repo.worktreeRoot, artifactPath);
+    const relativePath = path.relative(input.repo.worktreeRoot, destination);
+    if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
+      throw new Error(
+        `Refusing to write artifact outside repository: ${artifactPath}`,
+      );
+    }
+    const existingContent = await readFile(destination, "utf8").catch(
+      () => null,
+    );
+    if (
+      existingContent &&
+      !input.shouldOverwriteExistingFile(existingContent)
+    ) {
+      continue;
+    }
+    await mkdir(path.dirname(destination), { recursive: true });
+    await writeFile(destination, artifact.content, "utf8");
+    written.push({ path: relativePath, artifact });
+  }
+  if (written.length === 0) {
+    throw new Error(
+      "No context artifact files were written because existing files are preserved by default.",
+    );
+  }
+  return written;
+}
+
+async function openOrUpdateCliPullRequest(
+  cwd: string,
+  input: ContextPrPublishInput,
+): Promise<string> {
+  const existingUrl = findFirstUrl(
+    await runCliGh(cwd, [
+      "pr",
+      "list",
+      "--head",
+      input.branchName,
+      "--base",
+      input.repo.defaultBranch,
+      "--state",
+      "open",
+      "--json",
+      "url",
+      "--jq",
+      ".[0].url // empty",
+    ]),
+  );
+  if (existingUrl) {
+    await runCliGh(cwd, [
+      "pr",
+      "edit",
+      existingUrl,
+      "--title",
+      input.title,
+      "--body",
+      input.body,
+    ]);
+    return existingUrl;
+  }
+  const prUrl = findFirstUrl(
+    await runCliGh(cwd, [
+      "pr",
+      "create",
+      "--base",
+      input.repo.defaultBranch,
+      "--head",
+      input.branchName,
+      "--title",
+      input.title,
+      "--body",
+      input.body,
+    ]),
+  );
+  if (!prUrl) {
+    throw new Error("gh did not return a pull request URL.");
+  }
+  return prUrl;
+}
+
+async function cliGitHasStagedChanges(cwd: string): Promise<boolean> {
+  try {
+    await runCliGit(cwd, ["diff", "--cached", "--quiet"]);
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+async function runCliGit(cwd: string, args: string[]): Promise<string> {
+  return runCliCommand(
+    process.env.OPEN_MAINTAINER_GIT_COMMAND ?? "git",
+    args,
+    cwd,
+    gitCommitIdentityEnv(),
+  );
+}
+
+async function runCliGh(cwd: string, args: string[]): Promise<string> {
+  return runCliCommand(
+    process.env.OPEN_MAINTAINER_GH_COMMAND ?? "gh",
+    args,
+    cwd,
+  );
+}
+
+async function runCliCommand(
+  command: string,
+  args: string[],
+  cwd: string,
+  env?: Record<string, string>,
+): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync(command, args, {
+      cwd,
+      ...(env ? { env: { ...process.env, ...env } } : {}),
+      maxBuffer: 1024 * 1024,
+      timeout: 120_000,
+    });
+    return stdout;
+  } catch (error) {
+    if (error instanceof Error) {
+      const details = [
+        "stderr" in error && typeof error.stderr === "string"
+          ? error.stderr
+          : "",
+        "stdout" in error && typeof error.stdout === "string"
+          ? error.stdout
+          : "",
+        error.message,
+      ]
+        .filter((part) => part.trim().length > 0)
+        .join("\n");
+      throw new Error(`${command} ${args.join(" ")} failed: ${details}`);
+    }
+    throw error;
+  }
+}
+
+function gitCommitIdentityEnv(): Record<string, string> {
+  const name =
+    process.env.OPEN_MAINTAINER_GIT_AUTHOR_NAME ??
+    process.env.GIT_AUTHOR_NAME ??
+    "open-maintainer";
+  const email =
+    process.env.OPEN_MAINTAINER_GIT_AUTHOR_EMAIL ??
+    process.env.GIT_AUTHOR_EMAIL ??
+    "open-maintainer@users.noreply.github.com";
+  return {
+    GIT_AUTHOR_NAME: name,
+    GIT_AUTHOR_EMAIL: email,
+    GIT_COMMITTER_NAME: name,
+    GIT_COMMITTER_EMAIL: email,
+  };
+}
+
+function findFirstUrl(output: string): string | null {
+  return output.match(/https?:\/\/\S+/)?.[0] ?? null;
+}
+
+function pullRequestNumber(prUrl: string): number {
+  const match = prUrl.match(/\/pull\/(\d+)/);
+  return match ? Number.parseInt(match[1] ?? "0", 10) : 0;
 }
 
 async function triageIssue(
@@ -1666,6 +2022,9 @@ function parseOptions(rawOptions: string[]): CliOptions {
     issuePostComment: false,
     issueCloseAllowed: false,
     issueBriefAllowNonAgentReady: false,
+    refreshBranch: null,
+    refreshTitle: null,
+    auditSummaryPath: null,
   };
   for (let index = 0; index < rawOptions.length; index += 1) {
     const option = rawOptions[index];
@@ -1691,6 +2050,15 @@ function parseOptions(rawOptions: string[]): CliOptions {
       index += 1;
     } else if (option === "--report-path") {
       options.reportPath = requireOptionValue(rawOptions, index, option);
+      index += 1;
+    } else if (option === "--refresh-branch") {
+      options.refreshBranch = requireOptionValue(rawOptions, index, option);
+      index += 1;
+    } else if (option === "--refresh-title") {
+      options.refreshTitle = requireOptionValue(rawOptions, index, option);
+      index += 1;
+    } else if (option === "--audit-summary-path") {
+      options.auditSummaryPath = requireOptionValue(rawOptions, index, option);
       index += 1;
     } else if (option === "--no-profile-write") {
       options.noProfileWrite = true;
@@ -1888,7 +2256,8 @@ function isCommandName(value: string | undefined): value is CommandName {
     value === "doctor" ||
     value === "review" ||
     value === "triage" ||
-    value === "pr"
+    value === "pr" ||
+    value === "context-pr"
   );
 }
 

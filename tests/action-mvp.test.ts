@@ -143,8 +143,10 @@ describe("GitHub Action MVP", () => {
       (step: { name?: string }) => step.name === "Open refresh pull request",
     );
     expect(prStep.if).toBe("${{ inputs.mode == 'refresh' }}");
-    expect(prStep.run).toContain("git push --force-with-lease");
-    expect(prStep.run).toContain("gh pr create");
+    expect(prStep.run).toContain('"context-pr"');
+    expect(prStep.run).toContain("--refresh-branch");
+    expect(prStep.run).toContain("--base-ref");
+    expect(prStep.run).toContain("--audit-summary-path");
     expect(prStep.run).not.toContain("git push origin main");
   });
 
