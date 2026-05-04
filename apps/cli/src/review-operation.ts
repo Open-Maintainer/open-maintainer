@@ -1,0 +1,1233 @@
+import { execFile } from "node:child_process";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
+import {
+  DEFAULT_CODEX_CLI_MODEL,
+  buildClaudeCliProvider,
+  buildCodexCliProvider,
+} from "@open-maintainer/ai";
+import type { ModelProvider } from "@open-maintainer/ai";
+import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
+import {
+  type GitHubRepositoryClient,
+  planInlineReviewComments,
+  planReviewSummaryComment,
+  publishInlineReviewComments,
+  upsertReviewSummaryComment,
+} from "@open-maintainer/github";
+import {
+  assembleLocalReviewInput,
+  createReviewOrchestrator,
+  reviewTriageLabelDefinitions,
+  reviewTriageLabelNames,
+} from "@open-maintainer/review";
+import type {
+  PullRequestReviewRun,
+  ReviewInlineCommentPlan,
+  ReviewInlineCommentResult,
+  ReviewOrchestratorDeps,
+  ReviewPromptContext,
+  ReviewPublicationInput,
+  ReviewPublicationPlan,
+  ReviewPublicationResult,
+  ReviewPublishOptions,
+  ReviewSummaryCommentResult,
+  ReviewTriageLabelPlan,
+  ReviewTriageLabelResult,
+} from "@open-maintainer/review";
+import type {
+  ModelProviderConfig,
+  RepoProfile,
+  ReviewCheckStatus,
+  ReviewExistingComment,
+  ReviewInput,
+  ReviewResult,
+  ReviewSkippedFile,
+} from "@open-maintainer/shared";
+
+const execFileAsync = promisify(execFile);
+
+export type ReviewOperationModelProvider = "codex" | "claude";
+
+export type ReviewOperationRequest = {
+  repoRoot: string;
+  target:
+    | {
+        kind: "diff";
+        baseRef?: string;
+        headRef?: string;
+        prNumber?: number | null;
+      }
+    | { kind: "pullRequest"; number: number };
+  model: {
+    provider: ReviewOperationModelProvider;
+    model?: string | null;
+    consent: { repositoryContentTransfer: true };
+  };
+  intent: "preview" | "apply";
+  output?: {
+    markdownPath?: string;
+    json?: boolean;
+  };
+  publication?:
+    | false
+    | {
+        mode: "plan" | "publish";
+        summary?: boolean;
+        inline?: false | { cap?: number };
+        triageLabel?:
+          | false
+          | {
+              apply: true;
+              createMissingLabels?: boolean;
+            };
+      };
+};
+
+export type ReviewOperationRun = {
+  review: ReviewResult;
+  markdown: string;
+  output: PullRequestReviewRun["output"];
+  publication: PullRequestReviewRun["publication"];
+  diagnostics: {
+    promptContextPaths: string[];
+    skippedFiles: ReviewSkippedFile[];
+    changedFileCount: number;
+  };
+};
+
+export type ReviewOperationRuntime = {
+  review(input: ReviewOperationRequest): Promise<ReviewOperationRun>;
+};
+
+export type RepositoryWorkspacePort = {
+  prepareProfile(input: { repoRoot: string }): Promise<RepoProfile>;
+  detectDefaultBranch(input: { repoRoot: string }): Promise<string | null>;
+};
+
+export type ReviewSourcePort = {
+  assembleDiff(input: {
+    repoRoot: string;
+    profile: RepoProfile;
+    baseRef: string;
+    headRef: string;
+    limits?: Partial<{
+      maxFiles: number;
+      maxFileBytes: number;
+      maxTotalBytes: number;
+    }>;
+  }): Promise<ReviewInput>;
+  fetchPullRequest(input: {
+    repoRoot: string;
+    profile: RepoProfile;
+    prNumber: number;
+    limits?: Partial<{
+      maxFiles: number;
+      maxFileBytes: number;
+      maxTotalBytes: number;
+    }>;
+  }): Promise<ReviewInput>;
+};
+
+export type ReviewPromptContextPort = {
+  load(input: {
+    repoRoot: string;
+    profile: RepoProfile;
+    reviewInput: ReviewInput;
+  }): Promise<{ context: ReviewPromptContext; paths: string[] }>;
+};
+
+export type ReviewModelProviderPort = {
+  resolve(input: {
+    repoRoot: string;
+    profile: RepoProfile;
+    reviewInput: ReviewInput;
+    model: ReviewOperationRequest["model"];
+  }):
+    | Promise<{ providerConfig: ModelProviderConfig; provider: ModelProvider }>
+    | { providerConfig: ModelProviderConfig; provider: ModelProvider };
+};
+
+export type ReviewPublisherPort = NonNullable<
+  ReviewOrchestratorDeps["publisher"]
+>;
+
+export type ReviewOutputPort = NonNullable<ReviewOrchestratorDeps["output"]>;
+
+export type ReviewOperationPorts = {
+  workspace: RepositoryWorkspacePort;
+  source: ReviewSourcePort;
+  promptContext: ReviewPromptContextPort;
+  modelProvider: ReviewModelProviderPort;
+  publisher: ReviewPublisherPort;
+  output: ReviewOutputPort;
+};
+
+export function createReviewOperationRuntime(
+  ports?: ReviewOperationPorts,
+): ReviewOperationRuntime {
+  return {
+    async review(input) {
+      const resolvedPorts =
+        ports ?? createProductionReviewOperationPorts(input.repoRoot);
+      const orchestrator = createReviewOrchestrator(
+        createCliReviewOrchestratorDeps(input.repoRoot, input, resolvedPorts),
+      );
+      const run = await orchestrator.review({
+        repository: { kind: "local", repoRoot: input.repoRoot },
+        target:
+          input.target.kind === "pullRequest"
+            ? { kind: "pullRequest", number: input.target.number }
+            : {
+                kind: "diff",
+                ...(input.target.baseRef
+                  ? { baseRef: input.target.baseRef }
+                  : {}),
+                ...(input.target.headRef
+                  ? { headRef: input.target.headRef }
+                  : {}),
+              },
+        model: {
+          provider: input.model.provider,
+          ...(input.model.model ? { model: input.model.model } : {}),
+          consent: input.model.consent,
+        },
+        intent: input.intent,
+        ...(input.publication !== undefined
+          ? { publication: reviewPublicationIntent(input.publication) }
+          : {}),
+        ...(input.output ? { output: input.output } : {}),
+      });
+      return {
+        review: run.review,
+        markdown: run.markdown,
+        output: run.output,
+        publication: run.publication,
+        diagnostics: run.diagnostics,
+      };
+    },
+  };
+}
+
+export function createProductionReviewOperationPorts(
+  repoRoot: string,
+): ReviewOperationPorts {
+  return {
+    workspace: {
+      async prepareProfile(input) {
+        const files = await scanRepository(input.repoRoot, { maxFiles: 800 });
+        return createProfileFromFiles(input.repoRoot, files);
+      },
+      async detectDefaultBranch(input) {
+        return detectDefaultBranch(input.repoRoot);
+      },
+    },
+    source: {
+      async assembleDiff(input) {
+        return assembleLocalReviewInput({
+          repoRoot: input.repoRoot,
+          repoId: input.profile.repoId,
+          baseRef: input.baseRef,
+          headRef: input.headRef,
+          ...(input.limits ? input.limits : {}),
+        });
+      },
+      async fetchPullRequest(input) {
+        return fetchCliPullRequestReviewInput(input.repoRoot, input.prNumber, {
+          repoId: input.profile.repoId,
+          ...(input.limits ? { limits: input.limits } : {}),
+        });
+      },
+    },
+    promptContext: {
+      async load(input) {
+        return loadReviewPromptContext({
+          repoRoot: input.repoRoot,
+          profile: input.profile,
+        });
+      },
+    },
+    modelProvider: {
+      resolve(input) {
+        return buildReviewProvider({
+          repoRoot: input.repoRoot,
+          provider: input.model.provider,
+          model: input.model.model ?? null,
+        });
+      },
+    },
+    publisher: createGhReviewPublisher(repoRoot),
+    output: {
+      async writeMarkdown(input) {
+        const outputPath = path.resolve(input.repoRoot, input.path);
+        await mkdir(path.dirname(outputPath), { recursive: true });
+        await writeFile(outputPath, input.markdown);
+      },
+    },
+  };
+}
+
+function createCliReviewOrchestratorDeps(
+  repoRoot: string,
+  request: ReviewOperationRequest,
+  ports: ReviewOperationPorts,
+): ReviewOrchestratorDeps {
+  return {
+    sources: {
+      async prepareLocal(input) {
+        const profile = await ports.workspace.prepareProfile({
+          repoRoot: input.repoRoot,
+        });
+        if (input.target?.kind === "pullRequest") {
+          const reviewInput = await ports.source.fetchPullRequest({
+            repoRoot: input.repoRoot,
+            profile,
+            prNumber: input.target.number,
+            ...(input.limits ? { limits: input.limits } : {}),
+          });
+          return { profile, input: reviewInput, repoRoot: input.repoRoot };
+        }
+        const baseRef =
+          input.target?.kind === "diff" && input.target.baseRef
+            ? input.target.baseRef
+            : ((await ports.workspace.detectDefaultBranch({
+                repoRoot: input.repoRoot,
+              })) ??
+              profile.defaultBranch ??
+              "main");
+        const headRef =
+          input.target?.kind === "diff" && input.target.headRef
+            ? input.target.headRef
+            : "HEAD";
+        const localInput = await ports.source
+          .assembleDiff({
+            repoRoot: input.repoRoot,
+            profile,
+            baseRef,
+            headRef,
+            ...(input.limits ? input.limits : {}),
+          })
+          .catch((error) => {
+            const message =
+              error instanceof Error ? error.message : String(error);
+            throw new Error(
+              `Unable to assemble review diff for ${baseRef}...${headRef}. Verify --base-ref and --head-ref. ${message}`,
+            );
+          });
+        return {
+          profile,
+          input: {
+            ...localInput,
+            prNumber:
+              request.target.kind === "diff"
+                ? (request.target.prNumber ?? null)
+                : localInput.prNumber,
+            owner: profile.owner,
+            repo: profile.name,
+            isDraft: null,
+            mergeable: null,
+            mergeStateStatus: null,
+            reviewDecision: null,
+          },
+          repoRoot: input.repoRoot,
+        };
+      },
+    },
+    promptContext: {
+      async load(input) {
+        if (!input.repoRoot) {
+          return { context: {}, paths: [] };
+        }
+        return ports.promptContext.load({
+          repoRoot: input.repoRoot,
+          profile: input.profile,
+          reviewInput: input.reviewInput,
+        });
+      },
+    },
+    modelProviders: {
+      resolve(input) {
+        if (!("provider" in input.model) || "providerConfig" in input.model) {
+          throw new Error(
+            "CLI review operation requires a CLI model selection.",
+          );
+        }
+        if (!input.repoRoot) {
+          throw new Error(
+            "CLI review operation requires a local repository root.",
+          );
+        }
+        return ports.modelProvider.resolve({
+          repoRoot: input.repoRoot ?? repoRoot,
+          profile: input.profile,
+          reviewInput: input.reviewInput,
+          model: input.model,
+        });
+      },
+    },
+    publisher: ports.publisher,
+    output: ports.output,
+  };
+}
+
+function reviewPublicationIntent(
+  publication: Exclude<ReviewOperationRequest["publication"], undefined>,
+):
+  | false
+  | {
+      mode: "plan" | "publish";
+      options: ReviewPublishOptions;
+    } {
+  if (publication === false) {
+    return publication;
+  }
+  return {
+    mode: publication.mode,
+    options: {
+      ...(publication.summary !== undefined
+        ? { summary: publication.summary }
+        : {}),
+      ...(publication.inline !== undefined
+        ? { inline: publication.inline }
+        : {}),
+      ...(publication.triageLabel !== undefined
+        ? { triageLabel: publication.triageLabel }
+        : {}),
+    },
+  };
+}
+
+type PreparedPullRequestReview = {
+  number: number;
+  owner: string;
+  repo: string;
+  title: string | null;
+  body: string;
+  url: string | null;
+  author: string | null;
+  isDraft: boolean | null;
+  mergeable: string | null;
+  mergeStateStatus: string | null;
+  reviewDecision: string | null;
+  baseRef: string;
+  headRef: string;
+  baseSha: string;
+  headSha: string;
+  checkStatuses: ReviewCheckStatus[];
+  existingComments: ReviewExistingComment[];
+};
+
+type GhPullRequestView = {
+  number?: number;
+  title?: string | null;
+  body?: string | null;
+  url?: string | null;
+  author?: { login?: string | null } | null;
+  isDraft?: boolean | null;
+  mergeable?: string | null;
+  mergeStateStatus?: string | null;
+  reviewDecision?: string | null;
+  baseRefName?: string | null;
+  headRefName?: string | null;
+  baseRefOid?: string | null;
+  headRefOid?: string | null;
+  comments?: Array<{
+    id?: number | string | null;
+    body?: string | null;
+  }> | null;
+  statusCheckRollup?: Array<{
+    name?: string | null;
+    status?: string | null;
+    conclusion?: string | null;
+    detailsUrl?: string | null;
+    url?: string | null;
+  }> | null;
+};
+
+type GhRepositoryView = {
+  name?: string | null;
+  owner?: { login?: string | null } | null;
+};
+
+async function fetchCliPullRequestReviewInput(
+  repoRoot: string,
+  prNumber: number,
+  options: {
+    repoId: string;
+    limits?: Partial<{
+      maxFiles: number;
+      maxFileBytes: number;
+      maxTotalBytes: number;
+    }>;
+  },
+) {
+  const pullRequest = await preparePullRequestReview(repoRoot, prNumber);
+  const input = await assembleLocalReviewInput({
+    repoRoot,
+    repoId: options.repoId,
+    baseRef: pullRequest.baseRef,
+    headRef: pullRequest.headRef,
+    ...(options.limits ? options.limits : {}),
+  }).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Unable to assemble review diff for ${pullRequest.baseRef}...${pullRequest.headRef}. Verify --pr ${prNumber}. ${message}`,
+    );
+  });
+  return {
+    ...input,
+    prNumber: pullRequest.number,
+    owner: pullRequest.owner,
+    repo: pullRequest.repo,
+    title: pullRequest.title,
+    body: pullRequest.body,
+    url: pullRequest.url,
+    author: pullRequest.author,
+    isDraft: pullRequest.isDraft,
+    mergeable: pullRequest.mergeable,
+    mergeStateStatus: pullRequest.mergeStateStatus,
+    reviewDecision: pullRequest.reviewDecision,
+    baseSha: pullRequest.baseSha,
+    headSha: pullRequest.headSha,
+    checkStatuses: pullRequest.checkStatuses,
+    existingComments: pullRequest.existingComments,
+  };
+}
+
+async function preparePullRequestReview(
+  repoRoot: string,
+  prNumber: number,
+): Promise<PreparedPullRequestReview> {
+  const [repo, pr] = await Promise.all([
+    ghJson<GhRepositoryView>(repoRoot, [
+      "repo",
+      "view",
+      "--json",
+      "owner,name",
+    ]),
+    ghJson<GhPullRequestView>(repoRoot, [
+      "pr",
+      "view",
+      String(prNumber),
+      "--json",
+      [
+        "number",
+        "title",
+        "body",
+        "url",
+        "author",
+        "isDraft",
+        "mergeable",
+        "mergeStateStatus",
+        "reviewDecision",
+        "baseRefName",
+        "headRefName",
+        "baseRefOid",
+        "headRefOid",
+        "comments",
+        "statusCheckRollup",
+      ].join(","),
+    ]),
+  ]);
+  const owner = repo.owner?.login;
+  const repoName = repo.name;
+  const baseSha = pr.baseRefOid;
+  const headSha = pr.headRefOid;
+  if (!owner || !repoName || !baseSha || !headSha) {
+    throw new Error(
+      `Unable to read pull request #${prNumber} metadata from gh.`,
+    );
+  }
+  const headRef = `refs/remotes/open-maintainer/pr-${prNumber}`;
+  await ensureGitObject(repoRoot, baseSha);
+  await gitRequiredOutput(repoRoot, [
+    "fetch",
+    "--force",
+    "--no-tags",
+    "origin",
+    `refs/pull/${prNumber}/head:${headRef}`,
+  ]);
+
+  return {
+    number: pr.number ?? prNumber,
+    owner,
+    repo: repoName,
+    title: pr.title ?? null,
+    body: pr.body ?? "",
+    url: pr.url ?? null,
+    author: pr.author?.login ?? null,
+    isDraft: pr.isDraft ?? null,
+    mergeable: pr.mergeable ?? null,
+    mergeStateStatus: pr.mergeStateStatus ?? null,
+    reviewDecision: pr.reviewDecision ?? null,
+    baseRef: baseSha,
+    headRef,
+    baseSha,
+    headSha,
+    checkStatuses: parseGhCheckStatuses(pr.statusCheckRollup ?? []),
+    existingComments: parseGhExistingComments(pr.comments ?? []),
+  };
+}
+
+async function loadReviewPromptContext(input: {
+  repoRoot: string;
+  profile: Awaited<ReturnType<typeof createProfileFromFiles>>;
+}): Promise<{ context: ReviewPromptContext; paths: string[] }> {
+  const candidates = [
+    { key: "openMaintainerConfig", path: ".open-maintainer.yml" },
+    { key: "agentsMd", path: "AGENTS.md" },
+    { key: "generatedContext", path: ".open-maintainer/report.md" },
+    {
+      key: "repoPrReviewSkill",
+      path: `.agents/skills/${input.profile.name}-pr-review/SKILL.md`,
+    },
+    {
+      key: "repoTestingWorkflowSkill",
+      path: `.agents/skills/${input.profile.name}-testing-workflow/SKILL.md`,
+    },
+    {
+      key: "repoOverviewSkill",
+      path: `.agents/skills/${input.profile.name}-start-task/SKILL.md`,
+    },
+  ] as const;
+  const entries = await Promise.all(
+    candidates.map(async (candidate) => ({
+      ...candidate,
+      content: await readOptionalRepoFile(input.repoRoot, candidate.path),
+    })),
+  );
+  const context: ReviewPromptContext = {};
+  const paths: string[] = [];
+  for (const entry of entries) {
+    if (!entry.content) {
+      continue;
+    }
+    context[entry.key] = entry.content;
+    paths.push(entry.path);
+  }
+  return { context, paths };
+}
+
+function createGhReviewPublisher(
+  repoRoot: string,
+): NonNullable<ReviewOrchestratorDeps["publisher"]> {
+  return {
+    async plan(input) {
+      return planGhReviewPublication(repoRoot, input);
+    },
+    async publish(input) {
+      return publishGhReviewPublication(repoRoot, input);
+    },
+  };
+}
+
+async function planGhReviewPublication(
+  repoRoot: string,
+  input: ReviewPublicationInput,
+): Promise<ReviewPublicationPlan> {
+  const client = createGhReviewClient(repoRoot);
+  return {
+    summary: input.options.summary
+      ? planReviewSummaryComment({
+          markdown: input.markdown,
+          existingComments: input.reviewInput.existingComments.filter(
+            (comment) => comment.kind === "summary",
+          ),
+        })
+      : null,
+    inline:
+      input.options.inline === false
+        ? null
+        : await planGhInlineReviewComments(client, input),
+    triageLabel: input.options.triageLabel
+      ? await planReviewTriageLabel(repoRoot, input, {
+          createMissingLabels: input.options.triageLabel.createMissingLabels,
+        })
+      : null,
+  };
+}
+
+async function publishGhReviewPublication(
+  repoRoot: string,
+  input: ReviewPublicationInput,
+): Promise<ReviewPublicationResult> {
+  const client = createGhReviewClient(repoRoot);
+  return {
+    summary: input.options.summary
+      ? await upsertReviewSummaryComment({
+          owner: input.target.owner,
+          repo: input.target.repo,
+          pullNumber: input.target.pullNumber,
+          markdown: input.markdown,
+          client,
+        })
+      : null,
+    inline:
+      input.options.inline === false
+        ? null
+        : await publishInlineReviewComments({
+            owner: input.target.owner,
+            repo: input.target.repo,
+            pullNumber: input.target.pullNumber,
+            review: input.review,
+            cap: input.options.inline.cap,
+            client,
+          }),
+    triageLabel: input.options.triageLabel
+      ? await applyReviewTriageLabel(repoRoot, input, {
+          createMissingLabels: input.options.triageLabel.createMissingLabels,
+        })
+      : null,
+  };
+}
+
+async function planGhInlineReviewComments(
+  client: GitHubRepositoryClient,
+  input: ReviewPublicationInput,
+): Promise<ReviewInlineCommentPlan> {
+  if (input.options.inline === false) {
+    return { comments: [], skipped: [] };
+  }
+  const comments = await client.pulls.listReviewComments?.({
+    owner: input.target.owner,
+    repo: input.target.repo,
+    pull_number: input.target.pullNumber,
+    per_page: 100,
+  });
+  return planInlineReviewComments({
+    review: input.review,
+    existingComments: comments?.data ?? [],
+    cap: input.options.inline.cap,
+  });
+}
+
+async function planReviewTriageLabel(
+  repoRoot: string,
+  input: ReviewPublicationInput,
+  options: { createMissingLabels: boolean },
+): Promise<ReviewTriageLabelPlan> {
+  const category = input.review.contributionTriage.category;
+  if (input.review.contributionTriage.status !== "evaluated" || !category) {
+    throw new Error(
+      "--review-apply-triage-label requires an evaluated contribution-triage category.",
+    );
+  }
+  const label = reviewTriageLabelDefinitions[category].name;
+  const existingIssueLabels = await ghApiJson<Array<{ name?: string | null }>>(
+    repoRoot,
+    `repos/${input.target.owner}/${input.target.repo}/issues/${input.target.pullNumber}/labels?per_page=100`,
+  );
+  const existingIssueNames = new Set(
+    existingIssueLabels.flatMap((item) => (item.name ? [item.name] : [])),
+  );
+  const repoLabels = options.createMissingLabels
+    ? await ghApiJson<Array<{ name?: string | null }>>(
+        repoRoot,
+        `repos/${input.target.owner}/${input.target.repo}/labels?per_page=100`,
+      )
+    : [];
+  const existingRepoNames = new Set(
+    repoLabels.flatMap((item) => (item.name ? [item.name] : [])),
+  );
+  return {
+    label,
+    apply: !existingIssueNames.has(label),
+    createMissingLabels: options.createMissingLabels,
+    labelsToCreate: options.createMissingLabels
+      ? Object.values(reviewTriageLabelDefinitions)
+          .filter((definition) => !existingRepoNames.has(definition.name))
+          .map((definition) => definition.name)
+      : [],
+    labelsToRemove: [...existingIssueNames].filter(
+      (name) => reviewTriageLabelNames.has(name) && name !== label,
+    ),
+  };
+}
+
+async function applyReviewTriageLabel(
+  repoRoot: string,
+  input: ReviewPublicationInput,
+  options: { createMissingLabels: boolean },
+): Promise<ReviewTriageLabelResult> {
+  const plan = await planReviewTriageLabel(repoRoot, input, options);
+  const owner = input.target.owner;
+  const repo = input.target.repo;
+  const pullNumber = input.target.pullNumber;
+  const created = options.createMissingLabels
+    ? await createMissingReviewTriageLabels(repoRoot, owner, repo)
+    : 0;
+  const removed: string[] = [];
+  for (const label of plan.labelsToRemove) {
+    await editGitHubIssueLabels(repoRoot, owner, repo, pullNumber, {
+      removeLabel: label,
+    });
+    removed.push(label);
+  }
+  if (plan.apply) {
+    await editGitHubIssueLabels(repoRoot, owner, repo, pullNumber, {
+      addLabel: plan.label,
+    });
+  }
+  return {
+    ...plan,
+    applied: plan.apply,
+    created,
+    removed,
+  };
+}
+
+async function createMissingReviewTriageLabels(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+): Promise<number> {
+  const repoLabels = await ghApiJson<Array<{ name?: string | null }>>(
+    repoRoot,
+    `repos/${owner}/${repo}/labels?per_page=100`,
+  );
+  const existingNames = new Set(
+    repoLabels.flatMap((label) => (label.name ? [label.name] : [])),
+  );
+  let created = 0;
+  for (const label of Object.values(reviewTriageLabelDefinitions)) {
+    if (existingNames.has(label.name)) {
+      continue;
+    }
+    await createGitHubLabel(repoRoot, owner, repo, label.name, label.color, {
+      description: label.description,
+    });
+    created += 1;
+  }
+  return created;
+}
+
+function createGhReviewClient(repoRoot: string): GitHubRepositoryClient {
+  return {
+    repos: {
+      async getContent() {
+        throw new Error("Repository content reads are not used by CLI review.");
+      },
+      async createOrUpdateFileContents() {
+        throw new Error("Repository writes are not used by CLI review.");
+      },
+    },
+    git: {
+      async getRef() {
+        throw new Error("Git ref reads are not used by CLI review publisher.");
+      },
+      async createRef() {
+        throw new Error("Git ref writes are not used by CLI review.");
+      },
+      async updateRef() {
+        throw new Error("Git ref writes are not used by CLI review.");
+      },
+    },
+    pulls: {
+      async list() {
+        throw new Error("Pull request listing is not used by CLI review.");
+      },
+      async create() {
+        throw new Error("Pull request creation is not used by CLI review.");
+      },
+      async update() {
+        throw new Error("Pull request updates are not used by CLI review.");
+      },
+      async listReviewComments(input) {
+        return {
+          data: await ghApiJson(
+            repoRoot,
+            `repos/${input.owner}/${input.repo}/pulls/${input.pull_number}/comments?per_page=${input.per_page ?? 100}`,
+          ),
+        };
+      },
+      async createReview(input) {
+        const response = await ghApiWithJsonBody<{
+          id?: number;
+          html_url?: string | null;
+        }>(
+          repoRoot,
+          `repos/${input.owner}/${input.repo}/pulls/${input.pull_number}/reviews`,
+          "POST",
+          {
+            event: input.event,
+            body: input.body,
+            comments: input.comments,
+          },
+        );
+        return {
+          data: {
+            id: response.id ?? 0,
+            html_url: response.html_url ?? null,
+          },
+        };
+      },
+    },
+    issues: {
+      async listComments(input) {
+        return {
+          data: await ghApiJson(
+            repoRoot,
+            `repos/${input.owner}/${input.repo}/issues/${input.issue_number}/comments?per_page=${input.per_page ?? 100}`,
+          ),
+        };
+      },
+      async createComment(input) {
+        const response = await ghApiWithJsonBody<{
+          id?: number;
+          html_url?: string | null;
+        }>(
+          repoRoot,
+          `repos/${input.owner}/${input.repo}/issues/${input.issue_number}/comments`,
+          "POST",
+          { body: input.body },
+        );
+        return {
+          data: {
+            id: response.id ?? 0,
+            html_url: response.html_url ?? null,
+          },
+        };
+      },
+      async updateComment(input) {
+        const response = await ghApiWithJsonBody<{
+          id?: number;
+          html_url?: string | null;
+        }>(
+          repoRoot,
+          `repos/${input.owner}/${input.repo}/issues/comments/${input.comment_id}`,
+          "PATCH",
+          { body: input.body },
+        );
+        return {
+          data: {
+            id: response.id ?? input.comment_id,
+            html_url: response.html_url ?? null,
+          },
+        };
+      },
+    },
+  };
+}
+
+function buildReviewProvider(input: {
+  repoRoot: string;
+  provider: ReviewOperationModelProvider;
+  model: string | null;
+}) {
+  const createdAt = new Date(0).toISOString();
+  const codexModel =
+    input.model ??
+    process.env.OPEN_MAINTAINER_CODEX_MODEL ??
+    DEFAULT_CODEX_CLI_MODEL;
+  const providerConfig: ModelProviderConfig =
+    input.provider === "codex"
+      ? {
+          id: "model_provider_cli_review_codex",
+          kind: "codex-cli",
+          displayName: "Codex CLI",
+          baseUrl: "http://localhost",
+          model: codexModel,
+          encryptedApiKey: "local-cli",
+          repoContentConsent: true,
+          createdAt,
+          updatedAt: createdAt,
+        }
+      : {
+          id: "model_provider_cli_review_claude",
+          kind: "claude-cli",
+          displayName: "Claude CLI",
+          baseUrl: "http://localhost",
+          model: input.model ?? "claude-cli",
+          encryptedApiKey: "local-cli",
+          repoContentConsent: true,
+          createdAt,
+          updatedAt: createdAt,
+        };
+  const provider =
+    input.provider === "codex"
+      ? buildCodexCliProvider({
+          cwd: input.repoRoot,
+          model: codexModel,
+        })
+      : buildClaudeCliProvider({
+          cwd: input.repoRoot,
+          ...(input.model ? { model: input.model } : {}),
+        });
+  return { providerConfig, provider };
+}
+
+async function createProfileFromFiles(
+  repoRoot: string,
+  files: Awaited<ReturnType<typeof scanRepository>>,
+) {
+  const identity = await resolveRepoIdentity(repoRoot);
+  return analyzeRepo({
+    repoId: "local",
+    owner: identity.owner,
+    name: identity.name,
+    defaultBranch: identity.defaultBranch,
+    version: 1,
+    files,
+  });
+}
+
+async function resolveRepoIdentity(repoRoot: string): Promise<{
+  owner: string;
+  name: string;
+  defaultBranch: string;
+}> {
+  const fallback = {
+    owner: path.basename(path.dirname(repoRoot)) || "local",
+    name: path.basename(repoRoot),
+    defaultBranch: "main",
+  };
+  const [remoteUrl, defaultBranch] = await Promise.all([
+    gitOutput(repoRoot, ["remote", "get-url", "origin"]),
+    detectDefaultBranch(repoRoot),
+  ]);
+  const remoteIdentity = remoteUrl ? parseGitHubRemote(remoteUrl) : null;
+  return {
+    owner: remoteIdentity?.owner ?? fallback.owner,
+    name: remoteIdentity?.name ?? fallback.name,
+    defaultBranch: defaultBranch ?? fallback.defaultBranch,
+  };
+}
+
+async function detectDefaultBranch(repoRoot: string): Promise<string | null> {
+  const symbolicRef = await gitOutput(repoRoot, [
+    "symbolic-ref",
+    "--short",
+    "refs/remotes/origin/HEAD",
+  ]);
+  if (symbolicRef?.startsWith("origin/")) {
+    return symbolicRef.slice("origin/".length);
+  }
+  return null;
+}
+
+async function gitOutput(
+  repoRoot: string,
+  args: string[],
+): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", repoRoot, ...args]);
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function parseGitHubRemote(
+  remoteUrl: string,
+): { owner: string; name: string } | null {
+  const normalized = remoteUrl.trim().replace(/\.git$/, "");
+  const sshMatch = /^git@[^:]+:([^/]+)\/(.+)$/.exec(normalized);
+  if (sshMatch?.[1] && sshMatch[2]) {
+    return { owner: sshMatch[1], name: sshMatch[2] };
+  }
+  try {
+    const url = new URL(normalized);
+    const [owner, name] = url.pathname.replace(/^\/+/, "").split("/");
+    return owner && name ? { owner, name } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function readOptionalRepoFile(
+  repoRoot: string,
+  repoPath: string,
+): Promise<string | undefined> {
+  return readFile(path.join(repoRoot, repoPath), "utf8").catch(() => undefined);
+}
+
+async function ghJson<T>(repoRoot: string, args: string[]): Promise<T> {
+  const output = await execGh(repoRoot, args);
+  return JSON.parse(output) as T;
+}
+
+async function createGitHubLabel(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+  label: string,
+  color: string,
+  options: { description: string },
+): Promise<void> {
+  await ghApiWithJsonBody(repoRoot, `repos/${owner}/${repo}/labels`, "POST", {
+    name: label,
+    color,
+    description: options.description,
+  });
+}
+
+async function editGitHubIssueLabels(
+  repoRoot: string,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  options: { addLabel?: string; removeLabel?: string },
+): Promise<void> {
+  if (options.addLabel) {
+    await ghApiWithJsonBody(
+      repoRoot,
+      `repos/${owner}/${repo}/issues/${issueNumber}/labels`,
+      "POST",
+      { labels: [options.addLabel] },
+    );
+  }
+  if (options.removeLabel) {
+    await ghApiNoBody(
+      repoRoot,
+      `repos/${owner}/${repo}/issues/${issueNumber}/labels/${encodeURIComponent(options.removeLabel)}`,
+      "DELETE",
+    );
+  }
+}
+
+async function ghApiJson<T>(
+  repoRoot: string,
+  endpoint: string,
+  args: string[] = [],
+): Promise<T> {
+  const output = await execGh(repoRoot, [
+    "api",
+    endpoint,
+    "--method",
+    "GET",
+    ...args,
+  ]);
+  return JSON.parse(output || "null") as T;
+}
+
+async function ghApiWithJsonBody<T = unknown>(
+  repoRoot: string,
+  endpoint: string,
+  method: "PATCH" | "POST",
+  body: unknown,
+): Promise<T> {
+  const directory = await mkdtemp(path.join(tmpdir(), "open-maintainer-gh-"));
+  const inputPath = path.join(directory, "body.json");
+  try {
+    await writeFile(inputPath, JSON.stringify(body));
+    const output = await execGh(repoRoot, [
+      "api",
+      endpoint,
+      "--method",
+      method,
+      "--input",
+      inputPath,
+    ]);
+    return JSON.parse(output || "null") as T;
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}
+
+async function ghApiNoBody(
+  repoRoot: string,
+  endpoint: string,
+  method: "DELETE",
+): Promise<void> {
+  await execGh(repoRoot, ["api", endpoint, "--method", method]);
+}
+
+async function execGh(repoRoot: string, args: string[]): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("gh", args, {
+      cwd: repoRoot,
+      env: gitHubCliEnv(),
+      maxBuffer: 8 * 1024 * 1024,
+    });
+    return stdout;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `GitHub CLI command failed: gh ${args.join(" ")}. ${message}`,
+    );
+  }
+}
+
+function gitHubCliEnv(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  if (
+    env.CI !== "true" &&
+    env.GITHUB_ACTIONS !== "true" &&
+    env.OPEN_MAINTAINER_USE_ENV_GH_TOKEN !== "1"
+  ) {
+    env.GH_TOKEN = undefined;
+    env.GITHUB_TOKEN = undefined;
+  }
+  return env;
+}
+
+async function ensureGitObject(repoRoot: string, sha: string): Promise<void> {
+  const exists = await gitRequiredOutput(repoRoot, [
+    "cat-file",
+    "-e",
+    `${sha}^{commit}`,
+  ])
+    .then(() => true)
+    .catch(() => false);
+  if (!exists) {
+    await gitRequiredOutput(repoRoot, ["fetch", "--no-tags", "origin", sha]);
+  }
+}
+
+async function gitRequiredOutput(
+  repoRoot: string,
+  args: string[],
+): Promise<string> {
+  const { stdout } = await execFileAsync("git", args, {
+    cwd: repoRoot,
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  return stdout;
+}
+
+function parseGhCheckStatuses(
+  statuses: NonNullable<GhPullRequestView["statusCheckRollup"]>,
+): ReviewCheckStatus[] {
+  return statuses.flatMap((status) => {
+    const name = status.name?.trim();
+    const state = status.status?.trim();
+    if (!name || !state) {
+      return [];
+    }
+    return [
+      {
+        name,
+        status: state,
+        conclusion: status.conclusion ?? null,
+        url: status.detailsUrl ?? status.url ?? null,
+      },
+    ];
+  });
+}
+
+function parseGhExistingComments(
+  comments: NonNullable<GhPullRequestView["comments"]>,
+): ReviewExistingComment[] {
+  return comments.flatMap((comment) => {
+    const id =
+      typeof comment.id === "number"
+        ? comment.id
+        : Number.parseInt(String(comment.id ?? ""), 10);
+    if (!Number.isInteger(id) || id <= 0 || !comment.body) {
+      return [];
+    }
+    return [
+      {
+        id,
+        kind: comment.body.includes("open-maintainer-review-summary")
+          ? ("summary" as const)
+          : ("inline" as const),
+        body: comment.body,
+        path: null,
+        line: null,
+      },
+    ];
+  });
+}
