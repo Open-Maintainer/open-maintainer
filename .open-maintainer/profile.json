@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_b77e500f-f357-4a57-aebb-d4467955cbb9",
+  "id": "repo_profile_fe138db9-50ae-4bcb-9a2f-1555c9d46d7c",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -340,6 +340,7 @@
     "packages/review/tests/model.test.ts",
     "packages/review/tests/precheck.test.ts",
     "packages/review/tests/render.test.ts",
+    "packages/review/tests/workflow.test.ts",
     "packages/shared/tests/schemas.test.ts",
     "packages/triage/tests/index.test.ts",
     "tests/action-mvp.test.ts",
@@ -760,6 +761,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "packages/review/tests/workflow.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "packages/shared/tests/schemas.test.ts",
       "reason": "detected repository context"
     },
@@ -1024,11 +1029,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "417dee8e0bb6fb85"
+      "hash": "56982ebb937d4643"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "f17826623fa6be17"
+      "hash": "ef35cfd81e090734"
     },
     {
       "path": "AGENTS.md",
@@ -1201,6 +1206,10 @@
     {
       "path": "packages/review/tests/render.test.ts",
       "hash": "ac2618c58d17aa08"
+    },
+    {
+      "path": "packages/review/tests/workflow.test.ts",
+      "hash": "509437a816ac50eb"
     },
     {
       "path": "packages/review/tsconfig.json",
@@ -1444,7 +1453,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-04T01:40:21.183Z",
+  "createdAt": "2026-05-04T03:58:10.256Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1843,6 +1852,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "packages/review/tests/workflow.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "packages/shared/tests/schemas.test.ts",
             "reason": "detected repository context"
           },
@@ -2168,6 +2181,10 @@
           },
           {
             "path": "packages/review/tests/render.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/review/tests/workflow.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2662,7 +2679,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-04T01:40:21.183Z"
+    "generatedAt": "2026-05-04T03:58:10.257Z"
   },
-  "openMaintainerProfileHash": "949adaac9262d0c8"
+  "openMaintainerProfileHash": "abb9f4221f4bae78"
 }
