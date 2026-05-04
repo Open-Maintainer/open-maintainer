@@ -142,10 +142,33 @@ type RepositoryFilesFetcher = (input: {
 
 type RegistryOptions = {
   store: MemoryStore;
+  state?: RepositorySourceStorePort;
   fetchRepositoryFiles?: RepositoryFilesFetcher;
   getInstallationAuth?: (
     installationId: string,
   ) => GitHubAppInstallationAuth | null;
+};
+
+export type RepositorySourceStorePort = {
+  repo(repoId: string): Repo | null;
+  files(repoId: string): RepositoryFile[];
+  saveFiles(repoId: string, files: RepositoryFile[]): void;
+  worktreeRoot(repoId: string): string | null;
+  saveWorktreeRoot(repoId: string, worktreeRoot: string | null): void;
+  latestProfile(repoId: string): RepoProfile | null;
+  profileCount(repoId: string): number;
+  addProfile(profile: RepoProfile): void;
+  recordRun(
+    input: Omit<RunRecord, "id" | "createdAt" | "updatedAt">,
+  ): RunRecord;
+  updateRun(id: string, patch: Partial<RunRecord>): RunRecord;
+  saveRegisteredRepository(input: {
+    repo: Repo;
+    installation: Installation;
+    files: RepositoryFile[];
+    worktreeRoot: string | null;
+  }): void;
+  clearDerivedRepositoryState(repoId: string): void;
 };
 
 const execFileAsync = promisify(execFile);
@@ -154,6 +177,8 @@ const maxRepositoryFiles = 800;
 export function createRepositoryOperations(
   options: RegistryOptions,
 ): RepositorySourceAnalysisRegistry {
+  const state =
+    options.state ?? repositorySourceStoreFromMemoryStore(options.store);
   const fetchRepositoryFiles =
     options.fetchRepositoryFiles ?? defaultRepositoryFilesFetcher;
   const getInstallationAuth = options.getInstallationAuth ?? (() => null);
@@ -282,16 +307,16 @@ export function createRepositoryOperations(
     profilePolicy: "reuse" | "refresh";
     createdRunMessage?: string;
   }): Promise<RepositorySourceAnalysisResult<RepositoryAnalysisWorkspace>> {
-    const repo = options.store.repos.get(input.repoId);
+    const repo = state.repo(input.repoId);
     if (!repo) {
       return unknownRepo();
     }
 
-    const existingProfile = options.store.latestProfile(input.repoId);
+    const existingProfile = state.latestProfile(input.repoId);
     const shouldCreateProfile =
       input.profilePolicy === "refresh" || !existingProfile;
     const run = shouldCreateProfile
-      ? options.store.recordRun({
+      ? state.recordRun({
           repoId: input.repoId,
           type: "analysis",
           status: "running",
@@ -311,7 +336,7 @@ export function createRepositoryOperations(
     });
     if (!filesResult.ok) {
       const failedRun = run
-        ? options.store.updateRun(run.id, {
+        ? state.updateRun(run.id, {
             status: "failed",
             safeMessage: filesResult.message,
           })
@@ -330,7 +355,7 @@ export function createRepositoryOperations(
         })
       : existingProfile;
     const updatedRun = run
-      ? options.store.updateRun(run.id, {
+      ? state.updateRun(run.id, {
           status: "succeeded",
           repoProfileVersion: profile.version,
           safeMessage:
@@ -344,7 +369,7 @@ export function createRepositoryOperations(
       profile,
       profileCreated: shouldCreateProfile,
       ...(updatedRun ? { run: updatedRun } : {}),
-      worktreeRoot: options.store.repoWorktrees.get(input.repoId) ?? null,
+      worktreeRoot: state.worktreeRoot(input.repoId),
     };
   }
 
@@ -396,11 +421,11 @@ export function createRepositoryOperations(
     repoId: string;
     missingProfileMessage: string;
   }): Promise<RepositorySourceAnalysisResult<RepositoryAnalysisWorkspace>> {
-    const repo = options.store.repos.get(input.repoId);
+    const repo = state.repo(input.repoId);
     if (!repo) {
       return unknownRepo();
     }
-    const profile = options.store.latestProfile(input.repoId);
+    const profile = state.latestProfile(input.repoId);
     if (!profile) {
       return noProfile(input.missingProfileMessage);
     }
@@ -417,7 +442,7 @@ export function createRepositoryOperations(
       files: filesResult.files,
       profile,
       profileCreated: false,
-      worktreeRoot: options.store.repoWorktrees.get(input.repoId) ?? null,
+      worktreeRoot: state.worktreeRoot(input.repoId),
     };
   }
 
@@ -436,7 +461,7 @@ export function createRepositoryOperations(
   > {
     const auth = getInstallationAuth(input.repo.installationId);
     if (!auth) {
-      const files = options.store.repoFiles.get(input.repoId) ?? [];
+      const files = state.files(input.repoId);
       if (files.length > 0) {
         return { ok: true, files };
       }
@@ -452,7 +477,7 @@ export function createRepositoryOperations(
       path: file.path,
       content: file.content,
     }));
-    options.store.repoFiles.set(input.repoId, files);
+    state.saveFiles(input.repoId, files);
     return { ok: true, files };
   }
 
@@ -461,7 +486,7 @@ export function createRepositoryOperations(
     repo: Repo;
     files: RepositoryFile[];
   }): Promise<RepoProfile> {
-    const version = (options.store.profiles.get(input.repoId)?.length ?? 0) + 1;
+    const version = state.profileCount(input.repoId) + 1;
     const result = await prepareRepositoryProfile({
       files: input.files,
       identity: {
@@ -473,7 +498,7 @@ export function createRepositoryOperations(
       },
     });
     const profile = result.profile;
-    options.store.addProfile(profile);
+    state.addProfile(profile);
     return profile;
   }
 
@@ -487,16 +512,13 @@ export function createRepositoryOperations(
   }): Promise<Repo> {
     const repo = localRepositoryRecord(input);
 
-    options.store.installations.set(repo.installationId, localInstallation());
-    options.store.repos.set(repo.id, repo);
-    options.store.repoFiles.set(repo.id, input.files);
-    if (input.worktreeRoot) {
-      options.store.repoWorktrees.set(repo.id, input.worktreeRoot);
-    } else {
-      options.store.repoWorktrees.delete(repo.id);
-    }
-    options.store.profiles.delete(repo.id);
-    options.store.artifacts.delete(repo.id);
+    state.saveRegisteredRepository({
+      repo,
+      installation: localInstallation(),
+      files: input.files,
+      worktreeRoot: input.worktreeRoot ?? null,
+    });
+    state.clearDerivedRepositoryState(repo.id);
 
     return repo;
   }
@@ -514,6 +536,58 @@ export function createRepositoryOperations(
 
 export const createRepositorySourceAnalysisRegistry =
   createRepositoryOperations;
+
+export function repositorySourceStoreFromMemoryStore(
+  store: MemoryStore,
+): RepositorySourceStorePort {
+  const saveWorktreeRoot = (repoId: string, worktreeRoot: string | null) => {
+    if (worktreeRoot) {
+      store.repoWorktrees.set(repoId, worktreeRoot);
+    } else {
+      store.repoWorktrees.delete(repoId);
+    }
+  };
+  return {
+    repo(repoId) {
+      return store.repos.get(repoId) ?? null;
+    },
+    files(repoId) {
+      return store.repoFiles.get(repoId) ?? [];
+    },
+    saveFiles(repoId, files) {
+      store.repoFiles.set(repoId, files);
+    },
+    worktreeRoot(repoId) {
+      return store.repoWorktrees.get(repoId) ?? null;
+    },
+    saveWorktreeRoot,
+    latestProfile(repoId) {
+      return store.latestProfile(repoId);
+    },
+    profileCount(repoId) {
+      return store.profiles.get(repoId)?.length ?? 0;
+    },
+    addProfile(profile) {
+      store.addProfile(profile);
+    },
+    recordRun(input) {
+      return store.recordRun(input);
+    },
+    updateRun(id, patch) {
+      return store.updateRun(id, patch);
+    },
+    saveRegisteredRepository(input) {
+      store.installations.set(input.repo.installationId, input.installation);
+      store.repos.set(input.repo.id, input.repo);
+      store.repoFiles.set(input.repo.id, input.files);
+      saveWorktreeRoot(input.repo.id, input.worktreeRoot);
+    },
+    clearDerivedRepositoryState(repoId) {
+      store.profiles.delete(repoId);
+      store.artifacts.delete(repoId);
+    },
+  };
+}
 
 async function defaultRepositoryFilesFetcher(input: {
   owner: string;

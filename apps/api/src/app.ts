@@ -31,6 +31,7 @@ import {
   assembleLocalReviewInput,
   createReviewOperation,
   createReviewOperationDeps,
+  loadReviewPromptContext,
 } from "@open-maintainer/review";
 import type { ReviewOperationDeps } from "@open-maintainer/review";
 import {
@@ -1228,10 +1229,19 @@ function createApiReviewOperationDeps(input: {
     },
     promptContext: {
       async resolve(request) {
-        return reviewPromptContextForRepository({
-          repoId: input.repoId,
+        return loadReviewPromptContext({
           profile: request.source.profile,
           worktreeRoot: request.source.repoRoot,
+          artifacts: store.artifacts.get(input.repoId) ?? [],
+          includeGeneratedInstructionArtifacts: true,
+          includeGenericSkillFallbacks: true,
+          generatedContextPaths: [
+            ".open-maintainer/report.md",
+            "CLAUDE.md",
+            ".github/copilot-instructions.md",
+            ".cursor/rules/open-maintainer.md",
+          ],
+          generatedContextSource: "artifacts",
         });
       },
     },
@@ -1489,121 +1499,6 @@ async function localPullRequestMetadata(input: {
     mergeStateStatus: parsed.mergeStateStatus ?? null,
     reviewDecision: parsed.reviewDecision ?? null,
   };
-}
-
-async function reviewPromptContextForRepository(input: {
-  repoId: string;
-  profile: RepoProfile;
-  worktreeRoot: string | null;
-}) {
-  const artifact = latestArtifactLookup(input.repoId);
-  const paths: string[] = [];
-  const readContext = async (repoPath: string, artifactFallback?: string) => {
-    if (input.worktreeRoot) {
-      const content = await readOptionalWorktreeFile(
-        input.worktreeRoot,
-        repoPath,
-      );
-      if (content) {
-        paths.push(repoPath);
-        return content;
-      }
-    }
-    const artifactContent = artifact(repoPath);
-    if (artifactContent) {
-      paths.push(repoPath);
-      return artifactContent;
-    }
-    if (!artifactFallback) {
-      return undefined;
-    }
-    const fallbackContent = artifact(artifactFallback);
-    if (fallbackContent) {
-      paths.push(artifactFallback);
-    }
-    return fallbackContent;
-  };
-  const skillPath = (name: string) =>
-    `.agents/skills/${input.profile.name}-${name}/SKILL.md`;
-  const generatedContextPaths = [
-    ".open-maintainer/report.md",
-    "CLAUDE.md",
-    ".github/copilot-instructions.md",
-    ".cursor/rules/open-maintainer.md",
-  ];
-  const generatedContext = generatedContextPaths
-    .flatMap((artifactPath) => {
-      const content = artifact(artifactPath);
-      if (!content) {
-        return [];
-      }
-      paths.push(artifactPath);
-      return [content];
-    })
-    .join("\n\n---\n\n");
-
-  const context = {
-    ...optionalContext(
-      "openMaintainerConfig",
-      await readContext(".open-maintainer.yml"),
-    ),
-    ...optionalContext("agentsMd", await readContext("AGENTS.md")),
-    ...optionalContext(
-      "repoPrReviewSkill",
-      await readContext(
-        skillPath("pr-review"),
-        ".agents/skills/pr-review/SKILL.md",
-      ),
-    ),
-    ...optionalContext(
-      "repoTestingWorkflowSkill",
-      await readContext(
-        skillPath("testing-workflow"),
-        ".agents/skills/testing-workflow/SKILL.md",
-      ),
-    ),
-    ...optionalContext(
-      "repoOverviewSkill",
-      await readContext(
-        skillPath("start-task"),
-        ".agents/skills/repo-overview/SKILL.md",
-      ),
-    ),
-    ...optionalContext(
-      "copilotInstructions",
-      await readContext(".github/copilot-instructions.md"),
-    ),
-    ...optionalContext(
-      "cursorRule",
-      await readContext(".cursor/rules/open-maintainer.md"),
-    ),
-    ...optionalContext("generatedContext", generatedContext || undefined),
-  };
-  return { context, paths };
-}
-
-function latestArtifactLookup(repoId: string) {
-  const artifacts = [...(store.artifacts.get(repoId) ?? [])].reverse();
-  return (artifactType: string) =>
-    artifacts.find((artifact) => artifact.type === artifactType)?.content ??
-    artifacts.find(
-      (artifact) =>
-        typeof artifact.type === "string" &&
-        artifact.type.endsWith(`/${artifactType}`),
-    )?.content;
-}
-
-async function readOptionalWorktreeFile(
-  worktreeRoot: string,
-  repoPath: string,
-): Promise<string | undefined> {
-  return readFile(path.join(worktreeRoot, repoPath), "utf8").catch(
-    () => undefined,
-  );
-}
-
-function optionalContext(key: string, value: string | undefined) {
-  return value ? { [key]: value } : {};
 }
 
 function githubAuthForInstallation(
