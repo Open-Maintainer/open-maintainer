@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_57115efb-4feb-4bbb-b7b3-0a410df3bc68",
+  "id": "repo_profile_b1877774-3b5f-42a3-8522-fb0303e71a6d",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -1044,11 +1044,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "16d94e81a773c727"
+      "hash": "778518f13420ee1e"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "395645bcfb4bfcb1"
+      "hash": "80800e5a77c5baa5"
     },
     {
       "path": "AGENTS.md",
@@ -1196,7 +1196,7 @@
     },
     {
       "path": "packages/github/tests/webhook.test.ts",
-      "hash": "64bff346c1f8c42c"
+      "hash": "06477dace380c072"
     },
     {
       "path": "packages/github/tsconfig.json",
@@ -1264,7 +1264,7 @@
     },
     {
       "path": "tests/action-mvp.test.ts",
-      "hash": "9b3cb42d83f57bc8"
+      "hash": "9b2620277707a9e2"
     },
     {
       "path": "tests/cli-audit.test.ts",
@@ -1480,7 +1480,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-04T08:33:38.203Z",
+  "createdAt": "2026-05-04T09:15:53.788Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2730,7 +2730,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-04T08:33:38.204Z"
+    "generatedAt": "2026-05-04T09:15:53.789Z"
   },
-  "openMaintainerProfileHash": "fe68c9cfcb6d8f4c"
+  "openMaintainerProfileHash": "a87f0469fb326fc0"
 }
