@@ -2,15 +2,18 @@ import type { ModelProvider } from "@open-maintainer/ai";
 import type {
   ModelProviderConfig,
   RepoProfile,
+  ReviewContributionTriageCategory,
   ReviewEvidenceCitation,
   ReviewFinding,
   ReviewInput,
   ReviewResult,
   ReviewSeverity,
+  ReviewSkippedFile,
   ReviewValidationExpectation,
 } from "@open-maintainer/shared";
 import { ReviewResultSchema } from "@open-maintainer/shared";
-import { type ReviewPromptContext, generateModelBackedReview } from "./model";
+import { generateModelBackedReview } from "./model";
+import type { ReviewPromptContext as ModelReviewPromptContext } from "./model";
 export { assembleLocalReviewInput } from "./local-git";
 export type { LocalReviewInputOptions } from "./local-git";
 export {
@@ -18,7 +21,11 @@ export {
   modelReviewOutputJsonSchema,
   parseModelReviewOutput,
 } from "./model";
-export type { ModelBackedReviewOptions, ModelReviewOutput } from "./model";
+export type {
+  ModelBackedReviewOptions,
+  ModelReviewOutput,
+  ReviewPromptContext,
+} from "./model";
 
 const severityOrder: ReviewSeverity[] = ["blocker", "major", "minor", "note"];
 
@@ -61,8 +68,343 @@ export type GenerateReviewOptions = {
   rules?: string[];
   providerConfig: ModelProviderConfig;
   provider: ModelProvider;
-  promptContext?: ReviewPromptContext;
+  promptContext?: ModelReviewPromptContext;
 };
+
+export type ReviewContentLimits = {
+  maxFiles: number;
+  maxFileBytes: number;
+  maxTotalBytes: number;
+};
+
+export type ReviewModelSelection =
+  | {
+      provider: "codex";
+      model?: string;
+      consent: { repositoryContentTransfer: true };
+    }
+  | {
+      provider: "claude";
+      model?: string;
+      consent: { repositoryContentTransfer: true };
+    };
+
+export type ReviewPublishOptions = {
+  summary?: boolean;
+  inline?: false | { cap?: number };
+  triageLabel?:
+    | false
+    | {
+        apply: true;
+        createMissingLabels?: boolean;
+      };
+};
+
+export type ReviewPublicationIntent =
+  | { mode: "publish"; options?: ReviewPublishOptions }
+  | { mode: "plan"; options?: ReviewPublishOptions };
+
+export type ReviewOutputIntent = {
+  markdownPath?: string;
+  json?: boolean;
+};
+
+export type PullRequestReviewRequest = {
+  repoRoot: string;
+  pullNumber: number;
+  model: ReviewModelSelection;
+  publication?: ReviewPublicationIntent;
+  output?: ReviewOutputIntent;
+  limits?: Partial<ReviewContentLimits>;
+};
+
+export type PullRequestReviewTarget = {
+  owner: string;
+  repo: string;
+  pullNumber: number;
+  url: string | null;
+  baseSha: string | null;
+  headSha: string | null;
+};
+
+export type ReviewSummaryCommentPlan = {
+  action: "create" | "update";
+  body: string;
+  existingCommentId: number | null;
+};
+
+export type ReviewSummaryCommentResult = ReviewSummaryCommentPlan & {
+  commentId: number;
+  url: string | null;
+};
+
+export type ReviewInlineCommentPlan = {
+  comments: Array<{
+    findingId: string;
+    severity: ReviewSeverity;
+    path: string;
+    line: number;
+    body: string;
+    fingerprint: string;
+  }>;
+  skipped: Array<{
+    findingId: string;
+    reason:
+      | "missing_path"
+      | "missing_line"
+      | "unchanged_path"
+      | "missing_patch"
+      | "duplicate"
+      | "cap_reached";
+  }>;
+};
+
+export type ReviewInlineCommentResult = ReviewInlineCommentPlan & {
+  reviewId: number | null;
+  url: string | null;
+};
+
+export type ReviewTriageLabelPlan = {
+  label: string;
+  apply: boolean;
+  createMissingLabels: boolean;
+  labelsToCreate: string[];
+  labelsToRemove: string[];
+};
+
+export type ReviewTriageLabelResult = ReviewTriageLabelPlan & {
+  applied: boolean;
+  created: number;
+  removed: string[];
+};
+
+export type ReviewPublicationPlan = {
+  summary: ReviewSummaryCommentPlan | null;
+  inline: ReviewInlineCommentPlan | null;
+  triageLabel: ReviewTriageLabelPlan | null;
+};
+
+export type ReviewPublicationResult = {
+  summary: ReviewSummaryCommentResult | null;
+  inline: ReviewInlineCommentResult | null;
+  triageLabel: ReviewTriageLabelResult | null;
+};
+
+export type ReviewPublicationInput = {
+  review: ReviewResult;
+  markdown: string;
+  target: PullRequestReviewTarget;
+  reviewInput: ReviewInput;
+  options: RequiredReviewPublishOptions;
+};
+
+export type PullRequestReviewRun = {
+  review: ReviewResult;
+  markdown: string;
+  target: PullRequestReviewTarget;
+  output: ReviewOutputResult | null;
+  publication:
+    | { mode: "skipped" }
+    | ({ mode: "planned" } & ReviewPublicationPlan)
+    | ({ mode: "published" } & ReviewPublicationResult);
+  diagnostics: {
+    promptContextPaths: string[];
+    skippedFiles: ReviewSkippedFile[];
+    changedFileCount: number;
+  };
+};
+
+export type ReviewOutputResult = {
+  markdownPath: string;
+  written: boolean;
+};
+
+export type PullRequestReviewWorkflow = {
+  reviewPullRequest(
+    request: PullRequestReviewRequest,
+  ): Promise<PullRequestReviewRun>;
+};
+
+export type PullRequestReviewWorkflowDeps = {
+  repoProfile: {
+    load(repoRoot: string): Promise<RepoProfile>;
+  };
+  pullRequests: {
+    fetchReviewInput(input: {
+      repoId: string;
+      owner: string;
+      repo: string;
+      pullNumber: number;
+      limits?: Partial<ReviewContentLimits>;
+    }): Promise<ReviewInput>;
+  };
+  promptContext: {
+    load(input: {
+      repoRoot: string;
+      profile: RepoProfile;
+    }): Promise<{
+      context: ModelReviewPromptContext;
+      paths: string[];
+    }>;
+  };
+  modelProviders: {
+    create(input: ReviewModelSelection & { repoRoot: string }): {
+      providerConfig: ModelProviderConfig;
+      provider: ModelProvider;
+    };
+  };
+  publisher: {
+    plan(input: ReviewPublicationInput): Promise<ReviewPublicationPlan>;
+    publish(input: ReviewPublicationInput): Promise<ReviewPublicationResult>;
+  };
+  output?: {
+    writeMarkdown(input: {
+      repoRoot: string;
+      path: string;
+      markdown: string;
+    }): Promise<void>;
+  };
+};
+
+export type RequiredReviewPublishOptions = {
+  summary: boolean;
+  inline: false | { cap: number };
+  triageLabel:
+    | false
+    | {
+        apply: true;
+        createMissingLabels: boolean;
+      };
+};
+
+export const reviewTriageLabelDefinitions: Record<
+  ReviewContributionTriageCategory,
+  { name: string; color: string; description: string }
+> = {
+  ready_for_review: {
+    name: "open-maintainer/ready-for-review",
+    color: "2da44e",
+    description: "Open Maintainer: PR appears ready for human review.",
+  },
+  needs_author_input: {
+    name: "open-maintainer/needs-author-input",
+    color: "d29922",
+    description: "Open Maintainer: PR needs author information before review.",
+  },
+  needs_maintainer_design: {
+    name: "open-maintainer/needs-maintainer-design",
+    color: "8250df",
+    description: "Open Maintainer: PR needs maintainer design judgment.",
+  },
+  not_agent_ready: {
+    name: "open-maintainer/not-agent-ready",
+    color: "bf8700",
+    description: "Open Maintainer: PR is not ready for agent-assisted review.",
+  },
+  possible_spam: {
+    name: "open-maintainer/possible-spam",
+    color: "cf222e",
+    description: "Open Maintainer: PR may be spam-like contribution noise.",
+  },
+};
+
+export const reviewTriageLabelNames = new Set(
+  Object.values(reviewTriageLabelDefinitions).map((label) => label.name),
+);
+
+export function createPullRequestReviewWorkflow(
+  deps: PullRequestReviewWorkflowDeps,
+): PullRequestReviewWorkflow {
+  return {
+    async reviewPullRequest(request) {
+      assertReviewModelConsent(request.model);
+      const profile = await deps.repoProfile.load(request.repoRoot);
+      const reviewInput = await deps.pullRequests.fetchReviewInput({
+        repoId: profile.repoId,
+        owner: profile.owner,
+        repo: profile.name,
+        pullNumber: request.pullNumber,
+        ...(request.limits ? { limits: request.limits } : {}),
+      });
+      const promptContext = await deps.promptContext.load({
+        repoRoot: request.repoRoot,
+        profile,
+      });
+      const providerReview = deps.modelProviders.create({
+        ...request.model,
+        repoRoot: request.repoRoot,
+      });
+      const review = await generateReview({
+        profile,
+        input: reviewInput,
+        rules: profile.reviewRuleCandidates,
+        providerConfig: providerReview.providerConfig,
+        provider: providerReview.provider,
+        ...(Object.keys(promptContext.context).length > 0
+          ? { promptContext: promptContext.context }
+          : {}),
+      });
+      const markdown = renderReviewMarkdown(review);
+      const target = reviewTargetFromInput(reviewInput);
+      const output = await runReviewOutput({
+        intent: request.output,
+        publicationIntent: request.publication,
+        deps,
+        repoRoot: request.repoRoot,
+        markdown,
+      });
+      const publication = await runReviewPublication({
+        intent: request.publication,
+        deps,
+        review,
+        markdown,
+        target,
+        reviewInput,
+      });
+
+      return {
+        review,
+        markdown,
+        target,
+        output,
+        publication,
+        diagnostics: {
+          promptContextPaths: promptContext.paths,
+          skippedFiles: reviewInput.skippedFiles,
+          changedFileCount: reviewInput.changedFiles.length,
+        },
+      };
+    },
+  };
+}
+
+async function runReviewOutput(input: {
+  intent: ReviewOutputIntent | undefined;
+  publicationIntent: ReviewPublicationIntent | undefined;
+  deps: PullRequestReviewWorkflowDeps;
+  repoRoot: string;
+  markdown: string;
+}): Promise<ReviewOutputResult | null> {
+  if (!input.intent?.markdownPath) {
+    return null;
+  }
+  const result = {
+    markdownPath: input.intent.markdownPath,
+    written: input.publicationIntent?.mode !== "plan",
+  };
+  if (!result.written) {
+    return result;
+  }
+  if (!input.deps.output) {
+    throw new Error("Review markdown output requires an output writer port.");
+  }
+  await input.deps.output.writeMarkdown({
+    repoRoot: input.repoRoot,
+    path: input.intent.markdownPath,
+    markdown: input.markdown,
+  });
+  return result;
+}
 
 export async function generateReview(
   options: GenerateReviewOptions,
@@ -78,6 +420,129 @@ export async function generateReview(
     provider: options.provider,
     ...(options.promptContext ? { promptContext: options.promptContext } : {}),
   });
+}
+
+async function runReviewPublication(input: {
+  intent: ReviewPublicationIntent | undefined;
+  deps: PullRequestReviewWorkflowDeps;
+  review: ReviewResult;
+  markdown: string;
+  target: PullRequestReviewTarget;
+  reviewInput: ReviewInput;
+}): Promise<PullRequestReviewRun["publication"]> {
+  if (!input.intent) {
+    return { mode: "skipped" };
+  }
+  const options = normalizeReviewPublishOptions(input.intent.options);
+  assertReviewPublicationAllowed({
+    review: input.review,
+    reviewInput: input.reviewInput,
+    options,
+  });
+  const publicationInput = {
+    review: input.review,
+    markdown: input.markdown,
+    target: input.target,
+    reviewInput: input.reviewInput,
+    options,
+  };
+  if (input.intent.mode === "plan") {
+    return {
+      mode: "planned",
+      ...(await input.deps.publisher.plan(publicationInput)),
+    };
+  }
+  return {
+    mode: "published",
+    ...(await input.deps.publisher.publish(publicationInput)),
+  };
+}
+
+function normalizeReviewPublishOptions(
+  options: ReviewPublishOptions | undefined,
+): RequiredReviewPublishOptions {
+  return {
+    summary: options?.summary ?? true,
+    inline:
+      options?.inline === false
+        ? false
+        : { cap: Math.max(0, options?.inline?.cap ?? 5) },
+    triageLabel:
+      options?.triageLabel === false || !options?.triageLabel
+        ? false
+        : {
+            apply: true,
+            createMissingLabels:
+              options.triageLabel.createMissingLabels ?? false,
+          },
+  };
+}
+
+function assertReviewModelConsent(model: ReviewModelSelection): void {
+  if (model.consent.repositoryContentTransfer !== true) {
+    throw new Error(
+      "PR review requires explicit repository-content transfer consent before model invocation.",
+    );
+  }
+}
+
+function assertReviewPublicationAllowed(input: {
+  review: ReviewResult;
+  reviewInput: ReviewInput;
+  options: RequiredReviewPublishOptions;
+}): void {
+  if (!input.options.triageLabel) {
+    return;
+  }
+  if (input.review.contributionTriage.category !== "ready_for_review") {
+    return;
+  }
+  const blockers = blockingPullRequestStateReasons(input.reviewInput);
+  if (blockers.length === 0) {
+    return;
+  }
+  throw new Error(
+    `Refusing to apply open-maintainer/ready-for-review because GitHub reports this PR is blocked: ${blockers.join("; ")}.`,
+  );
+}
+
+function blockingPullRequestStateReasons(input: ReviewInput): string[] {
+  const reasons = [];
+  if (input.isDraft === true) {
+    reasons.push("PR is draft");
+  }
+  if (normalizeState(input.mergeable) === "CONFLICTING") {
+    reasons.push("PR has merge conflicts");
+  }
+  if (normalizeState(input.mergeStateStatus) === "DIRTY") {
+    reasons.push("merge state is dirty");
+  }
+  if (normalizeState(input.reviewDecision) === "CHANGES_REQUESTED") {
+    reasons.push("changes are requested");
+  }
+  const blockingChecks = input.checkStatuses.filter((check) =>
+    isBlockingCheckStatus(check),
+  );
+  if (blockingChecks.length > 0) {
+    reasons.push(
+      `blocking checks: ${blockingChecks.map((check) => check.name).join(", ")}`,
+    );
+  }
+  return reasons;
+}
+
+function reviewTargetFromInput(input: ReviewInput): PullRequestReviewTarget {
+  if (!input.prNumber) {
+    throw new Error("Pull request review workflow requires a PR number.");
+  }
+  return {
+    owner: input.owner,
+    repo: input.repo,
+    pullNumber: input.prNumber,
+    url: input.url,
+    baseSha: input.baseSha,
+    headSha: input.headSha,
+  };
 }
 
 export function buildReviewEvidencePrecheck(input: {
