@@ -29,9 +29,10 @@ import {
   ReviewOrchestratorError,
   ReviewWorkflowSourceError,
   assembleLocalReviewInput,
-  createReviewWorkflow,
+  createReviewOperation,
+  createReviewOperationDeps,
 } from "@open-maintainer/review";
-import type { ReviewWorkflowDeps } from "@open-maintainer/review";
+import type { ReviewOperationDeps } from "@open-maintainer/review";
 import {
   type ArtifactType,
   ArtifactTypeSchema,
@@ -443,8 +444,8 @@ export function buildApp() {
           error instanceof Error ? error.message : "Review generation blocked.",
       });
     }
-    const workflow = createReviewWorkflow(
-      createApiReviewWorkflowDeps({
+    const operation = createReviewOperation(
+      createApiReviewOperationDeps({
         repoId,
         repo,
         repositorySources,
@@ -452,22 +453,43 @@ export function buildApp() {
       }),
     );
     try {
-      const run = await workflow.previewStored({
-        repoId,
-        target: body.prNumber
-          ? {
-              pr: body.prNumber,
-              ...(body.baseRef ? { baseRef: body.baseRef } : {}),
-              ...(body.headRef ? { headRef: body.headRef } : {}),
-            }
-          : {
-              diff: {
+      const result = await operation.run({
+        source: {
+          kind: "stored",
+          repoId,
+          target: body.prNumber
+            ? {
+                kind: "pullRequest",
+                number: body.prNumber,
+                ...(body.baseRef ? { baseRef: body.baseRef } : {}),
+                ...(body.headRef ? { headRef: body.headRef } : {}),
+              }
+            : {
+                kind: "diff",
                 ...(body.baseRef ? { baseRef: body.baseRef } : {}),
                 ...(body.headRef ? { headRef: body.headRef } : {}),
               },
-            },
-        modelProviderId: provider.id,
+        },
+        model: {
+          kind: "stored-provider",
+          providerId: provider.id,
+          consent: {
+            repositoryContentTransfer: true,
+            grantedBy: "dashboard-provider",
+            grantedAt: nowIso(),
+          },
+        },
+        mode: "preview",
+        publish: false,
+        persist: { run: true, review: true },
       });
+      if (!result.ok) {
+        return reply.code(result.statusCode ?? 422).send({
+          error: result.error.message,
+          run: result.run,
+        });
+      }
+      const run = result.run;
       return { run: run.persistence.run, review: run.review };
     } catch (error) {
       const message =
@@ -1161,23 +1183,13 @@ function pullRequestNumber(prUrl: string): number {
   return match ? Number.parseInt(match[1] ?? "0", 10) : 0;
 }
 
-class ReviewPreviewSourceError extends Error {
-  statusCode: 409 | 422;
-
-  constructor(statusCode: 409 | 422, message: string) {
-    super(message);
-    this.name = "ReviewPreviewSourceError";
-    this.statusCode = statusCode;
-  }
-}
-
-function createApiReviewWorkflowDeps(input: {
+function createApiReviewOperationDeps(input: {
   repoId: string;
   repo: Repo;
   repositorySources: RepositorySourceAnalysisRegistry;
   provider: ModelProviderConfig;
-}): ReviewWorkflowDeps {
-  return {
+}): ReviewOperationDeps {
+  return createReviewOperationDeps({
     stored: {
       async prepareReview(request) {
         const prepared = await prepareReviewPreviewInput({
@@ -1202,7 +1214,7 @@ function createApiReviewWorkflowDeps(input: {
               : "Unable to prepare PR review preview.",
         }));
         if (!prepared.ok) {
-          throw new ReviewPreviewSourceError(
+          throw new ReviewWorkflowSourceError(
             prepared.statusCode,
             prepared.error,
           );
@@ -1271,14 +1283,11 @@ function createApiReviewWorkflowDeps(input: {
         store.reviews.set(request.review.id, request.review);
       },
     },
-  };
+  });
 }
 
 function reviewPreviewStatusCode(error: unknown): 409 | 422 {
-  if (
-    error instanceof ReviewPreviewSourceError ||
-    error instanceof ReviewWorkflowSourceError
-  ) {
+  if (error instanceof ReviewWorkflowSourceError) {
     return error.statusCode;
   }
   return 422;

@@ -18,7 +18,8 @@ import {
 } from "@open-maintainer/github";
 import {
   assembleLocalReviewInput,
-  createReviewWorkflow,
+  createReviewOperation,
+  createReviewOperationDeps,
   reviewTriageLabelDefinitions,
   reviewTriageLabelNames,
 } from "@open-maintainer/review";
@@ -26,16 +27,16 @@ import type {
   PullRequestReviewRun,
   ReviewInlineCommentPlan,
   ReviewInlineCommentResult,
+  ReviewOperationDeps,
+  ReviewOperationPublicationRequest,
   ReviewOutputShortcut,
   ReviewPromptContext,
   ReviewPublicationInput,
   ReviewPublicationPlan,
   ReviewPublicationResult,
-  ReviewPublicationShortcut,
   ReviewSummaryCommentResult,
   ReviewTriageLabelPlan,
   ReviewTriageLabelResult,
-  ReviewWorkflowDeps,
 } from "@open-maintainer/review";
 import type {
   ModelProviderConfig,
@@ -151,9 +152,9 @@ export type ReviewModelProviderPort = {
     | { providerConfig: ModelProviderConfig; provider: ModelProvider };
 };
 
-export type ReviewPublisherPort = NonNullable<ReviewWorkflowDeps["publisher"]>;
+export type ReviewPublisherPort = NonNullable<ReviewOperationDeps["publisher"]>;
 
-export type ReviewOutputPort = NonNullable<ReviewWorkflowDeps["output"]>;
+export type ReviewOutputPort = NonNullable<ReviewOperationDeps["output"]>;
 
 export type ReviewOperationPorts = {
   workspace: RepositoryWorkspacePort;
@@ -171,17 +172,19 @@ export function createReviewOperationRuntime(
     async review(input) {
       const resolvedPorts =
         ports ?? createProductionReviewOperationPorts(input.repoRoot);
-      const workflow = createReviewWorkflow(
-        createCliReviewWorkflowDeps(resolvedPorts),
+      const operation = createReviewOperation(
+        createCliReviewOperationDeps(resolvedPorts),
       );
       const output = reviewOutputShortcut(input.output);
-      const run = await workflow.reviewLocal({
-        repoRoot: input.repoRoot,
-        target:
-          input.target.kind === "pullRequest"
-            ? { pr: input.target.number }
-            : {
-                diff: {
+      const result = await operation.run({
+        source: {
+          kind: "local",
+          repoRoot: input.repoRoot,
+          target:
+            input.target.kind === "pullRequest"
+              ? { kind: "pullRequest", number: input.target.number }
+              : {
+                  kind: "diff",
                   ...(input.target.baseRef
                     ? { baseRef: input.target.baseRef }
                     : {}),
@@ -192,11 +195,17 @@ export function createReviewOperationRuntime(
                     ? { prNumber: input.target.prNumber }
                     : {}),
                 },
-              },
+        },
         model: {
+          kind: "cli",
           provider: input.model.provider,
           ...(input.model.model ? { model: input.model.model } : {}),
-          consent: input.model.consent,
+          consent: {
+            repositoryContentTransfer:
+              input.model.consent.repositoryContentTransfer,
+            grantedBy: "cli-flag",
+            grantedAt: new Date().toISOString(),
+          },
         },
         mode: input.intent,
         ...(input.publication !== undefined
@@ -204,6 +213,10 @@ export function createReviewOperationRuntime(
           : {}),
         ...(output ? { output } : {}),
       });
+      if (!result.ok) {
+        throw result.error;
+      }
+      const run = result.run;
       return {
         review: run.review,
         markdown: run.markdown,
@@ -273,10 +286,10 @@ export function createProductionReviewOperationPorts(
   };
 }
 
-function createCliReviewWorkflowDeps(
+function createCliReviewOperationDeps(
   ports: ReviewOperationPorts,
-): ReviewWorkflowDeps {
-  return {
+): ReviewOperationDeps {
+  return createReviewOperationDeps({
     local: {
       prepareProfile(input) {
         return ports.workspace.prepareProfile(input);
@@ -325,12 +338,12 @@ function createCliReviewWorkflowDeps(
     },
     publisher: ports.publisher,
     output: ports.output,
-  };
+  });
 }
 
 function reviewPublicationShortcut(
   publication: Exclude<ReviewOperationRequest["publication"], undefined>,
-): false | ReviewPublicationShortcut {
+): false | ReviewOperationPublicationRequest {
   if (publication === false) {
     return publication;
   }
@@ -568,9 +581,7 @@ async function loadReviewPromptContext(input: {
   return { context, paths };
 }
 
-function createGhReviewPublisher(
-  repoRoot: string,
-): NonNullable<ReviewWorkflowDeps["publisher"]> {
+function createGhReviewPublisher(repoRoot: string): ReviewPublisherPort {
   return {
     async plan(input) {
       return planGhReviewPublication(repoRoot, input);
