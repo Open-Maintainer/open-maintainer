@@ -280,6 +280,9 @@ describe("CLI review", () => {
       "missing-ref",
       "--head-ref",
       "HEAD",
+      "--model",
+      "codex",
+      "--allow-model-content-transfer",
     ]);
 
     expect(result.exitCode).toBe(1);
@@ -306,6 +309,24 @@ describe("CLI review", () => {
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(
       "--model requires --allow-model-content-transfer",
+    );
+  });
+
+  it("requires a model provider before review operation execution", async () => {
+    const fixture = await createReviewRepo();
+
+    const result = await runCli([
+      "review",
+      fixture,
+      "--base-ref",
+      "HEAD~1",
+      "--head-ref",
+      "HEAD",
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(
+      "review requires --model codex or --model claude",
     );
   });
 
