@@ -10,6 +10,8 @@ import {
   type ReviewOrchestratorError,
   type ReviewWorkflowDeps,
   createPullRequestReviewWorkflow,
+  createReviewOperation,
+  createReviewOperationDeps,
   createReviewOrchestrator,
   createReviewWorkflow,
 } from "../src";
@@ -598,6 +600,478 @@ describe("review orchestrator", () => {
   });
 });
 
+describe("review operation boundary", () => {
+  beforeEach(() => {
+    observedPrompts.length = 0;
+  });
+
+  it("rejects missing repository-content consent before source preparation", async () => {
+    let sourceCalled = false;
+    const operation = createReviewOperation(
+      createReviewOperationDeps(
+        createWorkflowDeps({
+          local: {
+            async assembleDiff() {
+              sourceCalled = true;
+              return reviewInput();
+            },
+          },
+        }),
+      ),
+    );
+
+    const result = await operation.run({
+      source: { kind: "local", repoRoot: "/repo" },
+      model: {
+        kind: "cli",
+        provider: "codex",
+        consent: { repositoryContentTransfer: false } as never,
+      },
+      mode: "preview",
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        phase: "consent",
+        statusCode: 403,
+      }),
+    );
+    expect(sourceCalled).toBe(false);
+  });
+
+  it("previews the common local diff path through one operation boundary", async () => {
+    const assembleCalls: Array<{ baseRef: string; headRef: string }> = [];
+    const operation = createReviewOperation(
+      createReviewOperationDeps(
+        createWorkflowDeps({
+          local: {
+            async assembleDiff(input) {
+              assembleCalls.push({
+                baseRef: input.baseRef,
+                headRef: input.headRef,
+              });
+              return reviewInput();
+            },
+          },
+        }),
+      ),
+    );
+
+    const result = await operation.previewLocalDiff({
+      repoRoot: "/repo",
+      model: {
+        kind: "cli",
+        provider: "codex",
+        consent: operationConsent("cli-flag"),
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(assembleCalls).toEqual([{ baseRef: "main", headRef: "HEAD" }]);
+    expect(result.run.output).toBeNull();
+    expect(result.run.publication).toEqual({ mode: "skipped" });
+    expect(result.run.diagnostics.promptContextPaths).toEqual(["AGENTS.md"]);
+  });
+
+  it("rejects empty sources before model invocation", async () => {
+    let modelCalled = false;
+    const operation = createReviewOperation(
+      createReviewOperationDeps(
+        createWorkflowDeps({
+          local: {
+            async assembleDiff() {
+              return { ...reviewInput(), changedFiles: [] };
+            },
+          },
+          modelProviders: {
+            resolve() {
+              modelCalled = true;
+              return { providerConfig, provider };
+            },
+          },
+        }),
+      ),
+    );
+
+    const result = await operation.previewLocalDiff({
+      repoRoot: "/repo",
+      model: {
+        kind: "cli",
+        provider: "codex",
+        consent: operationConsent("cli-flag"),
+      },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        phase: "source",
+        statusCode: 422,
+      }),
+    );
+    expect(modelCalled).toBe(false);
+  });
+
+  it("plans publication and markdown output without write ports in preview mode", async () => {
+    let publishCalled = false;
+    let outputCalled = false;
+    const operation = createReviewOperation(
+      createReviewOperationDeps(
+        createWorkflowDeps({
+          publisher: {
+            async plan() {
+              return {
+                summary: {
+                  action: "create",
+                  body: "planned summary",
+                  existingCommentId: null,
+                },
+                inline: { comments: [], skipped: [] },
+                triageLabel: null,
+              };
+            },
+            async publish() {
+              publishCalled = true;
+              throw new Error("publish should not run in plan mode");
+            },
+          },
+          output: {
+            async writeMarkdown() {
+              outputCalled = true;
+              throw new Error("output should not be written in preview mode");
+            },
+          },
+        }),
+      ),
+    );
+
+    const result = await operation.run({
+      source: {
+        kind: "local",
+        repoRoot: "/repo",
+        target: { kind: "pullRequest", number: 7 },
+      },
+      model: {
+        kind: "cli",
+        provider: "codex",
+        consent: operationConsent("cli-flag"),
+      },
+      mode: "preview",
+      publish: {
+        mode: "plan",
+        summary: true,
+        inline: false,
+      },
+      output: { markdownPath: ".open-maintainer/review.md" },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.run.publication).toEqual(
+      expect.objectContaining({ mode: "planned" }),
+    );
+    expect(result.run.output).toEqual({
+      markdownPath: ".open-maintainer/review.md",
+      written: false,
+    });
+    expect(publishCalled).toBe(false);
+    expect(outputCalled).toBe(false);
+  });
+
+  it("writes markdown through the operation output port in apply mode", async () => {
+    const writes: Array<{ repoRoot: string; path: string }> = [];
+    const operation = createReviewOperation(
+      createReviewOperationDeps(
+        createWorkflowDeps({
+          output: {
+            async writeMarkdown(input) {
+              writes.push({ repoRoot: input.repoRoot, path: input.path });
+            },
+          },
+        }),
+      ),
+    );
+
+    const result = await operation.run({
+      source: {
+        kind: "prepared",
+        profile: repoProfile(),
+        input: reviewInput(),
+        repoRoot: "/repo",
+      },
+      model: {
+        kind: "resolved",
+        providerConfig,
+        provider,
+        consent: operationConsent("cli-flag"),
+      },
+      mode: "apply",
+      output: { markdownPath: ".open-maintainer/review.md" },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.run.output).toEqual({
+      markdownPath: ".open-maintainer/review.md",
+      written: true,
+    });
+    expect(writes).toEqual([
+      { repoRoot: "/repo", path: ".open-maintainer/review.md" },
+    ]);
+  });
+
+  it("returns persisted stored preview run state through the operation result", async () => {
+    const storedReviews: string[] = [];
+    const operation = createReviewOperation(
+      createReviewOperationDeps(
+        createWorkflowDeps({
+          stored: {
+            async prepareReview(input) {
+              expect(input).toEqual(
+                expect.objectContaining({
+                  repoId: "repo_1",
+                  target: { kind: "pullRequest", number: 7 },
+                }),
+              );
+              return {
+                profile: repoProfile(),
+                input: reviewInput(),
+                repoRoot: "/repo",
+              };
+            },
+          },
+          persistence: {
+            async startRun() {
+              return runRecord("running");
+            },
+            async succeedRun(input) {
+              return {
+                ...input.run,
+                status: "succeeded",
+                externalId: input.review.id,
+              };
+            },
+            async failRun(input) {
+              return { ...input.run, status: "failed" };
+            },
+            async storeReview(input) {
+              storedReviews.push(input.review.id);
+            },
+          },
+        }),
+      ),
+    );
+
+    const result = await operation.run({
+      source: {
+        kind: "stored",
+        repoId: "repo_1",
+        target: { kind: "pullRequest", number: 7 },
+      },
+      model: {
+        kind: "stored-provider",
+        providerId: "provider_1",
+        consent: operationConsent("dashboard-provider"),
+      },
+      mode: "preview",
+      publish: false,
+      persist: { run: true, review: true },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+    expect(result.run.persistence.run?.status).toBe("succeeded");
+    expect(storedReviews).toEqual([result.run.review.id]);
+  });
+
+  it("returns failed persisted run state on model errors", async () => {
+    const operation = createReviewOperation(
+      createReviewOperationDeps(
+        createWorkflowDeps({
+          stored: {
+            async prepareReview() {
+              return {
+                profile: repoProfile(),
+                input: reviewInput(),
+                repoRoot: "/repo",
+              };
+            },
+          },
+          persistence: {
+            async startRun() {
+              return runRecord("running");
+            },
+            async succeedRun(input) {
+              return input.run;
+            },
+            async failRun(input) {
+              return {
+                ...input.run,
+                status: "failed",
+                safeMessage:
+                  input.error instanceof Error ? input.error.message : null,
+              };
+            },
+            async storeReview() {
+              throw new Error(
+                "review should not be stored after model failure",
+              );
+            },
+          },
+          modelProviders: {
+            resolve() {
+              throw new Error("provider unavailable");
+            },
+          },
+        }),
+      ),
+    );
+
+    const result = await operation.run({
+      source: { kind: "stored", repoId: "repo_1" },
+      model: {
+        kind: "stored-provider",
+        providerId: "provider_1",
+        consent: operationConsent("dashboard-provider"),
+      },
+      mode: "preview",
+      persist: { run: true, review: true },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        phase: "model",
+        run: expect.objectContaining({
+          status: "failed",
+          safeMessage: "provider unavailable",
+        }),
+      }),
+    );
+  });
+
+  it("reports prompt-context failures with failed persisted run state", async () => {
+    const operation = createReviewOperation(
+      createReviewOperationDeps(
+        createWorkflowDeps({
+          stored: {
+            async prepareReview() {
+              return {
+                profile: repoProfile(),
+                input: reviewInput(),
+                repoRoot: "/repo",
+              };
+            },
+          },
+          promptContext: {
+            async resolve() {
+              throw new Error("context unavailable");
+            },
+          },
+          persistence: {
+            async startRun() {
+              return runRecord("running");
+            },
+            async succeedRun(input) {
+              return input.run;
+            },
+            async failRun(input) {
+              return {
+                ...input.run,
+                status: "failed",
+                safeMessage:
+                  input.error instanceof Error ? input.error.message : null,
+              };
+            },
+            async storeReview() {
+              throw new Error(
+                "review should not be stored after prompt failure",
+              );
+            },
+          },
+        }),
+      ),
+    );
+
+    const result = await operation.run({
+      source: { kind: "stored", repoId: "repo_1" },
+      model: {
+        kind: "stored-provider",
+        providerId: "provider_1",
+        consent: operationConsent("dashboard-provider"),
+      },
+      mode: "preview",
+      persist: { run: true, review: true },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        phase: "prompt-context",
+        run: expect.objectContaining({
+          status: "failed",
+          safeMessage: "context unavailable",
+        }),
+      }),
+    );
+  });
+
+  it("returns publication failures before publisher writes", async () => {
+    let publishCalled = false;
+    const operation = createReviewOperation(
+      createReviewOperationDeps(
+        createWorkflowDeps({
+          local: {
+            async fetchPullRequest() {
+              return { ...reviewInput(), isDraft: true };
+            },
+          },
+          publisher: {
+            async plan() {
+              throw new Error("plan should not run");
+            },
+            async publish() {
+              publishCalled = true;
+              throw new Error("publish should not run");
+            },
+          },
+        }),
+      ),
+    );
+
+    const result = await operation.publishPullRequest({
+      repoRoot: "/repo",
+      prNumber: 7,
+      model: {
+        kind: "cli",
+        provider: "codex",
+        consent: operationConsent("cli-flag"),
+      },
+      publish: {
+        triageLabel: { apply: true },
+      },
+    });
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        ok: false,
+        phase: "publication",
+      }),
+    );
+    expect(publishCalled).toBe(false);
+  });
+});
+
 describe("review workflow facade", () => {
   beforeEach(() => {
     observedPrompts.length = 0;
@@ -894,6 +1368,8 @@ function createWorkflowDeps(
     publisher?: ReviewWorkflowDeps["publisher"];
     output?: ReviewWorkflowDeps["output"];
     persistence?: ReviewWorkflowDeps["persistence"];
+    modelProviders?: ReviewWorkflowDeps["modelProviders"];
+    promptContext?: ReviewWorkflowDeps["promptContext"];
   } = {},
 ): ReviewWorkflowDeps {
   return {
@@ -922,7 +1398,7 @@ function createWorkflowDeps(
       },
     },
     ...(overrides.stored ? { stored: overrides.stored } : {}),
-    promptContext: {
+    promptContext: overrides.promptContext ?? {
       async resolve() {
         return {
           context: { agentsMd: "Workflow prompt context." },
@@ -930,7 +1406,7 @@ function createWorkflowDeps(
         };
       },
     },
-    modelProviders: {
+    modelProviders: overrides.modelProviders ?? {
       resolve() {
         return { providerConfig, provider };
       },
@@ -1038,6 +1514,16 @@ function reviewInput(): ReviewInput {
     existingComments: [],
     skippedFiles: [{ path: "dist/bundle.js", reason: "filtered" }],
     createdAt: "2026-05-04T00:00:00.000Z",
+  };
+}
+
+function operationConsent(
+  grantedBy: "cli-flag" | "dashboard-provider" | "github-action-input",
+) {
+  return {
+    repositoryContentTransfer: true as const,
+    grantedBy,
+    grantedAt: "2026-05-04T00:00:00.000Z",
   };
 }
 

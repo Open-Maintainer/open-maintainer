@@ -418,6 +418,7 @@ export type ReviewOrchestratorDeps = {
   persistence?: ReviewPersistencePort;
 };
 
+/** @deprecated Use ReviewOperation. */
 export type ReviewOrchestrator = {
   review(request: ReviewRequest): Promise<ReviewRun>;
 };
@@ -495,10 +496,130 @@ export type ReviewWorkflowDeps = {
   errors?: ReviewErrorMapper;
 };
 
+export type ReviewOperationDeps = ReviewOrchestratorDeps & {
+  errors?: ReviewErrorMapper;
+};
+
+/** @deprecated Use ReviewOperation. */
 export type ReviewWorkflow = {
   reviewLocal(input: LocalReviewRequest): Promise<ReviewRun>;
   previewStored(input: StoredReviewPreviewRequest): Promise<ReviewRun>;
   reviewPrepared(input: PreparedReviewRequest): Promise<ReviewRun>;
+};
+
+export type RepositoryContentConsent = {
+  repositoryContentTransfer: true;
+  grantedAt: string;
+  grantedBy: "cli-flag" | "dashboard-provider" | "github-action-input";
+};
+
+export type ReviewOperationTarget = ReviewTargetRequest;
+
+export type ReviewOperationModelRequest =
+  | {
+      kind: "cli";
+      provider: ReviewModelSelection["provider"];
+      model?: string | null;
+      consent: RepositoryContentConsent;
+    }
+  | {
+      kind: "stored-provider";
+      providerId: string;
+      consent: RepositoryContentConsent;
+    }
+  | {
+      kind: "resolved";
+      providerConfig: ModelProviderConfig;
+      provider: ModelProvider;
+      consent: RepositoryContentConsent;
+    };
+
+export type ReviewOperationPublicationRequest = {
+  mode: "plan" | "publish";
+  summary?: boolean;
+  inline?: false | { cap?: number };
+  triageLabel?:
+    | false
+    | {
+        apply: true;
+        createMissingLabels?: boolean;
+      };
+};
+
+export type ReviewOperationRequest = {
+  source:
+    | {
+        kind: "local";
+        repoRoot: string;
+        target?: ReviewOperationTarget;
+      }
+    | {
+        kind: "stored";
+        repoId: string;
+        target?: ReviewOperationTarget;
+      }
+    | {
+        kind: "prepared";
+        profile: RepoProfile;
+        input: ReviewInput;
+        repoRoot?: string | null;
+      };
+  model: ReviewOperationModelRequest;
+  mode: "preview" | "apply";
+  output?: ReviewOutputIntent;
+  publish?: false | ReviewOperationPublicationRequest;
+  persist?: ReviewPersistenceIntent;
+  limits?: Partial<ReviewContentLimits>;
+};
+
+export type ReviewOperationPhase =
+  | "consent"
+  | "source"
+  | "prompt-context"
+  | "model"
+  | "output"
+  | "publication"
+  | "persistence";
+
+export type ReviewOperationResult =
+  | {
+      ok: true;
+      run: ReviewRun;
+    }
+  | {
+      ok: false;
+      error: Error;
+      phase: ReviewOperationPhase;
+      run: RunRecord | null;
+      statusCode?: 403 | 409 | 422;
+    };
+
+export type LocalReviewShortcut = {
+  repoRoot: string;
+  model: Extract<ReviewOperationModelRequest, { kind: "cli" }>;
+  baseRef?: string;
+  headRef?: string;
+  limits?: Partial<ReviewContentLimits>;
+};
+
+export type PullRequestReviewShortcut = {
+  repoRoot: string;
+  prNumber: number;
+  model: Extract<ReviewOperationModelRequest, { kind: "cli" }>;
+  limits?: Partial<ReviewContentLimits>;
+};
+
+export type ReviewOperation = {
+  run(request: ReviewOperationRequest): Promise<ReviewOperationResult>;
+  previewLocalDiff(input: LocalReviewShortcut): Promise<ReviewOperationResult>;
+  previewPullRequest(
+    input: PullRequestReviewShortcut,
+  ): Promise<ReviewOperationResult>;
+  publishPullRequest(
+    input: PullRequestReviewShortcut & {
+      publish?: Omit<ReviewOperationPublicationRequest, "mode">;
+    },
+  ): Promise<ReviewOperationResult>;
 };
 
 export class ReviewOrchestratorError extends Error {
@@ -515,6 +636,7 @@ export class ReviewOrchestratorError extends Error {
   }
 }
 
+/** @deprecated Use ReviewOperation. */
 export type PullRequestReviewWorkflow = {
   reviewPullRequest(
     request: PullRequestReviewRequest,
@@ -624,63 +746,11 @@ export class ReviewWorkflowSourceError extends Error {
   }
 }
 
+/** @deprecated Use createReviewOperation with createReviewOperationDeps. */
 export function createReviewWorkflow(deps: ReviewWorkflowDeps): ReviewWorkflow {
-  const orchestrator = createReviewOrchestrator({
-    sources: {
-      async prepareLocal(input) {
-        if (!deps.local) {
-          throw new Error("Local review requires a local environment port.");
-        }
-        const source = await prepareLocalWorkflowSource(deps.local, input);
-        assertNonEmptyReviewSource(source);
-        return source;
-      },
-      async prepareStored(input) {
-        if (!deps.stored) {
-          throw new Error("Stored review requires a stored environment port.");
-        }
-        const source = await deps.stored.prepareReview({
-          repoId: input.repoId,
-          ...(input.target ? { target: input.target } : {}),
-          limits: normalizeReviewContentLimits(input.limits),
-        });
-        assertNonEmptyReviewSource(source);
-        return source;
-      },
-    },
-    ...(deps.promptContext
-      ? {
-          promptContext: {
-            async load(input) {
-              return (
-                deps.promptContext?.resolve({
-                  source: {
-                    profile: input.profile,
-                    input: input.reviewInput,
-                    repoRoot: input.repoRoot,
-                  },
-                }) ?? { context: {}, paths: [] }
-              );
-            },
-          },
-        }
-      : {}),
-    modelProviders: {
-      resolve(input) {
-        return deps.modelProviders.resolve({
-          model: input.model,
-          source: {
-            profile: input.profile,
-            input: input.reviewInput,
-            repoRoot: input.repoRoot,
-          },
-        });
-      },
-    },
-    ...(deps.publisher ? { publisher: deps.publisher } : {}),
-    ...(deps.output ? { output: deps.output } : {}),
-    ...(deps.persistence ? { persistence: deps.persistence } : {}),
-  });
+  const orchestrator = createReviewOrchestrator(
+    createReviewOperationDeps(deps),
+  );
 
   return {
     reviewLocal(input) {
@@ -738,6 +808,512 @@ export function createReviewWorkflow(deps: ReviewWorkflowDeps): ReviewWorkflow {
       );
     },
   };
+}
+
+export function createReviewOperation(
+  deps: ReviewOperationDeps,
+): ReviewOperation {
+  const orchestrator = createReviewOrchestrator(
+    withReviewOperationPhases(deps),
+  );
+
+  const run = async (
+    request: ReviewOperationRequest,
+  ): Promise<ReviewOperationResult> => {
+    try {
+      assertOperationRepositoryContentConsent(request.model);
+      return {
+        ok: true,
+        run: await runReviewOperationRequest(orchestrator, request),
+      };
+    } catch (error) {
+      const mapped = deps.errors ? deps.errors.map(error) : error;
+      return reviewOperationFailure(mapped);
+    }
+  };
+
+  return {
+    run,
+    previewLocalDiff(input) {
+      return run({
+        source: {
+          kind: "local",
+          repoRoot: input.repoRoot,
+          target: {
+            kind: "diff",
+            ...(input.baseRef ? { baseRef: input.baseRef } : {}),
+            ...(input.headRef ? { headRef: input.headRef } : {}),
+          },
+        },
+        model: input.model,
+        mode: "preview",
+        publish: false,
+        ...(input.limits ? { limits: input.limits } : {}),
+      });
+    },
+    previewPullRequest(input) {
+      return run({
+        source: {
+          kind: "local",
+          repoRoot: input.repoRoot,
+          target: { kind: "pullRequest", number: input.prNumber },
+        },
+        model: input.model,
+        mode: "preview",
+        publish: false,
+        ...(input.limits ? { limits: input.limits } : {}),
+      });
+    },
+    publishPullRequest(input) {
+      return run({
+        source: {
+          kind: "local",
+          repoRoot: input.repoRoot,
+          target: { kind: "pullRequest", number: input.prNumber },
+        },
+        model: input.model,
+        mode: "apply",
+        publish: { mode: "publish", ...(input.publish ?? {}) },
+        ...(input.limits ? { limits: input.limits } : {}),
+      });
+    },
+  };
+}
+
+export function createReviewOperationDeps(
+  deps: ReviewWorkflowDeps,
+): ReviewOperationDeps {
+  return {
+    sources: {
+      async prepareLocal(input) {
+        if (!deps.local) {
+          throw new Error("Local review requires a local environment port.");
+        }
+        const source = await prepareLocalWorkflowSource(deps.local, input);
+        assertNonEmptyReviewSource(source);
+        return source;
+      },
+      async prepareStored(input) {
+        if (!deps.stored) {
+          throw new Error("Stored review requires a stored environment port.");
+        }
+        const source = await deps.stored.prepareReview({
+          repoId: input.repoId,
+          ...(input.target ? { target: input.target } : {}),
+          limits: normalizeReviewContentLimits(input.limits),
+        });
+        assertNonEmptyReviewSource(source);
+        return source;
+      },
+    },
+    ...(deps.promptContext
+      ? {
+          promptContext: {
+            async load(input) {
+              return (
+                deps.promptContext?.resolve({
+                  source: {
+                    profile: input.profile,
+                    input: input.reviewInput,
+                    repoRoot: input.repoRoot,
+                  },
+                }) ?? { context: {}, paths: [] }
+              );
+            },
+          },
+        }
+      : {}),
+    modelProviders: {
+      resolve(input) {
+        return deps.modelProviders.resolve({
+          model: input.model,
+          source: {
+            profile: input.profile,
+            input: input.reviewInput,
+            repoRoot: input.repoRoot,
+          },
+        });
+      },
+    },
+    ...(deps.publisher ? { publisher: deps.publisher } : {}),
+    ...(deps.output ? { output: deps.output } : {}),
+    ...(deps.persistence ? { persistence: deps.persistence } : {}),
+    ...(deps.errors ? { errors: deps.errors } : {}),
+  };
+}
+
+async function runReviewOperationRequest(
+  orchestrator: ReviewOrchestrator,
+  request: ReviewOperationRequest,
+): Promise<ReviewRun> {
+  const output = request.output
+    ? reviewOutputIntentForOperation(request.output)
+    : undefined;
+  const publication =
+    request.publish !== undefined
+      ? reviewPublicationIntentForOperation(request.publish)
+      : undefined;
+
+  if (request.source.kind === "local") {
+    return orchestrator.review({
+      repository: { kind: "local", repoRoot: request.source.repoRoot },
+      model: cliModelSelectionForOperation(request.model),
+      ...(request.source.target ? { target: request.source.target } : {}),
+      intent: request.mode,
+      ...(output ? { output } : {}),
+      ...(publication !== undefined ? { publication } : {}),
+      ...(request.persist !== undefined
+        ? { persistence: request.persist }
+        : {}),
+      ...(request.limits ? { limits: request.limits } : {}),
+    });
+  }
+
+  if (request.source.kind === "stored") {
+    return orchestrator.review({
+      repository: { kind: "stored", repoId: request.source.repoId },
+      model: { providerId: storedProviderIdForOperation(request.model) },
+      ...(request.source.target ? { target: request.source.target } : {}),
+      intent: request.mode,
+      ...(output ? { output } : {}),
+      ...(publication !== undefined ? { publication } : {}),
+      ...(request.persist !== undefined
+        ? { persistence: request.persist }
+        : {}),
+      ...(request.limits ? { limits: request.limits } : {}),
+    });
+  }
+
+  return orchestrator.review({
+    repository: {
+      kind: "prepared",
+      profile: request.source.profile,
+      input: request.source.input,
+      ...(request.source.repoRoot ? { repoRoot: request.source.repoRoot } : {}),
+    },
+    model: modelRequestForOperation(request.model),
+    intent: request.mode,
+    ...(output ? { output } : {}),
+    ...(publication !== undefined ? { publication } : {}),
+    ...(request.persist !== undefined ? { persistence: request.persist } : {}),
+  });
+}
+
+function cliModelSelectionForOperation(
+  model: ReviewOperationModelRequest,
+): ReviewModelSelection {
+  if (model.kind !== "cli") {
+    throw new Error("Local review operations require a CLI model selection.");
+  }
+  return {
+    provider: model.provider,
+    ...(model.model ? { model: model.model } : {}),
+    consent: { repositoryContentTransfer: true },
+  };
+}
+
+function storedProviderIdForOperation(
+  model: ReviewOperationModelRequest,
+): string {
+  if (model.kind !== "stored-provider") {
+    throw new Error(
+      "Stored review operations require a stored model provider.",
+    );
+  }
+  return model.providerId;
+}
+
+function modelRequestForOperation(
+  model: ReviewOperationModelRequest,
+): ReviewModelRequest {
+  if (model.kind === "resolved") {
+    return {
+      providerConfig: model.providerConfig,
+      provider: model.provider,
+    };
+  }
+  if (model.kind === "stored-provider") {
+    return { providerId: model.providerId };
+  }
+  return cliModelSelectionForOperation(model);
+}
+
+function reviewOutputIntentForOperation(
+  output: ReviewOutputIntent,
+): ReviewOutputIntent | undefined {
+  if (!output.markdownPath) {
+    return undefined;
+  }
+  return {
+    markdownPath: output.markdownPath,
+    ...(output.write ? { write: output.write } : {}),
+  };
+}
+
+function reviewPublicationIntentForOperation(
+  publication: false | ReviewOperationPublicationRequest,
+): false | ReviewPublicationIntent {
+  if (publication === false) {
+    return false;
+  }
+  return {
+    mode: publication.mode,
+    options: {
+      ...(publication.summary !== undefined
+        ? { summary: publication.summary }
+        : {}),
+      ...(publication.inline !== undefined
+        ? { inline: publication.inline }
+        : {}),
+      ...(publication.triageLabel !== undefined
+        ? { triageLabel: publication.triageLabel }
+        : {}),
+    },
+  };
+}
+
+function assertOperationRepositoryContentConsent(
+  model: ReviewOperationModelRequest,
+): void {
+  if (model.consent.repositoryContentTransfer !== true) {
+    throw new Error(
+      "PR review requires explicit repository-content transfer consent before model invocation.",
+    );
+  }
+}
+
+function reviewOperationFailure(error: unknown): ReviewOperationResult {
+  const normalized = error instanceof Error ? error : new Error(String(error));
+  const phaseError = findReviewOperationPhaseError(normalized);
+  const statusError =
+    phaseError?.cause instanceof Error ? phaseError.cause : normalized;
+  return {
+    ok: false,
+    error: normalized,
+    phase: phaseError?.phase ?? reviewOperationFailurePhase(normalized),
+    run: error instanceof ReviewOrchestratorError ? error.run : null,
+    ...reviewOperationStatusCode(statusError),
+  };
+}
+
+function reviewOperationFailurePhase(error: Error): ReviewOperationPhase {
+  if (error.message.includes("repository-content transfer consent")) {
+    return "consent";
+  }
+  if (error instanceof ReviewWorkflowSourceError) {
+    return "source";
+  }
+  if (
+    error.message.includes("publication") ||
+    error.message.includes("ready-for-review") ||
+    error.message.includes("publisher")
+  ) {
+    return "publication";
+  }
+  if (error.message.includes("output")) {
+    return "output";
+  }
+  if (error instanceof ReviewOrchestratorError) {
+    return "model";
+  }
+  return "model";
+}
+
+function reviewOperationStatusCode(error: Error): {
+  statusCode?: 403 | 409 | 422;
+} {
+  if (error.message.includes("repository-content transfer consent")) {
+    return { statusCode: 403 };
+  }
+  if (error instanceof ReviewWorkflowSourceError) {
+    return { statusCode: error.statusCode };
+  }
+  return {};
+}
+
+class ReviewOperationPhaseFailure extends Error {
+  phase: ReviewOperationPhase;
+
+  constructor(phase: ReviewOperationPhase, cause: unknown) {
+    super(errorMessage(cause), { cause });
+    this.name = "ReviewOperationPhaseFailure";
+    this.phase = phase;
+  }
+}
+
+function withReviewOperationPhases(
+  deps: ReviewOperationDeps,
+): ReviewOperationDeps {
+  return {
+    sources: {
+      prepareLocal(input) {
+        return withReviewOperationPhase("source", () =>
+          deps.sources.prepareLocal(input),
+        );
+      },
+      ...(deps.sources.prepareStored
+        ? {
+            prepareStored(input) {
+              return withReviewOperationPhase(
+                "source",
+                () =>
+                  deps.sources.prepareStored?.(input) ??
+                  Promise.reject(
+                    new Error(
+                      "Stored repository review requires a stored source port.",
+                    ),
+                  ),
+              );
+            },
+          }
+        : {}),
+    },
+    ...(deps.promptContext
+      ? {
+          promptContext: {
+            load(input) {
+              return withReviewOperationPhase(
+                "prompt-context",
+                () =>
+                  deps.promptContext?.load(input) ??
+                  Promise.resolve({ context: {}, paths: [] }),
+              );
+            },
+          },
+        }
+      : {}),
+    modelProviders: {
+      resolve(input) {
+        return withReviewOperationPhase("model", () =>
+          deps.modelProviders.resolve(input),
+        );
+      },
+    },
+    ...(deps.publisher
+      ? {
+          publisher: {
+            plan(input) {
+              return withReviewOperationPhase(
+                "publication",
+                () =>
+                  deps.publisher?.plan(input) ??
+                  Promise.reject(
+                    new Error("Review publication requires a publisher port."),
+                  ),
+              );
+            },
+            publish(input) {
+              return withReviewOperationPhase(
+                "publication",
+                () =>
+                  deps.publisher?.publish(input) ??
+                  Promise.reject(
+                    new Error("Review publication requires a publisher port."),
+                  ),
+              );
+            },
+          },
+        }
+      : {}),
+    ...(deps.output
+      ? {
+          output: {
+            writeMarkdown(input) {
+              return withReviewOperationPhase(
+                "output",
+                () =>
+                  deps.output?.writeMarkdown(input) ??
+                  Promise.reject(
+                    new Error(
+                      "Review markdown output requires an output writer port.",
+                    ),
+                  ),
+              );
+            },
+          },
+        }
+      : {}),
+    ...(deps.persistence
+      ? {
+          persistence: {
+            startRun(input) {
+              return withReviewOperationPhase(
+                "persistence",
+                () =>
+                  deps.persistence?.startRun(input) ??
+                  Promise.reject(
+                    new Error(
+                      "Review run persistence requires a persistence port.",
+                    ),
+                  ),
+              );
+            },
+            succeedRun(input) {
+              return withReviewOperationPhase(
+                "persistence",
+                () =>
+                  deps.persistence?.succeedRun(input) ??
+                  Promise.reject(
+                    new Error(
+                      "Review run persistence requires a persistence port.",
+                    ),
+                  ),
+              );
+            },
+            failRun(input) {
+              return withReviewOperationPhase(
+                "persistence",
+                () =>
+                  deps.persistence?.failRun(input) ??
+                  Promise.reject(
+                    new Error(
+                      "Review run persistence requires a persistence port.",
+                    ),
+                  ),
+              );
+            },
+            storeReview(input) {
+              return withReviewOperationPhase(
+                "persistence",
+                () =>
+                  deps.persistence?.storeReview(input) ??
+                  Promise.reject(
+                    new Error("Review storage requires a persistence port."),
+                  ),
+              );
+            },
+          },
+        }
+      : {}),
+    ...(deps.errors ? { errors: deps.errors } : {}),
+  };
+}
+
+async function withReviewOperationPhase<T>(
+  phase: ReviewOperationPhase,
+  action: () => T | Promise<T>,
+): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    if (error instanceof ReviewOperationPhaseFailure) {
+      throw error;
+    }
+    throw new ReviewOperationPhaseFailure(phase, error);
+  }
+}
+
+function findReviewOperationPhaseError(
+  error: Error,
+): ReviewOperationPhaseFailure | null {
+  let current: unknown = error;
+  while (current instanceof Error) {
+    if (current instanceof ReviewOperationPhaseFailure) {
+      return current;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return null;
 }
 
 async function runWorkflowRequest(
@@ -906,6 +1482,7 @@ function assertNonEmptyReviewSource(source: ReviewPreparedSource): void {
   }
 }
 
+/** @deprecated Use createReviewOperation. */
 export function createPullRequestReviewWorkflow(
   deps: PullRequestReviewWorkflowDeps,
 ): PullRequestReviewWorkflow {
@@ -983,6 +1560,7 @@ export function createPullRequestReviewWorkflow(
   };
 }
 
+/** @deprecated Use createReviewOperation. */
 export function createReviewOrchestrator(
   deps: ReviewOrchestratorDeps,
   defaults: Partial<ReviewRequest> = {},
