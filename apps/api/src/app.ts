@@ -15,11 +15,13 @@ import { scanRepository } from "@open-maintainer/analyzer";
 import { createContextGenerationOrchestrator } from "@open-maintainer/context";
 import { checkDatabase, checkRedis, store } from "@open-maintainer/db";
 import {
-  createContextBranchName,
-  createContextPr,
+  type ContextPrPublishInput,
+  type ContextPrPublisher,
+  type ContextPrWorkflowDeps,
+  createContextPrWorkflow,
+  createGitHubAppContextPrPublisher,
   fetchPullRequestReviewContext,
   mapInstallationEvent,
-  renderContextPrBody,
   verifyWebhookSignature,
 } from "@open-maintainer/github";
 import type { GitHubAppInstallationAuth } from "@open-maintainer/github";
@@ -45,6 +47,7 @@ import {
 import Fastify from "fastify";
 import { z } from "zod";
 import {
+  type RepositorySourceAnalysisError,
   type RepositorySourceAnalysisRegistry,
   createRepositoryOperations,
 } from "./repository-source-analysis";
@@ -65,6 +68,9 @@ export function buildApp() {
     store,
     getInstallationAuth: githubAuthForInstallation,
   });
+  const contextPrWorkflow = createContextPrWorkflow(
+    createApiContextPrWorkflowDeps(repositorySources),
+  );
   app.register(cors, { origin: true });
   app.register(formBody);
 
@@ -549,97 +555,17 @@ export function buildApp() {
         const { repoId } = z
           .object({ repoId: z.string() })
           .parse(request.params);
-        const workspace = await repositorySources.prepareContextPr({ repoId });
-        if (!workspace.ok) {
+        const result = await contextPrWorkflow.open({
+          target: { kind: "registered-repo", repoId },
+          origin: { kind: "dashboard" },
+          writePolicy: "preserve-maintainer-owned",
+        });
+        if (!result.ok) {
           return reply
-            .code(workspace.statusCode)
-            .send({ error: workspace.message });
+            .code(result.statusCode)
+            .send({ error: result.message, run: result.run });
         }
-        const { profile, repo } = workspace;
-        const artifacts = await artifactsForContextPr({
-          repoId,
-          profile,
-          worktreeRoot: workspace.worktreeRoot,
-        });
-        if (artifacts.length < 2) {
-          return reply.code(409).send({
-            error:
-              "Generate artifacts or add repo-local context files before opening a context PR.",
-          });
-        }
-        const run = store.recordRun({
-          repoId,
-          type: "context_pr",
-          status: "running",
-          inputSummary: "Open context PR from approved artifact versions.",
-          safeMessage: null,
-          artifactVersions: artifacts.map((artifact) => artifact.version),
-          repoProfileVersion: profile.version,
-          provider: artifacts[0]?.modelProvider ?? null,
-          model: artifacts[0]?.model ?? null,
-          externalId: null,
-        });
-        if (workspace.worktreeRoot) {
-          try {
-            await requireLocalGhPrReady(workspace.worktreeRoot);
-            const contextPr = await createLocalContextPrWithGh({
-              repoId,
-              worktreeRoot: workspace.worktreeRoot,
-              defaultBranch: repo.defaultBranch,
-              profileVersion: profile.version,
-              artifacts,
-              runReference: run.id,
-              generatedAt: nowIso(),
-            });
-            store.contextPrs.set(contextPr.id, contextPr);
-            store.updateRun(run.id, {
-              status: "succeeded",
-              safeMessage: `Opened context PR at ${contextPr.prUrl}.`,
-              externalId: contextPr.prUrl,
-            });
-            return { run: store.runs.get(run.id), contextPr };
-          } catch (error) {
-            const message =
-              error instanceof Error
-                ? error.message
-                : "local gh PR creation failed.";
-            store.updateRun(run.id, {
-              status: "failed",
-              safeMessage: `gh PR creation failed: ${message}`,
-              externalId: null,
-            });
-            return reply.code(502).send({
-              error: store.runs.get(run.id)?.safeMessage,
-              run: store.runs.get(run.id),
-            });
-          }
-        }
-        const remoteContextPr = await createGitHubAppContextPr({
-          repoId,
-          repo,
-          profile,
-          artifacts,
-          runId: run.id,
-        });
-        if (!remoteContextPr.ok) {
-          store.updateRun(run.id, {
-            status: "failed",
-            safeMessage: remoteContextPr.error,
-            externalId: null,
-          });
-          return reply.code(remoteContextPr.statusCode).send({
-            error: store.runs.get(run.id)?.safeMessage,
-            run: store.runs.get(run.id),
-          });
-        }
-        const contextPr = remoteContextPr.contextPr;
-        store.contextPrs.set(contextPr.id, contextPr);
-        store.updateRun(run.id, {
-          status: "succeeded",
-          safeMessage: `Opened context PR at ${contextPr.prUrl}.`,
-          externalId: contextPr.prUrl,
-        });
-        return { run: store.runs.get(run.id), contextPr };
+        return { run: result.run, contextPr: result.contextPr };
       },
     );
   });
@@ -682,6 +608,124 @@ export function buildApp() {
   });
 
   return app;
+}
+
+function createApiContextPrWorkflowDeps(
+  repositorySources: RepositorySourceAnalysisRegistry,
+): ContextPrWorkflowDeps {
+  const localPublisher: ContextPrPublisher = {
+    publish: createLocalContextPrWithGh,
+  };
+  const githubAppPublisher = createGitHubAppContextPrPublisher({
+    credentials: (repo) =>
+      repo.installationId
+        ? githubAuthForInstallation(repo.installationId)
+        : null,
+  });
+  return {
+    state: {
+      runs: {
+        start({ repo, artifacts }) {
+          return store.recordRun({
+            repoId: repo.repoId,
+            type: "context_pr",
+            status: "running",
+            inputSummary: "Open context PR from approved artifact versions.",
+            safeMessage: null,
+            artifactVersions: artifacts.map((artifact) => artifact.version),
+            repoProfileVersion: repo.profileVersion,
+            provider: artifacts[0]?.modelProvider ?? null,
+            model: artifacts[0]?.model ?? null,
+            externalId: null,
+          });
+        },
+        succeed({ run, contextPr }) {
+          if (!run) {
+            return null;
+          }
+          return store.updateRun(run.id, {
+            status: "succeeded",
+            safeMessage: `Opened context PR at ${contextPr.prUrl}.`,
+            externalId: contextPr.prUrl,
+          });
+        },
+        fail({ run, message }) {
+          if (!run) {
+            return null;
+          }
+          return store.updateRun(run.id, {
+            status: "failed",
+            safeMessage: message,
+            externalId: null,
+          });
+        },
+      },
+      contextPrs: {
+        save(contextPr) {
+          store.contextPrs.set(contextPr.id, contextPr);
+        },
+      },
+    },
+    repositorySources: {
+      async prepareRegisteredRepo(repoId) {
+        const workspace = await repositorySources.prepareContextPr({ repoId });
+        if (!workspace.ok) {
+          throw {
+            ok: false as const,
+            statusCode: workspace.statusCode,
+            code: contextPrSourceErrorCode(workspace.code),
+            message: workspace.message,
+            run: workspace.run ?? null,
+          };
+        }
+        return {
+          repoId,
+          owner: workspace.repo.owner,
+          name: workspace.repo.name,
+          defaultBranch: workspace.repo.defaultBranch,
+          profileVersion: workspace.profile.version,
+          profile: workspace.profile,
+          worktreeRoot: workspace.worktreeRoot,
+          installationId: workspace.repo.installationId,
+        };
+      },
+      async prepareWorkspace() {
+        throw {
+          ok: false as const,
+          statusCode: 422,
+          code: "WORKTREE_UNAVAILABLE",
+          message: "Workspace context PRs are handled by the CLI.",
+          run: null,
+        };
+      },
+    },
+    artifactCatalog: {
+      async collect(repo) {
+        if (!repo.profile) {
+          return [];
+        }
+        return artifactsForContextPr({
+          repoId: repo.repoId,
+          profile: repo.profile,
+          worktreeRoot: repo.worktreeRoot,
+        });
+      },
+    },
+    publishers: {
+      localGh: localPublisher,
+      githubApp: githubAppPublisher,
+      actionGh: localPublisher,
+    },
+  };
+}
+
+function contextPrSourceErrorCode(
+  code: RepositorySourceAnalysisError["code"],
+): "UNKNOWN_REPO" | "NO_PROFILE" | "WORKTREE_UNAVAILABLE" {
+  if (code === "NO_PROFILE" || code === "WORKTREE_UNAVAILABLE") {
+    return code;
+  }
+  return "UNKNOWN_REPO";
 }
 
 async function generateContextArtifactsForRun(input: {
@@ -825,15 +869,10 @@ function isWritableContextArtifact(type: ArtifactType): boolean {
 
 async function saveArtifactsToLocalWorktree(
   worktreeRoot: string,
-  artifacts: GeneratedArtifact[],
+  input: ContextPrPublishInput,
 ): Promise<string[]> {
   const savedPaths: string[] = [];
-  for (const artifact of artifacts) {
-    const artifactPath =
-      artifact.type === "repo_profile" ? null : artifact.type;
-    if (!artifactPath) {
-      continue;
-    }
+  for (const { artifact, path: artifactPath } of input.writableArtifacts) {
     const destination = path.join(worktreeRoot, artifactPath);
     const relativePath = path.relative(worktreeRoot, destination);
     if (relativePath.startsWith("..") || path.isAbsolute(relativePath)) {
@@ -841,88 +880,89 @@ async function saveArtifactsToLocalWorktree(
         `Refusing to write artifact outside repository: ${artifact.type}`,
       );
     }
+    const existingContent = await readFile(destination, "utf8").catch(
+      () => null,
+    );
+    if (
+      existingContent &&
+      !input.shouldOverwriteExistingFile(existingContent)
+    ) {
+      continue;
+    }
     await mkdir(path.dirname(destination), { recursive: true });
     await writeFile(destination, artifact.content, "utf8");
     savedPaths.push(relativePath);
   }
   if (savedPaths.length === 0) {
-    throw new Error("No writable context artifacts were generated.");
+    throw new Error(
+      "No context artifact files were written because existing files are preserved by default.",
+    );
   }
   return savedPaths;
 }
 
-async function createLocalContextPrWithGh(input: {
-  repoId: string;
-  worktreeRoot: string;
-  defaultBranch: string;
-  profileVersion: number;
-  artifacts: GeneratedArtifact[];
-  runReference: string;
-  generatedAt: string;
-}) {
-  await requireLocalGhPrReady(input.worktreeRoot);
+async function createLocalContextPrWithGh(input: ContextPrPublishInput) {
+  if (!input.repo.worktreeRoot) {
+    throw new Error("A writable local worktree is required.");
+  }
+  await requireLocalGhPrReady(input.repo.worktreeRoot);
 
-  const originalBranch = await detectLocalDefaultBranch(input.worktreeRoot);
-  const branchName = createContextBranchName(input.profileVersion);
+  const originalBranch = await detectLocalDefaultBranch(
+    input.repo.worktreeRoot,
+  );
   try {
-    await runGit(input.worktreeRoot, [
+    await runGit(input.repo.worktreeRoot, [
       "checkout",
       "-B",
-      branchName,
-      input.defaultBranch,
+      input.branchName,
+      input.repo.defaultBranch,
     ]);
     const savedPaths = await saveArtifactsToLocalWorktree(
-      input.worktreeRoot,
-      input.artifacts,
+      input.repo.worktreeRoot,
+      input,
     );
-    await runGit(input.worktreeRoot, ["add", "--", ...savedPaths]);
-    const hasStagedChanges = await gitHasStagedChanges(input.worktreeRoot);
+    await runGit(input.repo.worktreeRoot, ["add", "--", ...savedPaths]);
+    const hasStagedChanges = await gitHasStagedChanges(input.repo.worktreeRoot);
     if (!hasStagedChanges) {
       throw new Error("generated context files did not change the worktree.");
     }
     await runGit(
-      input.worktreeRoot,
+      input.repo.worktreeRoot,
       ["commit", "-m", "Update Open Maintainer context"],
       gitCommitIdentityEnv(),
     );
     const commitSha = (
-      await runGit(input.worktreeRoot, ["rev-parse", "HEAD"])
+      await runGit(input.repo.worktreeRoot, ["rev-parse", "HEAD"])
     ).trim();
     await runGit(
-      input.worktreeRoot,
-      ["push", "--set-upstream", "origin", branchName],
+      input.repo.worktreeRoot,
+      ["push", "--set-upstream", "origin", input.branchName],
       gitPushAuthEnv(),
     );
 
-    const body = renderContextPrBody({
-      repoProfileVersion: input.profileVersion,
-      artifacts: input.artifacts,
-      modelProvider: input.artifacts[0]?.modelProvider ?? null,
-      model: input.artifacts[0]?.model ?? null,
-      runReference: input.runReference,
-      generatedAt: input.generatedAt,
-    });
-    const prUrl = await openOrUpdateGhPullRequest(input.worktreeRoot, {
-      baseBranch: input.defaultBranch,
-      headBranch: branchName,
-      title: "Update Open Maintainer context",
-      body,
+    const prUrl = await openOrUpdateGhPullRequest(input.repo.worktreeRoot, {
+      baseBranch: input.repo.defaultBranch,
+      headBranch: input.branchName,
+      title: input.title,
+      body: input.body,
     });
 
     return {
       id: newId("context_pr"),
-      repoId: input.repoId,
-      branchName,
+      repoId: input.repo.repoId,
+      branchName: input.branchName,
       commitSha,
       prNumber: pullRequestNumber(prUrl),
       prUrl,
-      artifactVersions: input.artifacts.map((artifact) => artifact.version),
+      artifactVersions: input.writableArtifacts.map(
+        ({ artifact }) => artifact.version,
+      ),
       status: "succeeded" as const,
       createdAt: nowIso(),
     };
   } finally {
-    if (originalBranch !== "local" && originalBranch !== branchName) {
-      await runGit(input.worktreeRoot, ["checkout", originalBranch]).catch(
+    if (originalBranch !== "local" && originalBranch !== input.branchName) {
+      await runGit(input.repo.worktreeRoot, ["checkout", originalBranch]).catch(
         () => undefined,
       );
     }
@@ -1569,42 +1609,6 @@ function githubAuthForInstallation(
     appId,
     installationId,
     privateKey: Buffer.from(privateKeyBase64, "base64").toString("utf8"),
-  };
-}
-
-async function createGitHubAppContextPr(input: {
-  repoId: string;
-  repo: Repo;
-  profile: RepoProfile;
-  artifacts: GeneratedArtifact[];
-  runId: string;
-}): Promise<
-  | { ok: true; contextPr: Awaited<ReturnType<typeof createContextPr>> }
-  | { ok: false; statusCode: 422; error: string }
-> {
-  const auth = githubAuthForInstallation(input.repo.installationId);
-  if (!auth) {
-    return {
-      ok: false,
-      statusCode: 422,
-      error:
-        "GitHub App credentials are required to open a real context PR for this repository.",
-    };
-  }
-  return {
-    ok: true,
-    contextPr: await createContextPr({
-      repoId: input.repoId,
-      owner: input.repo.owner,
-      repo: input.repo.name,
-      defaultBranch: input.repo.defaultBranch,
-      profileVersion: input.profile.version,
-      artifacts: input.artifacts,
-      runReference: input.runId,
-      generatedAt: nowIso(),
-      mock: false,
-      auth,
-    }),
   };
 }
 

@@ -11,6 +11,7 @@ import type {
   IssueTriageRelatedIssue,
   IssueTriageSkippedEvidence,
   Repo,
+  RepoProfile,
   ReviewChangedFile,
   ReviewCheckStatus,
   ReviewExistingComment,
@@ -19,6 +20,7 @@ import type {
   ReviewResult,
   ReviewSeverity,
   ReviewSkippedFile,
+  RunRecord,
 } from "@open-maintainer/shared";
 import { newId, nowIso } from "@open-maintainer/shared";
 import {
@@ -1653,10 +1655,439 @@ function reviewSeverityRank(severity: ReviewSeverity): number {
 }
 
 function contextArtifactPath(type: ArtifactType): string | null {
-  if (type === "AGENTS.md" || type === ".open-maintainer.yml") {
-    return type;
+  if (type === "repo_profile") {
+    return null;
   }
-  return null;
+  return type;
+}
+
+export type WritableContextArtifact = {
+  artifact: GeneratedArtifact;
+  path: string;
+};
+
+export type ContextPrWritePolicy = "preserve-maintainer-owned" | "force";
+
+export type OpenContextPrInput = {
+  target:
+    | { kind: "registered-repo"; repoId: string }
+    | {
+        kind: "workspace";
+        root: string;
+        repository: { owner: string; name: string; defaultBranch: string };
+      };
+  origin:
+    | { kind: "dashboard"; runReference?: string }
+    | {
+        kind: "github-action";
+        branchName?: string;
+        title?: string;
+        summaryMarkdown?: string;
+      };
+  writePolicy?: ContextPrWritePolicy;
+};
+
+export type PreparedContextPrRepo = {
+  repoId: string;
+  owner: string;
+  name: string;
+  defaultBranch: string;
+  profileVersion: number;
+  profile?: RepoProfile;
+  worktreeRoot: string | null;
+  installationId?: string | null;
+};
+
+export type ContextPrBodyInput = {
+  repo: PreparedContextPrRepo;
+  artifacts: GeneratedArtifact[];
+  origin: OpenContextPrInput["origin"];
+  runReference: string;
+  generatedAt: string;
+};
+
+export type ContextPrPlan = {
+  repo: PreparedContextPrRepo;
+  branchName: string;
+  title: string;
+  body: string;
+  writePolicy: ContextPrWritePolicy;
+  shouldOverwriteExistingFile(content: string): boolean;
+  writableArtifacts: WritableContextArtifact[];
+  generatedAt: string;
+};
+
+export type ContextPrPublishInput = ContextPrPlan & {
+  run: RunRecord | null;
+};
+
+export type ContextPrPublisher = {
+  publish(input: ContextPrPublishInput): Promise<ContextPr>;
+};
+
+export type GitHubCredentialResolver = (
+  repo: PreparedContextPrRepo,
+) => GitHubAppInstallationAuth | null;
+
+export type ContextPrWorkflowDeps = {
+  state: {
+    runs: {
+      start(input: {
+        repo: PreparedContextPrRepo;
+        artifacts: GeneratedArtifact[];
+        origin: OpenContextPrInput["origin"];
+      }): Promise<RunRecord | null> | RunRecord | null;
+      succeed(input: {
+        run: RunRecord | null;
+        contextPr: ContextPr;
+      }): Promise<RunRecord | null> | RunRecord | null;
+      fail(input: {
+        run: RunRecord | null;
+        code: OpenContextPrFailure["code"];
+        message: string;
+      }): Promise<RunRecord | null> | RunRecord | null;
+    };
+    contextPrs: {
+      save(contextPr: ContextPr): Promise<void> | void;
+    };
+  };
+  repositorySources: {
+    prepareRegisteredRepo(repoId: string): Promise<PreparedContextPrRepo>;
+    prepareWorkspace(input: {
+      root: string;
+      repository: { owner: string; name: string; defaultBranch: string };
+    }): Promise<PreparedContextPrRepo>;
+  };
+  artifactCatalog: {
+    collect(input: PreparedContextPrRepo): Promise<GeneratedArtifact[]>;
+  };
+  publishers: {
+    localGh: ContextPrPublisher;
+    githubApp: ContextPrPublisher;
+    actionGh: ContextPrPublisher;
+  };
+  policy?: Partial<ContextPrWorkflowPolicy>;
+  platform?: {
+    clock?: () => string;
+    ids?: { contextPr(): string };
+    credentials?: GitHubCredentialResolver;
+    logger?: { error(message: string, error: unknown): void };
+  };
+};
+
+export type ContextPrWorkflowPolicy = {
+  selectWritableArtifacts(
+    artifacts: GeneratedArtifact[],
+  ): WritableContextArtifact[];
+  branchName(input: {
+    profileVersion: number;
+    origin: OpenContextPrInput["origin"];
+  }): string;
+  title(input: {
+    profileVersion: number;
+    origin: OpenContextPrInput["origin"];
+  }): string;
+  renderBody(input: ContextPrBodyInput): string;
+  shouldOverwriteExistingFile(input: {
+    content: string;
+    writePolicy: ContextPrWritePolicy;
+  }): boolean;
+};
+
+export type OpenContextPrFailure = {
+  ok: false;
+  statusCode: 404 | 409 | 422 | 502;
+  code:
+    | "UNKNOWN_REPO"
+    | "NO_PROFILE"
+    | "NO_WRITABLE_ARTIFACTS"
+    | "WORKTREE_UNAVAILABLE"
+    | "GITHUB_AUTH_UNAVAILABLE"
+    | "PUBLISH_FAILED";
+  message: string;
+  run: RunRecord | null;
+};
+
+export type OpenContextPrResult =
+  | {
+      ok: true;
+      contextPr: ContextPr;
+      run: RunRecord | null;
+      writtenArtifacts: GeneratedArtifact[];
+    }
+  | OpenContextPrFailure;
+
+export interface ContextPrWorkflow {
+  open(input: OpenContextPrInput): Promise<OpenContextPrResult>;
+}
+
+export class ContextPrWorkflowError extends Error {
+  statusCode: OpenContextPrFailure["statusCode"];
+  code: OpenContextPrFailure["code"];
+
+  constructor(
+    statusCode: OpenContextPrFailure["statusCode"],
+    code: OpenContextPrFailure["code"],
+    message: string,
+  ) {
+    super(message);
+    this.name = "ContextPrWorkflowError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+export function createContextPrWorkflow(
+  deps: ContextPrWorkflowDeps,
+): ContextPrWorkflow {
+  const policy = createContextPrWorkflowPolicy(deps.policy);
+  const clock = deps.platform?.clock ?? nowIso;
+
+  return {
+    async open(input) {
+      let repo: PreparedContextPrRepo;
+      try {
+        repo =
+          input.target.kind === "registered-repo"
+            ? await deps.repositorySources.prepareRegisteredRepo(
+                input.target.repoId,
+              )
+            : await deps.repositorySources.prepareWorkspace(input.target);
+      } catch (error) {
+        return sourceFailure(error);
+      }
+
+      const artifacts = await deps.artifactCatalog.collect(repo);
+      const writableArtifacts = policy.selectWritableArtifacts(artifacts);
+      let run = await deps.state.runs.start({
+        repo,
+        artifacts: writableArtifacts.map(({ artifact }) => artifact),
+        origin: input.origin,
+      });
+      if (writableArtifacts.length === 0) {
+        return fail({
+          deps,
+          run,
+          statusCode: 409,
+          code: "NO_WRITABLE_ARTIFACTS",
+          message:
+            "Generate writable context artifacts before opening a context PR.",
+        });
+      }
+
+      const generatedAt = clock();
+      const branchName = policy.branchName({
+        profileVersion: repo.profileVersion,
+        origin: input.origin,
+      });
+      const plan: ContextPrPlan = {
+        repo,
+        branchName,
+        title: policy.title({
+          profileVersion: repo.profileVersion,
+          origin: input.origin,
+        }),
+        body: policy.renderBody({
+          repo,
+          artifacts: writableArtifacts.map(({ artifact }) => artifact),
+          origin: input.origin,
+          runReference:
+            run?.id ??
+            (input.origin.kind === "dashboard"
+              ? input.origin.runReference
+              : undefined) ??
+            "context-pr",
+          generatedAt,
+        }),
+        writePolicy: input.writePolicy ?? "preserve-maintainer-owned",
+        shouldOverwriteExistingFile: (content) =>
+          policy.shouldOverwriteExistingFile({
+            content,
+            writePolicy: input.writePolicy ?? "preserve-maintainer-owned",
+          }),
+        writableArtifacts,
+        generatedAt,
+      };
+
+      const publisher = selectPublisher(input, repo, deps);
+      try {
+        const contextPr = await publisher.publish({ ...plan, run });
+        await deps.state.contextPrs.save(contextPr);
+        run = await deps.state.runs.succeed({ run, contextPr });
+        const writtenVersions = new Set(contextPr.artifactVersions);
+        return {
+          ok: true,
+          contextPr,
+          run,
+          writtenArtifacts: plan.writableArtifacts
+            .map(({ artifact }) => artifact)
+            .filter((artifact) => writtenVersions.has(artifact.version)),
+        };
+      } catch (error) {
+        deps.platform?.logger?.error("Context PR publication failed.", error);
+        if (error instanceof ContextPrWorkflowError) {
+          return fail({
+            deps,
+            run,
+            statusCode: error.statusCode,
+            code: error.code,
+            message: error.message,
+          });
+        }
+        return fail({
+          deps,
+          run,
+          statusCode: 502,
+          code: "PUBLISH_FAILED",
+          message:
+            error instanceof Error
+              ? `Context PR publication failed: ${error.message}`
+              : "Context PR publication failed.",
+        });
+      }
+    },
+  };
+}
+
+export function createContextPrWorkflowPolicy(
+  overrides: Partial<ContextPrWorkflowPolicy> = {},
+): ContextPrWorkflowPolicy {
+  return {
+    selectWritableArtifacts: defaultSelectWritableArtifacts,
+    branchName({ profileVersion, origin }) {
+      if (origin.kind === "github-action" && origin.branchName) {
+        return origin.branchName;
+      }
+      return createContextBranchName(profileVersion);
+    },
+    title({ profileVersion, origin }) {
+      if (origin.kind === "github-action" && origin.title) {
+        return origin.title;
+      }
+      return `Update Open Maintainer context v${profileVersion}`;
+    },
+    renderBody(input) {
+      if (input.origin.kind === "github-action") {
+        return renderContextRefreshPrBody({
+          artifacts: input.artifacts,
+          generatedAt: input.generatedAt,
+          ...(input.origin.summaryMarkdown
+            ? { summaryMarkdown: input.origin.summaryMarkdown }
+            : {}),
+        });
+      }
+      return renderContextPrBody({
+        repoProfileVersion: input.repo.profileVersion,
+        artifacts: input.artifacts,
+        modelProvider: input.artifacts[0]?.modelProvider ?? null,
+        model: input.artifacts[0]?.model ?? null,
+        runReference: input.runReference,
+        generatedAt: input.generatedAt,
+      });
+    },
+    shouldOverwriteExistingFile({ content, writePolicy }) {
+      return writePolicy === "force" || isOpenMaintainerGeneratedFile(content);
+    },
+    ...overrides,
+  };
+}
+
+export function defaultSelectWritableArtifacts(
+  artifacts: GeneratedArtifact[],
+): WritableContextArtifact[] {
+  return artifacts.flatMap((artifact) => {
+    const path = contextArtifactPath(artifact.type);
+    return path ? [{ artifact, path }] : [];
+  });
+}
+
+export function renderContextRefreshPrBody(input: {
+  artifacts: GeneratedArtifact[];
+  generatedAt: string;
+  summaryMarkdown?: string;
+}): string {
+  const artifactRows = input.artifacts
+    .map((artifact) => `| ${artifact.type} | v${artifact.version} |`)
+    .join("\n");
+  return [
+    "## Open Maintainer Context Refresh",
+    "",
+    "This pull request refreshes generated Open Maintainer context artifacts.",
+    "",
+    `Generated at: ${input.generatedAt}`,
+    "",
+    "| Artifact | Version |",
+    "| --- | --- |",
+    artifactRows,
+    "",
+    "### Audit Summary",
+    input.summaryMarkdown?.trim() || "No audit summary was provided.",
+  ].join("\n");
+}
+
+async function fail(input: {
+  deps: ContextPrWorkflowDeps;
+  run: RunRecord | null;
+  statusCode: OpenContextPrFailure["statusCode"];
+  code: OpenContextPrFailure["code"];
+  message: string;
+}): Promise<OpenContextPrFailure> {
+  const run = await input.deps.state.runs.fail({
+    run: input.run,
+    code: input.code,
+    message: input.message,
+  });
+  return {
+    ok: false,
+    statusCode: input.statusCode,
+    code: input.code,
+    message: input.message,
+    run,
+  };
+}
+
+function sourceFailure(error: unknown): OpenContextPrFailure {
+  if (isContextPrSourceError(error)) {
+    return {
+      ok: false,
+      statusCode: error.statusCode,
+      code: error.code,
+      message: error.message,
+      run: error.run ?? null,
+    };
+  }
+  return {
+    ok: false,
+    statusCode: 422,
+    code: "UNKNOWN_REPO",
+    message:
+      error instanceof Error ? error.message : "Unable to prepare repository.",
+    run: null,
+  };
+}
+
+function isContextPrSourceError(error: unknown): error is OpenContextPrFailure {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "statusCode" in error &&
+    "code" in error &&
+    "message" in error
+  );
+}
+
+function selectPublisher(
+  input: OpenContextPrInput,
+  repo: PreparedContextPrRepo,
+  deps: ContextPrWorkflowDeps,
+): ContextPrPublisher {
+  if (input.target.kind === "workspace") {
+    return deps.publishers.actionGh;
+  }
+  if (repo.worktreeRoot) {
+    return deps.publishers.localGh;
+  }
+  return deps.publishers.githubApp;
 }
 
 async function getExistingFileSha(input: {
@@ -1696,6 +2127,12 @@ export async function createContextPr(input: {
   defaultBranch: string;
   profileVersion: number;
   artifacts: GeneratedArtifact[];
+  writableArtifacts?: WritableContextArtifact[];
+  branchName?: string;
+  title?: string;
+  body?: string;
+  writePolicy?: ContextPrWritePolicy;
+  shouldOverwriteExistingFile?: (content: string) => boolean;
   repoProfileVersion?: number;
   modelProvider?: string | null;
   model?: string | null;
@@ -1714,11 +2151,10 @@ export async function createContextPr(input: {
   }
 
   const client = resolveGitHubClient(input);
-  const branchName = createContextBranchName(input.profileVersion);
-  const writableArtifacts = input.artifacts.flatMap((artifact) => {
-    const path = contextArtifactPath(artifact.type);
-    return path ? [{ artifact, path }] : [];
-  });
+  const branchName =
+    input.branchName ?? createContextBranchName(input.profileVersion);
+  const writableArtifacts =
+    input.writableArtifacts ?? defaultSelectWritableArtifacts(input.artifacts);
 
   if (writableArtifacts.length === 0) {
     throw new Error("No context artifact files were provided.");
@@ -1766,7 +2202,12 @@ export async function createContextPr(input: {
       branchName,
       path,
     });
-    if (existingFile && !isOpenMaintainerGeneratedFile(existingFile.content)) {
+    if (
+      existingFile &&
+      !(input.shouldOverwriteExistingFile ?? isOpenMaintainerGeneratedFile)(
+        existingFile.content,
+      )
+    ) {
       continue;
     }
     const writeInput = {
@@ -1792,15 +2233,18 @@ export async function createContextPr(input: {
   const modelProvider =
     input.modelProvider ?? writtenArtifacts[0]?.artifact.modelProvider ?? null;
   const model = input.model ?? writtenArtifacts[0]?.artifact.model ?? null;
-  const body = renderContextPrBody({
-    repoProfileVersion: input.repoProfileVersion ?? input.profileVersion,
-    artifacts: writtenArtifacts.map(({ artifact }) => artifact),
-    modelProvider,
-    model,
-    runReference: input.runReference ?? `context-pr:${input.repoId}`,
-    generatedAt: input.generatedAt ?? nowIso(),
-  });
-  const title = `Update Open Maintainer context v${input.profileVersion}`;
+  const body =
+    input.body ??
+    renderContextPrBody({
+      repoProfileVersion: input.repoProfileVersion ?? input.profileVersion,
+      artifacts: writtenArtifacts.map(({ artifact }) => artifact),
+      modelProvider,
+      model,
+      runReference: input.runReference ?? `context-pr:${input.repoId}`,
+      generatedAt: input.generatedAt ?? nowIso(),
+    });
+  const title =
+    input.title ?? `Update Open Maintainer context v${input.profileVersion}`;
   const existingPulls = await client.pulls.list({
     owner: input.owner,
     repo: input.repo,
@@ -1839,10 +2283,47 @@ export async function createContextPr(input: {
   };
 }
 
-function isOpenMaintainerGeneratedFile(content: string): boolean {
+export function createGitHubAppContextPrPublisher(input: {
+  credentials: GitHubCredentialResolver;
+  client?: GitHubRepositoryClient;
+}): ContextPrPublisher {
+  return {
+    async publish(plan) {
+      const auth = input.credentials(plan.repo);
+      if (!auth && !input.client) {
+        throw new ContextPrWorkflowError(
+          422,
+          "GITHUB_AUTH_UNAVAILABLE",
+          "GitHub App credentials are required to open a real context PR for this repository.",
+        );
+      }
+      return createContextPr({
+        repoId: plan.repo.repoId,
+        owner: plan.repo.owner,
+        repo: plan.repo.name,
+        defaultBranch: plan.repo.defaultBranch,
+        profileVersion: plan.repo.profileVersion,
+        artifacts: plan.writableArtifacts.map(({ artifact }) => artifact),
+        writableArtifacts: plan.writableArtifacts,
+        branchName: plan.branchName,
+        title: plan.title,
+        body: plan.body,
+        writePolicy: plan.writePolicy,
+        shouldOverwriteExistingFile: plan.shouldOverwriteExistingFile,
+        generatedAt: plan.generatedAt,
+        mock: false,
+        ...(input.client ? { client: input.client } : {}),
+        ...(auth ? { auth } : {}),
+      });
+    },
+  };
+}
+
+export function isOpenMaintainerGeneratedFile(content: string): boolean {
   return (
     content.includes("generated by open-maintainer") ||
     content.includes("by: open-maintainer") ||
+    content.includes("artifactVersion:") ||
     content.includes('"openMaintainerProfileHash"') ||
     content.includes("# Open Maintainer Readiness Report") ||
     content.includes("# Open Maintainer Report:")
