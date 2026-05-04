@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_8b53f628-e533-4849-97a3-266aa5a49bc8",
+  "id": "repo_profile_b77e500f-f357-4a57-aebb-d4467955cbb9",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -258,8 +258,10 @@
     ".open-maintainer/report.md",
     "AGENTS.md"
   ],
-  "detectedRiskAreas": [],
-  "riskHintPaths": [],
+  "detectedRiskAreas": [
+    "Authentication, secret, payment, or security-sensitive paths are present."
+  ],
+  "riskHintPaths": ["SECURITY.md"],
   "ownershipHints": [],
   "environmentFiles": [
     ".env.example",
@@ -1022,11 +1024,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "75e2e0e974cb1efa"
+      "hash": "417dee8e0bb6fb85"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "342666744e9ff7da"
+      "hash": "f17826623fa6be17"
     },
     {
       "path": "AGENTS.md",
@@ -1042,7 +1044,7 @@
     },
     {
       "path": "apps/api/tests/repository-source-analysis.test.ts",
-      "hash": "91e12276b01e6dcb"
+      "hash": "0a406b27e447d3f3"
     },
     {
       "path": "apps/api/tsconfig.json",
@@ -1110,7 +1112,7 @@
     },
     {
       "path": "package.json",
-      "hash": "aebf5ac7518d5cb2"
+      "hash": "7fd75d4874390f0d"
     },
     {
       "path": "packages/ai/package.json",
@@ -1230,7 +1232,11 @@
     },
     {
       "path": "README.md",
-      "hash": "999cb213f43f6fb1"
+      "hash": "4fd6af35d6210d29"
+    },
+    {
+      "path": "SECURITY.md",
+      "hash": "43640580b056e5e0"
     },
     {
       "path": "tests/action-mvp.test.ts",
@@ -1438,7 +1444,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-04T01:13:56.599Z",
+  "createdAt": "2026-05-04T01:40:21.183Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -2656,7 +2662,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-04T01:13:56.600Z"
+    "generatedAt": "2026-05-04T01:40:21.183Z"
   },
-  "openMaintainerProfileHash": "5957351024e96cce"
+  "openMaintainerProfileHash": "949adaac9262d0c8"
 }

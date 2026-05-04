@@ -1,6 +1,7 @@
 {
   "name": "open-maintainer",
   "private": true,
+  "license": "MIT",
   "type": "module",
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {
