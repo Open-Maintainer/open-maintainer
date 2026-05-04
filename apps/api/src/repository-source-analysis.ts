@@ -3,7 +3,10 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
-import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
+import {
+  prepareRepositoryProfile,
+  scanRepository,
+} from "@open-maintainer/analyzer";
 import type { MemoryStore } from "@open-maintainer/db";
 import {
   type GitHubAppInstallationAuth,
@@ -320,7 +323,7 @@ export function createRepositoryOperations(
     }
 
     const profile = shouldCreateProfile
-      ? createProfile({
+      ? await createProfile({
           repo,
           repoId: input.repoId,
           files: filesResult.files,
@@ -453,20 +456,23 @@ export function createRepositoryOperations(
     return { ok: true, files };
   }
 
-  function createProfile(input: {
+  async function createProfile(input: {
     repoId: string;
     repo: Repo;
     files: RepositoryFile[];
-  }): RepoProfile {
+  }): Promise<RepoProfile> {
     const version = (options.store.profiles.get(input.repoId)?.length ?? 0) + 1;
-    const profile = analyzeRepo({
-      repoId: input.repoId,
-      owner: input.repo.owner,
-      name: input.repo.name,
-      defaultBranch: input.repo.defaultBranch,
-      version,
+    const result = await prepareRepositoryProfile({
       files: input.files,
+      identity: {
+        repoId: input.repoId,
+        owner: input.repo.owner,
+        name: input.repo.name,
+        defaultBranch: input.repo.defaultBranch,
+        version,
+      },
     });
+    const profile = result.profile;
     options.store.addProfile(profile);
     return profile;
   }

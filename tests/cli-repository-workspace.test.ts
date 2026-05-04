@@ -189,5 +189,17 @@ function repoProfile(input: AnalyzeRepoInput): RepoProfile {
     owner: input.owner,
     name: input.name,
     defaultBranch: input.defaultBranch,
+    commands: [],
+    detectedRiskAreas: [],
+    riskHintPaths: [],
+    environmentVariables: [],
+    ownershipHints: [],
+    generatedFilePaths: [],
+    agentReadiness: {
+      score: 0,
+      categories: [],
+      missingItems: [],
+      generatedAt: "2026-01-01T00:00:00.000Z",
+    },
   } as RepoProfile;
 }

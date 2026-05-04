@@ -1,7 +1,11 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { analyzeRepo, scanRepository } from "@open-maintainer/analyzer";
+import {
+  analyzeRepo,
+  prepareRepositoryProfile,
+  scanRepository,
+} from "@open-maintainer/analyzer";
 import { compareProfileDrift } from "@open-maintainer/context";
 import { describe, expect, it } from "vitest";
 
@@ -10,26 +14,35 @@ const repoRoot = path.resolve(
   "..",
 );
 
-async function analyzeFixture(name: string) {
+async function prepareFixture(name: string) {
   const fixtureRoot = path.join(repoRoot, "tests/fixtures", name);
-  const files = await scanRepository(fixtureRoot);
-  return analyzeRepo({
-    repoId: name,
-    owner: "demo",
-    name,
-    defaultBranch: "main",
-    version: 1,
-    files,
+  return prepareRepositoryProfile({
+    repoRoot: fixtureRoot,
+    identity: {
+      repoId: name,
+      owner: "demo",
+      name,
+      defaultBranch: "main",
+      version: 1,
+    },
+    purpose: "context",
   });
 }
 
 describe("v0.2 readiness quality fixtures", () => {
   it("covers high-readiness, low-readiness, and missing-context cases", async () => {
-    const high = await analyzeFixture("high-readiness-ts");
-    const low = await analyzeFixture("low-context-ts");
-    const missingContext = await analyzeFixture("missing-context-ts");
+    const highResult = await prepareFixture("high-readiness-ts");
+    const lowResult = await prepareFixture("low-context-ts");
+    const missingContextResult = await prepareFixture("missing-context-ts");
+    const high = highResult.profile;
+    const low = lowResult.profile;
+    const missingContext = missingContextResult.profile;
 
     expect(high.agentReadiness.score).toBe(100);
+    expect(highResult.guidance.summary.status).toBe("ready");
+    expect(
+      highResult.guidance.validation.defaultCommands.length,
+    ).toBeGreaterThan(0);
     expect(
       high.agentReadiness.categories.map((category) => category.name),
     ).toEqual([
@@ -61,12 +74,18 @@ describe("v0.2 readiness quality fixtures", () => {
     expect(missingContext.agentReadiness.missingItems).toContain(
       "generated-file handling: .open-maintainer.yml policy file is missing.",
     );
+    expect(missingContextResult.guidance.summary.primaryMissingItems).toContain(
+      "agent instructions: AGENTS.md or CLAUDE.md is missing.",
+    );
+    expect(
+      lowResult.guidance.suggestedActions.map((action) => action.kind),
+    ).toEqual(expect.arrayContaining(["docs", "generated-files"]));
   });
 
   it("identifies changed drift surfaces instead of only profile hash drift", async () => {
     const fixtureRoot = path.join(repoRoot, "tests/fixtures/high-readiness-ts");
     const files = await scanRepository(fixtureRoot);
-    const stored = await analyzeFixture("high-readiness-ts");
+    const stored = (await prepareFixture("high-readiness-ts")).profile;
     const packageJson = files.find((file) => file.path === "package.json");
     if (!packageJson) {
       throw new Error("fixture package.json was not scanned");

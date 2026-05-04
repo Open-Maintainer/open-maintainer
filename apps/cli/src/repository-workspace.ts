@@ -6,6 +6,7 @@ import {
   type AnalyzerFile,
   type ScanRepositoryOptions,
   analyzeRepo,
+  createRepositoryProfiler,
   scanRepository,
 } from "@open-maintainer/analyzer";
 import type { RepoProfile } from "@open-maintainer/shared";
@@ -56,6 +57,13 @@ export function createCliRepositoryWorkspace(
     analyzeRepo: deps.analyzeRepo ?? analyzeRepo,
     gitOutput: deps.gitOutput ?? defaultGitOutput,
   };
+  const profiler = createRepositoryProfiler({
+    scanRepository: resolved.scanRepository,
+    analyzeRepo: resolved.analyzeRepo,
+    resolveIdentity(repoRoot) {
+      return resolveRepoIdentity(repoRoot, resolved.gitOutput);
+    },
+  });
 
   async function scan(
     repoRoot: string,
@@ -76,21 +84,36 @@ export function createCliRepositoryWorkspace(
   ): Promise<RepoProfile> {
     const profileInput =
       typeof input === "string" ? { repoRoot: input } : input;
-    const files = profileInput.files
-      ? Array.from(profileInput.files)
-      : await scan(profileInput.repoRoot, profileInput.scan);
-    const identity = await resolveRepoIdentity(
-      profileInput.repoRoot,
-      resolved.gitOutput,
-    );
-    return resolved.analyzeRepo({
-      repoId: profileInput.repoId ?? "local",
-      owner: identity.owner,
-      name: identity.name,
-      defaultBranch: identity.defaultBranch,
-      version: profileInput.version ?? 1,
-      files,
+    const repoId = profileInput.repoId ?? "local";
+    const version = profileInput.version ?? 1;
+    if (profileInput.files) {
+      const identity = await resolveRepoIdentity(
+        profileInput.repoRoot,
+        resolved.gitOutput,
+      );
+      const result = await profiler.prepare({
+        files: profileInput.files,
+        identity: {
+          repoId,
+          version,
+          ...identity,
+        },
+      });
+      return result.profile;
+    }
+
+    const result = await profiler.prepare({
+      repoRoot: profileInput.repoRoot,
+      identity: {
+        repoId,
+        version,
+      },
+      scan: {
+        ...defaultScanOptions,
+        ...profileInput.scan,
+      },
     });
+    return result.profile;
   }
 
   return {
