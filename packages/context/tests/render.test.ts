@@ -10,6 +10,7 @@ import {
   contextArtifactTargetsForSelection,
   contributionQualityRequirementsSection,
   createContextArtifacts,
+  createContextGenerationOrchestrator,
   createContextGenerationWorkflow,
   expectedArtifactTypes,
   parseModelArtifactContent,
@@ -22,7 +23,9 @@ import {
 } from "../src";
 import type {
   ContextArtifactTarget,
+  ContextGenerationArtifactSinkPort,
   ContextGenerationModelPort,
+  ContextGenerationRepositoryPort,
   ContextGenerationStage,
   ContextGenerationWritePlan,
 } from "../src";
@@ -263,6 +266,20 @@ function fakeContextGenerationModel(
           "skill-content": JSON.stringify(modelSkills),
         }[options.stage];
       return { text, model: `fake-${options.stage}` };
+    },
+  };
+}
+
+function fakeContextGenerationRepository(
+  files: Array<{ path: string; content: string }>,
+): ContextGenerationRepositoryPort {
+  return {
+    async scan(_repoRoot, options) {
+      expect(options?.maxFiles).toBe(800);
+      return files;
+    },
+    async profile() {
+      return profile;
     },
   };
 }
@@ -596,6 +613,173 @@ describe("context renderers", () => {
       ".open-maintainer/profile.json",
       ".open-maintainer/report.md",
     ]);
+  });
+
+  it("previews worktree context generation without applying the sink", async () => {
+    const sink: ContextGenerationArtifactSinkPort = {
+      async apply() {
+        throw new Error("sink should not run in preview mode");
+      },
+    };
+    const orchestrator = createContextGenerationOrchestrator({
+      repository: fakeContextGenerationRepository([
+        { path: "README.md", content: "# Tool" },
+      ]),
+      defaultSink: sink,
+    });
+
+    const result = await orchestrator.generateForWorktree({
+      repoRoot: "/repo",
+      model: fakeContextGenerationModel(),
+      selection: { context: "codex" },
+      writeMode: { kind: "preview" },
+    });
+
+    expect(result.targets).toEqual(["agents", "profile", "report", "config"]);
+    expect(result.wrote).toBe(false);
+    expect(result.appliedPaths).toEqual([]);
+    expect(result.plan.rows.map((row) => row.action)).toEqual([
+      "write",
+      "write",
+      "write",
+      "write",
+    ]);
+  });
+
+  it("writes worktree context artifacts through the orchestrator sink", async () => {
+    let appliedRoot: string | null = null;
+    let appliedPlan: ContextGenerationWritePlan | null = null;
+    const sink: ContextGenerationArtifactSinkPort = {
+      async apply(repoRoot, plan) {
+        appliedRoot = repoRoot;
+        appliedPlan = plan;
+        return plan.writes
+          .filter((item) => item.action !== "skip")
+          .map((item) => item.path);
+      },
+    };
+    const orchestrator = createContextGenerationOrchestrator({
+      repository: fakeContextGenerationRepository([
+        {
+          path: "AGENTS.md",
+          content: "# Maintainer-owned instructions",
+        },
+        {
+          path: ".open-maintainer.yml",
+          content: "generated:\n  by: open-maintainer\n",
+        },
+      ]),
+      defaultSink: sink,
+    });
+
+    const result = await orchestrator.generateForWorktree({
+      repoRoot: "/repo",
+      model: fakeContextGenerationModel(),
+      selection: { context: "both", skills: "codex" },
+      writeMode: { kind: "write", refreshGenerated: true },
+    });
+
+    expect(appliedRoot).toBe("/repo");
+    expect(appliedPlan?.rows).toEqual(result.plan.rows);
+    expect(result.wrote).toBe(true);
+    expect(result.appliedPaths).toContain(".open-maintainer.yml");
+    expect(result.plan.rows.map((row) => [row.action, row.target])).toEqual([
+      ["skip", "AGENTS.md"],
+      ["write", "CLAUDE.md"],
+      ["overwrite", ".open-maintainer.yml"],
+      ["write", ".agents/skills/tool-start-task/SKILL.md"],
+      ["write", ".agents/skills/tool-testing-workflow/SKILL.md"],
+      ["write", ".agents/skills/tool-pr-review/SKILL.md"],
+      ["write", ".open-maintainer/profile.json"],
+      ["write", ".open-maintainer/report.md"],
+    ]);
+  });
+
+  it("generates from an existing profile with provider default targets and supplied artifact version", async () => {
+    const orchestrator = createContextGenerationOrchestrator({});
+
+    const result = await orchestrator.generateFromProfile({
+      repoId: "repo_1",
+      profile,
+      files: [{ path: "README.md", content: "# Tool" }],
+      model: fakeContextGenerationModel(),
+      providerKind: "claude-cli",
+      nextArtifactVersion: 7,
+    });
+
+    expect(result.targets).toEqual([
+      "claude",
+      "claude-skills",
+      "profile",
+      "report",
+      "config",
+    ]);
+    expect(result.artifacts[0]?.version).toBe(7);
+    expect(result.wrote).toBe(false);
+  });
+
+  it("defaults omitted dashboard target groups from the provider kind", async () => {
+    const orchestrator = createContextGenerationOrchestrator({});
+
+    const result = await orchestrator.generateFromProfile({
+      repoId: "repo_1",
+      profile,
+      files: [{ path: "README.md", content: "# Tool" }],
+      model: fakeContextGenerationModel(),
+      providerKind: "claude-cli",
+      selection: { context: "codex" },
+      nextArtifactVersion: 7,
+    });
+
+    expect(result.targets).toEqual([
+      "agents",
+      "claude-skills",
+      "profile",
+      "report",
+      "config",
+    ]);
+  });
+
+  it("emits stage-specific failures through orchestrator events", async () => {
+    const failures: unknown[] = [];
+    const orchestrator = createContextGenerationOrchestrator({
+      events: {
+        failed(error) {
+          failures.push(error);
+        },
+      },
+    });
+
+    await expect(
+      orchestrator.generateFromProfile({
+        repoId: "repo_1",
+        profile,
+        files: [{ path: "README.md", content: "# Tool" }],
+        model: {
+          providerLabel: "Fake model",
+          model: "fake-context",
+          async complete(_prompt, options) {
+            if (options.stage === "artifact-content") {
+              throw new Error("model unavailable");
+            }
+            return {
+              text: JSON.stringify(repoFacts),
+              model: `fake-${options.stage}`,
+            };
+          },
+        },
+        selection: { context: "codex" },
+        nextArtifactVersion: 1,
+      }),
+    ).rejects.toThrow(
+      "Context generation artifact-content failed: model unavailable",
+    );
+
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toBeInstanceOf(Error);
+    expect((failures[0] as Error).message).toBe(
+      "Context generation artifact-content failed: model unavailable",
+    );
   });
 
   it("shares dashboard target selection with context generation callers", () => {

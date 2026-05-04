@@ -467,6 +467,105 @@ export type ContextGenerationWorkflow = {
   ): Promise<ContextGenerationPreview & { appliedPaths: string[] }>;
 };
 
+export type ContextGenerationTargetSelection = {
+  context?: ContextArtifactPreset;
+  skills?: ContextArtifactPreset;
+};
+
+export type ContextGenerationWriteMode =
+  | { kind: "preview" }
+  | ({ kind: "write" } & ContextGenerationWritePolicy);
+
+export type ContextGenerationRepositoryPort = {
+  scan(
+    repoRoot: string,
+    options?: { maxFiles?: number },
+  ): Promise<ContextSourceFile[]>;
+  profile(repoRoot: string, files: ContextSourceFile[]): Promise<RepoProfile>;
+};
+
+export type ContextGenerationArtifactSinkPort = {
+  apply(repoRoot: string, plan: ContextGenerationWritePlan): Promise<string[]>;
+};
+
+export type ContextGenerationRunResult = ContextGenerationPreview & {
+  targets: ContextArtifactTarget[];
+  appliedPaths: string[];
+  wrote: boolean;
+};
+
+export type LocalContextGenerationInput = {
+  repoRoot: string;
+  repoId?: string;
+  model: ContextGenerationModelPort;
+  selection: ContextGenerationTargetSelection;
+  writeMode?: ContextGenerationWriteMode;
+};
+
+export type ProfileContextGenerationInput = {
+  repoId: string;
+  profile: RepoProfile;
+  files: ContextSourceFile[];
+  model: ContextGenerationModelPort;
+  selection?: ContextGenerationTargetSelection;
+  providerKind?: string;
+  nextArtifactVersion: number;
+  writeMode?: ContextGenerationWriteMode;
+  sink?: ContextGenerationArtifactSinkPort;
+  repoRoot?: string;
+};
+
+export type ContextGenerationOrchestrator = {
+  generateForWorktree(
+    input: LocalContextGenerationInput,
+  ): Promise<ContextGenerationRunResult>;
+  generateFromProfile(
+    input: ProfileContextGenerationInput,
+  ): Promise<ContextGenerationRunResult>;
+};
+
+export function createContextGenerationOrchestrator(deps: {
+  repository?: ContextGenerationRepositoryPort;
+  defaultSink?: ContextGenerationArtifactSinkPort;
+  events?: ContextGenerationEvents;
+  maxFiles?: number;
+}): ContextGenerationOrchestrator {
+  const maxFiles = deps.maxFiles ?? 800;
+
+  return {
+    async generateForWorktree(input) {
+      if (!deps.repository) {
+        throw new Error(
+          "Worktree context generation requires a repository port.",
+        );
+      }
+      const files = await deps.repository.scan(input.repoRoot, { maxFiles });
+      const profile = await deps.repository.profile(input.repoRoot, files);
+      return generateFromProfileWithPorts({
+        repoId: input.repoId ?? "local",
+        profile,
+        files,
+        model: input.model,
+        selection: input.selection,
+        nextArtifactVersion: 1,
+        repoRoot: input.repoRoot,
+        ...(input.writeMode ? { writeMode: input.writeMode } : {}),
+        ...(deps.defaultSink ? { sink: deps.defaultSink } : {}),
+        ...(deps.events ? { events: deps.events } : {}),
+      });
+    },
+    async generateFromProfile(input) {
+      return generateFromProfileWithPorts({
+        ...input,
+        ...((input.sink ?? deps.defaultSink)
+          ? { sink: input.sink ?? deps.defaultSink }
+          : {}),
+        ...(deps.events ? { events: deps.events } : {}),
+      });
+    },
+  };
+}
+
 export type ContextGenerationEvents = {
   stageStarted?(stage: ContextGenerationStage): void | Promise<void>;
   stageCompleted?(stage: ContextGenerationStage): void | Promise<void>;
@@ -600,6 +699,120 @@ export function createContextGenerationWorkflow(ports: {
       return { ...generated, appliedPaths };
     },
   };
+}
+
+async function generateFromProfileWithPorts(
+  input: ProfileContextGenerationInput & {
+    sink?: ContextGenerationArtifactSinkPort;
+    events?: ContextGenerationEvents;
+  },
+): Promise<ContextGenerationRunResult> {
+  const targets = resolveContextGenerationTargets({
+    ...(input.selection ? { selection: input.selection } : {}),
+    ...(input.providerKind ? { providerKind: input.providerKind } : {}),
+  });
+  const workflow = createContextGenerationWorkflow({
+    model: input.model,
+    inventory: contextArtifactInventoryFromFiles({
+      files: input.files,
+      nextArtifactVersion: input.nextArtifactVersion,
+    }),
+    ...(input.events ? { events: input.events } : {}),
+  });
+  const writeMode = input.writeMode ?? { kind: "preview" };
+  const writePolicy = writePolicyFromMode(writeMode);
+  const preview = await workflow.preview({
+    repoId: input.repoId,
+    profile: input.profile,
+    files: input.files,
+    targets,
+    ...(writePolicy ? { writePolicy } : {}),
+  });
+
+  if (writeMode.kind === "preview") {
+    return {
+      ...preview,
+      targets,
+      appliedPaths: [],
+      wrote: false,
+    };
+  }
+  if (!input.sink) {
+    throw new Error("Context generation write mode requires an artifact sink.");
+  }
+  if (!input.repoRoot) {
+    throw new Error(
+      "Context generation write mode requires a repository root.",
+    );
+  }
+  return {
+    ...preview,
+    targets,
+    appliedPaths: await input.sink.apply(input.repoRoot, preview.plan),
+    wrote: true,
+  };
+}
+
+function writePolicyFromMode(
+  mode: ContextGenerationWriteMode,
+): ContextGenerationWritePolicy | undefined {
+  if (mode.kind === "preview") {
+    return undefined;
+  }
+  const policy: ContextGenerationWritePolicy = {};
+  if (mode.force !== undefined) {
+    policy.force = mode.force;
+  }
+  if (mode.refreshGenerated !== undefined) {
+    policy.refreshGenerated = mode.refreshGenerated;
+  }
+  if (mode.removeObsoleteGenerated !== undefined) {
+    policy.removeObsoleteGenerated = mode.removeObsoleteGenerated;
+  }
+  return Object.keys(policy).length > 0 ? policy : undefined;
+}
+
+function resolveContextGenerationTargets(input: {
+  selection?: ContextGenerationTargetSelection;
+  providerKind?: string;
+}): ContextArtifactTarget[] {
+  const hasContext = input.selection?.context !== undefined;
+  const hasSkills = input.selection?.skills !== undefined;
+  const providerDefault = input.providerKind
+    ? defaultContextArtifactPresetForProviderKind(input.providerKind)
+    : null;
+  if (!hasContext && !hasSkills) {
+    if (!providerDefault) {
+      throw new Error(
+        "context generation requires context or skills target selection.",
+      );
+    }
+    return contextArtifactTargetsForSelection({
+      context: providerDefault,
+      skills: providerDefault,
+    });
+  }
+
+  return contextArtifactTargetsForSelection({
+    context: input.selection?.context ?? providerDefault ?? "codex",
+    skills: input.selection?.skills ?? providerDefault ?? "codex",
+  }).filter((target) => {
+    if (
+      !hasContext &&
+      !providerDefault &&
+      (target === "agents" || target === "claude")
+    ) {
+      return false;
+    }
+    if (
+      !hasSkills &&
+      !providerDefault &&
+      (target === "skills" || target === "claude-skills")
+    ) {
+      return false;
+    }
+    return true;
+  });
 }
 
 export function renderOpenMaintainerYaml(
