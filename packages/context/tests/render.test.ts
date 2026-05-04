@@ -1,5 +1,8 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { parseOpenMaintainerConfig } from "@open-maintainer/config";
-import type { RepoProfile } from "@open-maintainer/shared";
+import type { GeneratedArtifact, RepoProfile } from "@open-maintainer/shared";
 import { describe, expect, it } from "vitest";
 import {
   buildArtifactSynthesisPrompt,
@@ -12,6 +15,7 @@ import {
   createContextArtifacts,
   createContextGenerationOrchestrator,
   createContextGenerationWorkflow,
+  createFilesystemContextArtifactSink,
   expectedArtifactTypes,
   parseModelArtifactContent,
   parseModelSkillContent,
@@ -615,6 +619,51 @@ describe("context renderers", () => {
     ]);
   });
 
+  it("applies filesystem context artifacts and obsolete generated removals through one sink", async () => {
+    const repoRoot = await mkdtemp(path.join(tmpdir(), "context-sink-"));
+    const obsoletePath = ".agents/skills/tool-obsolete/SKILL.md";
+    await mkdir(path.dirname(path.join(repoRoot, obsoletePath)), {
+      recursive: true,
+    });
+    await writeFile(path.join(repoRoot, obsoletePath), "# Obsolete\n");
+    const sink = createFilesystemContextArtifactSink();
+    const plan: ContextGenerationWritePlan = {
+      obsoleteGeneratedPaths: [
+        { path: obsoletePath, reason: "obsolete generated artifact" },
+      ],
+      writes: [
+        {
+          artifact: generatedArtifact("AGENTS.md", "# Agents\n"),
+          path: "AGENTS.md",
+          action: "write",
+          reason: "missing artifact",
+        },
+        {
+          artifact: generatedArtifact(".open-maintainer/report.md", "# Report"),
+          path: ".open-maintainer/report.md",
+          action: "skip",
+          reason: "maintainer-owned file exists",
+        },
+      ],
+      rows: [],
+    };
+
+    try {
+      await expect(sink.apply(repoRoot, plan)).resolves.toEqual([
+        obsoletePath,
+        "AGENTS.md",
+      ]);
+      await expect(
+        readFile(path.join(repoRoot, "AGENTS.md"), "utf8"),
+      ).resolves.toBe("# Agents\n");
+      await expect(
+        readFile(path.join(repoRoot, obsoletePath), "utf8"),
+      ).rejects.toThrow();
+    } finally {
+      await rm(repoRoot, { recursive: true, force: true });
+    }
+  });
+
   it("previews worktree context generation without applying the sink", async () => {
     const sink: ContextGenerationArtifactSinkPort = {
       async apply() {
@@ -1080,3 +1129,20 @@ ${JSON.stringify({
     expect(output.notes).toContain("Unknown: No PR template was detected.");
   });
 });
+
+function generatedArtifact(
+  type: GeneratedArtifact["type"],
+  content: string,
+): GeneratedArtifact {
+  return {
+    id: `artifact_${type}`,
+    repoId: "repo_1",
+    type,
+    version: 1,
+    content,
+    sourceProfileVersion: profile.version,
+    modelProvider: null,
+    model: null,
+    createdAt: "2026-05-05T00:00:00.000Z",
+  };
+}

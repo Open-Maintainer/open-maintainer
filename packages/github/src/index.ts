@@ -1,4 +1,9 @@
+import { execFile } from "node:child_process";
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { promisify } from "node:util";
 import { createAppAuth } from "@octokit/auth-app";
 import { Octokit } from "@octokit/rest";
 import type {
@@ -29,6 +34,103 @@ import {
   buildIssueTriageEvidence,
   extractReferencedIssueNumbers,
 } from "@open-maintainer/triage";
+
+const execFileAsync = promisify(execFile);
+const gitHubCliMaxBuffer = 8 * 1024 * 1024;
+
+export type GitHubCliExecutor = (args: readonly string[]) => Promise<string>;
+
+export type GitHubCliApi = {
+  json<T>(endpoint: string, args?: readonly string[]): Promise<T>;
+  jsonWithBody<T = unknown>(
+    endpoint: string,
+    method: "PATCH" | "POST",
+    body: unknown,
+  ): Promise<T>;
+  noBody(endpoint: string, method: "DELETE"): Promise<void>;
+};
+
+export function createGitHubCliApi(input: {
+  repoRoot: string;
+  execGh?: GitHubCliExecutor;
+}): GitHubCliApi {
+  const execGh =
+    input.execGh ??
+    ((args: readonly string[]) => execGitHubCli(input.repoRoot, args));
+  return {
+    async json<T>(endpoint: string, args: readonly string[] = []): Promise<T> {
+      const output = await execGh([
+        "api",
+        endpoint,
+        "--method",
+        "GET",
+        ...args,
+      ]);
+      return JSON.parse(output || "null") as T;
+    },
+    async jsonWithBody<T = unknown>(
+      endpoint: string,
+      method: "PATCH" | "POST",
+      body: unknown,
+    ): Promise<T> {
+      const directory = await mkdtemp(
+        path.join(tmpdir(), "open-maintainer-gh-"),
+      );
+      const inputPath = path.join(directory, "body.json");
+      try {
+        await writeFile(inputPath, JSON.stringify(body));
+        const output = await execGh([
+          "api",
+          endpoint,
+          "--method",
+          method,
+          "--input",
+          inputPath,
+        ]);
+        return JSON.parse(output || "null") as T;
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+    async noBody(endpoint: string, method: "DELETE"): Promise<void> {
+      await execGh(["api", endpoint, "--method", method]);
+    },
+  };
+}
+
+export async function execGitHubCli(
+  repoRoot: string,
+  args: readonly string[],
+): Promise<string> {
+  try {
+    const { stdout } = await execFileAsync("gh", [...args], {
+      cwd: repoRoot,
+      env: gitHubCliEnv(),
+      maxBuffer: gitHubCliMaxBuffer,
+    });
+    return stdout;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `GitHub CLI command failed: gh ${args.join(" ")}. ${message}`,
+    );
+  }
+}
+
+export function gitHubCliEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const nextEnv = { ...env };
+  if (
+    nextEnv.CI !== "true" &&
+    nextEnv.GITHUB_ACTIONS !== "true" &&
+    nextEnv.OPEN_MAINTAINER_USE_ENV_GH_TOKEN !== "1"
+  ) {
+    nextEnv.GH_TOKEN = undefined;
+    nextEnv.GITHUB_TOKEN = undefined;
+  }
+  return nextEnv;
+}
 
 export type GitHubInstallationEvent = {
   installation: {

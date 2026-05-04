@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { stringifyOpenMaintainerConfig } from "@open-maintainer/config";
 import type {
   ArtifactType,
@@ -487,6 +489,28 @@ export type ContextGenerationRepositoryPort = {
 export type ContextGenerationArtifactSinkPort = {
   apply(repoRoot: string, plan: ContextGenerationWritePlan): Promise<string[]>;
 };
+
+export function createFilesystemContextArtifactSink(): ContextGenerationArtifactSinkPort {
+  return {
+    async apply(repoRoot, plan) {
+      const appliedPaths: string[] = [];
+      for (const item of plan.obsoleteGeneratedPaths) {
+        await rm(path.join(repoRoot, item.path), { force: true });
+        appliedPaths.push(item.path);
+      }
+      for (const item of plan.writes) {
+        if (item.action === "skip") {
+          continue;
+        }
+        const absolutePath = path.join(repoRoot, item.path);
+        await mkdir(path.dirname(absolutePath), { recursive: true });
+        await writeFile(absolutePath, item.artifact.content);
+        appliedPaths.push(item.path);
+      }
+      return appliedPaths;
+    },
+  };
+}
 
 export type ContextGenerationRunResult = ContextGenerationPreview & {
   targets: ContextArtifactTarget[];

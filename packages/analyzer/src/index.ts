@@ -376,6 +376,121 @@ export async function prepareRepositoryProfile(
   return createRepositoryProfiler().prepare(input);
 }
 
+export type RepositoryWorkspaceScanOptions = Pick<
+  ScanRepositoryOptions,
+  "maxFiles" | "maxBytesPerFile"
+>;
+
+export interface RepositoryWorkspace {
+  profile(repoRoot: string): Promise<RepoProfile>;
+  profile(input: RepositoryWorkspaceProfileInput): Promise<RepoProfile>;
+  scan(
+    repoRoot: string,
+    options?: RepositoryWorkspaceScanOptions,
+  ): Promise<AnalyzerFile[]>;
+  defaultBranch(repoRoot: string): Promise<string | null>;
+}
+
+export type RepositoryWorkspaceProfileInput = {
+  repoRoot: string;
+  files?: readonly AnalyzerFile[];
+  scan?: RepositoryWorkspaceScanOptions;
+  repoId?: string;
+  version?: number;
+};
+
+export type RepositoryWorkspaceDeps = {
+  scanRepository(
+    repoRoot: string,
+    options?: RepositoryWorkspaceScanOptions,
+  ): Promise<AnalyzerFile[]>;
+  analyzeRepo(input: AnalyzeRepoInput): RepoProfile;
+  gitOutput(repoRoot: string, args: readonly string[]): Promise<string | null>;
+};
+
+const defaultRepositoryWorkspaceScanOptions = {
+  maxFiles: 800,
+} satisfies RepositoryWorkspaceScanOptions;
+
+export function createRepositoryWorkspace(
+  deps: Partial<RepositoryWorkspaceDeps> = {},
+): RepositoryWorkspace {
+  const resolved: RepositoryWorkspaceDeps = {
+    scanRepository: deps.scanRepository ?? scanRepository,
+    analyzeRepo: deps.analyzeRepo ?? analyzeRepo,
+    gitOutput: deps.gitOutput ?? defaultRepositoryWorkspaceGitOutput,
+  };
+  const profiler = createRepositoryProfiler({
+    scanRepository: resolved.scanRepository,
+    analyzeRepo: resolved.analyzeRepo,
+    resolveIdentity(repoRoot) {
+      return resolveRepositoryWorkspaceIdentity(repoRoot, resolved.gitOutput);
+    },
+  });
+
+  async function scan(
+    repoRoot: string,
+    options?: RepositoryWorkspaceScanOptions,
+  ): Promise<AnalyzerFile[]> {
+    return resolved.scanRepository(repoRoot, {
+      ...defaultRepositoryWorkspaceScanOptions,
+      ...options,
+    });
+  }
+
+  async function profile(repoRoot: string): Promise<RepoProfile>;
+  async function profile(
+    input: RepositoryWorkspaceProfileInput,
+  ): Promise<RepoProfile>;
+  async function profile(
+    input: string | RepositoryWorkspaceProfileInput,
+  ): Promise<RepoProfile> {
+    const profileInput =
+      typeof input === "string" ? { repoRoot: input } : input;
+    const repoId = profileInput.repoId ?? "local";
+    const version = profileInput.version ?? 1;
+    if (profileInput.files) {
+      const identity = await resolveRepositoryWorkspaceIdentity(
+        profileInput.repoRoot,
+        resolved.gitOutput,
+      );
+      const result = await profiler.prepare({
+        files: profileInput.files,
+        identity: {
+          repoId,
+          version,
+          ...identity,
+        },
+      });
+      return result.profile;
+    }
+
+    const result = await profiler.prepare({
+      repoRoot: profileInput.repoRoot,
+      identity: {
+        repoId,
+        version,
+      },
+      scan: {
+        ...defaultRepositoryWorkspaceScanOptions,
+        ...profileInput.scan,
+      },
+    });
+    return result.profile;
+  }
+
+  return {
+    profile,
+    scan,
+    defaultBranch(repoRoot) {
+      return detectRepositoryWorkspaceDefaultBranch(
+        repoRoot,
+        resolved.gitOutput,
+      );
+    },
+  };
+}
+
 export function guideRepositoryProfile(
   profile: RepoProfile,
   purpose: RepositoryProfilePurpose = "workspace",
@@ -404,6 +519,93 @@ export function guideRepositoryProfile(
       notes: buildRiskNotes(profile),
     },
   };
+}
+
+async function resolveRepositoryWorkspaceIdentity(
+  repoRoot: string,
+  gitOutput: RepositoryWorkspaceDeps["gitOutput"],
+): Promise<{
+  owner: string;
+  name: string;
+  defaultBranch: string;
+}> {
+  const fallback = {
+    owner: path.basename(path.dirname(repoRoot)) || "local",
+    name: path.basename(repoRoot),
+    defaultBranch: "main",
+  };
+  const [remoteUrl, defaultBranch] = await Promise.all([
+    safeRepositoryWorkspaceGitOutput(gitOutput, repoRoot, [
+      "remote",
+      "get-url",
+      "origin",
+    ]),
+    detectRepositoryWorkspaceDefaultBranch(repoRoot, gitOutput),
+  ]);
+  const remoteIdentity = remoteUrl
+    ? parseRepositoryWorkspaceGitHubRemote(remoteUrl)
+    : null;
+  return {
+    owner: remoteIdentity?.owner ?? fallback.owner,
+    name: remoteIdentity?.name ?? fallback.name,
+    defaultBranch: defaultBranch ?? fallback.defaultBranch,
+  };
+}
+
+async function detectRepositoryWorkspaceDefaultBranch(
+  repoRoot: string,
+  gitOutput: RepositoryWorkspaceDeps["gitOutput"],
+): Promise<string | null> {
+  const symbolicRef = await safeRepositoryWorkspaceGitOutput(
+    gitOutput,
+    repoRoot,
+    ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
+  );
+  if (symbolicRef?.startsWith("origin/")) {
+    return symbolicRef.slice("origin/".length);
+  }
+  return null;
+}
+
+async function safeRepositoryWorkspaceGitOutput(
+  gitOutput: RepositoryWorkspaceDeps["gitOutput"],
+  repoRoot: string,
+  args: readonly string[],
+): Promise<string | null> {
+  try {
+    return await gitOutput(repoRoot, args);
+  } catch {
+    return null;
+  }
+}
+
+async function defaultRepositoryWorkspaceGitOutput(
+  repoRoot: string,
+  args: readonly string[],
+): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync("git", ["-C", repoRoot, ...args]);
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+function parseRepositoryWorkspaceGitHubRemote(
+  remoteUrl: string,
+): { owner: string; name: string } | null {
+  const normalized = remoteUrl.trim().replace(/\.git$/, "");
+  const sshMatch = /^git@[^:]+:([^/]+)\/(.+)$/.exec(normalized);
+  if (sshMatch?.[1] && sshMatch[2]) {
+    return { owner: sshMatch[1], name: sshMatch[2] };
+  }
+  try {
+    const url = new URL(normalized);
+    const [owner, name] = url.pathname.replace(/^\/+/, "").split("/");
+    return owner && name ? { owner, name } : null;
+  } catch {
+    return null;
+  }
 }
 
 async function listGitVisibleFiles(repoRoot: string): Promise<string[] | null> {

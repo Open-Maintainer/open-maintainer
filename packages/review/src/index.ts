@@ -27,6 +27,11 @@ export type {
   ModelReviewOutput,
   ReviewPromptContext,
 } from "./model";
+export { loadReviewPromptContext } from "./prompt-context";
+export type {
+  LoadReviewPromptContextInput,
+  ReviewPromptContextSource,
+} from "./prompt-context";
 
 const severityOrder: ReviewSeverity[] = ["blocker", "major", "minor", "note"];
 
