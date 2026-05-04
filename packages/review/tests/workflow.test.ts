@@ -7,7 +7,9 @@ import type {
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   type PullRequestReviewWorkflowDeps,
+  type ReviewOrchestratorError,
   createPullRequestReviewWorkflow,
+  createReviewOrchestrator,
 } from "../src";
 
 const providerConfig: ModelProviderConfig = {
@@ -389,6 +391,211 @@ describe("pull request review workflow", () => {
   });
 });
 
+describe("review orchestrator", () => {
+  beforeEach(() => {
+    observedPrompts.length = 0;
+  });
+
+  it("reviews prepared input through prompt, model, markdown, and output ports", async () => {
+    const writes: Array<{ path: string; markdown: string }> = [];
+    const orchestrator = createReviewOrchestrator({
+      sources: {
+        async prepareLocal() {
+          throw new Error("prepared reviews should not call source ports");
+        },
+      },
+      promptContext: {
+        async load() {
+          return {
+            context: { agentsMd: "Prepared review context." },
+            paths: ["AGENTS.md"],
+          };
+        },
+      },
+      modelProviders: {
+        resolve() {
+          return { providerConfig, provider };
+        },
+      },
+      output: {
+        async writeMarkdown(input) {
+          writes.push({ path: input.path, markdown: input.markdown });
+        },
+      },
+    });
+
+    const run = await orchestrator.review({
+      repository: {
+        kind: "prepared",
+        profile: repoProfile(),
+        input: reviewInput(),
+        repoRoot: "/repo",
+      },
+      model: { providerConfig, provider },
+      intent: "preview",
+      output: { markdownPath: ".open-maintainer/review.md" },
+      publication: false,
+    });
+
+    expect(run.output).toEqual({
+      markdownPath: ".open-maintainer/review.md",
+      written: false,
+    });
+    expect(writes).toHaveLength(0);
+    expect(run.markdown).toContain("## OpenMaintainer Review #7");
+    expect(run.diagnostics.promptContextPaths).toEqual(["AGENTS.md"]);
+    expect(observedPrompts[0].user).toContain("Prepared review context.");
+  });
+
+  it("prepares stored API previews and persists review run state", async () => {
+    const storedReviews: string[] = [];
+    const orchestrator = createReviewOrchestrator({
+      sources: {
+        async prepareLocal() {
+          throw new Error(
+            "API preview should not use local source preparation",
+          );
+        },
+        async prepareStored(input) {
+          expect(input.repoId).toBe("repo_1");
+          expect(input.target).toEqual({
+            kind: "pullRequest",
+            number: 7,
+            baseRef: "main",
+            headRef: "feature",
+          });
+          return {
+            profile: repoProfile(),
+            input: reviewInput(),
+            repoRoot: "/repo",
+          };
+        },
+      },
+      modelProviders: {
+        resolve() {
+          return { providerConfig, provider };
+        },
+      },
+      persistence: {
+        async startRun() {
+          return runRecord("running");
+        },
+        async succeedRun(input) {
+          return {
+            ...input.run,
+            status: "succeeded",
+            externalId: input.review.id,
+          };
+        },
+        async failRun(input) {
+          return { ...input.run, status: "failed" };
+        },
+        async storeReview(input) {
+          storedReviews.push(input.review.id);
+        },
+      },
+    });
+
+    const run = await orchestrator.review({
+      repository: { kind: "stored", repoId: "repo_1" },
+      target: {
+        kind: "pullRequest",
+        number: 7,
+        baseRef: "main",
+        headRef: "feature",
+      },
+      model: { providerId: "provider_1" },
+      intent: "preview",
+      publication: false,
+      persistence: { run: true, review: true },
+    });
+
+    expect(run.persistence.run?.status).toBe("succeeded");
+    expect(run.persistence.run?.externalId).toBe(run.review.id);
+    expect(storedReviews).toEqual([run.review.id]);
+  });
+
+  it("marks persisted runs failed when model resolution fails", async () => {
+    const orchestrator = createReviewOrchestrator({
+      sources: {
+        async prepareLocal() {
+          return {
+            profile: repoProfile(),
+            input: reviewInput(),
+            repoRoot: "/repo",
+          };
+        },
+      },
+      modelProviders: {
+        resolve() {
+          throw new Error("provider unavailable");
+        },
+      },
+      persistence: {
+        async startRun() {
+          return runRecord("running");
+        },
+        async succeedRun(input) {
+          return input.run;
+        },
+        async failRun(input) {
+          return {
+            ...input.run,
+            status: "failed",
+            safeMessage:
+              input.error instanceof Error ? input.error.message : null,
+          };
+        },
+        async storeReview() {
+          throw new Error("review should not be stored after model failure");
+        },
+      },
+    });
+
+    await expect(
+      orchestrator.review({
+        repository: { kind: "local", repoRoot: "/repo" },
+        model: { providerId: "provider_1" },
+        persistence: { run: true, review: true },
+      }),
+    ).rejects.toMatchObject({
+      name: "ReviewOrchestratorError",
+      run: expect.objectContaining({
+        status: "failed",
+        safeMessage: "provider unavailable",
+      }),
+    } satisfies Partial<ReviewOrchestratorError>);
+  });
+
+  it("rejects consent-gated model selections before source preparation", async () => {
+    let sourceCalled = false;
+    const orchestrator = createReviewOrchestrator({
+      sources: {
+        async prepareLocal() {
+          sourceCalled = true;
+          throw new Error("source should not be prepared");
+        },
+      },
+      modelProviders: {
+        resolve() {
+          throw new Error("model should not be resolved");
+        },
+      },
+    });
+
+    await expect(
+      orchestrator.review({
+        repository: { kind: "local", repoRoot: "/repo" },
+        model: {
+          provider: "codex",
+          consent: { repositoryContentTransfer: false },
+        } as never,
+      }),
+    ).rejects.toThrow("explicit repository-content transfer consent");
+    expect(sourceCalled).toBe(false);
+  });
+});
+
 function createDeps(
   overrides: {
     reviewInput?: ReviewInput;
@@ -541,5 +748,23 @@ function reviewInput(): ReviewInput {
     existingComments: [],
     skippedFiles: [{ path: "dist/bundle.js", reason: "filtered" }],
     createdAt: "2026-05-04T00:00:00.000Z",
+  };
+}
+
+function runRecord(status: "running" | "succeeded" | "failed") {
+  return {
+    id: "run_1",
+    repoId: "repo_1",
+    type: "review" as const,
+    status,
+    inputSummary: "Review acme/tool main...feature.",
+    safeMessage: null,
+    artifactVersions: [],
+    repoProfileVersion: 1,
+    provider: "Test Provider",
+    model: "gpt-test",
+    externalId: null,
+    createdAt: "2026-05-04T00:00:00.000Z",
+    updatedAt: "2026-05-04T00:00:00.000Z",
   };
 }

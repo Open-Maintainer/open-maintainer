@@ -10,6 +10,7 @@ import type {
   ReviewSeverity,
   ReviewSkippedFile,
   ReviewValidationExpectation,
+  RunRecord,
 } from "@open-maintainer/shared";
 import { ReviewResultSchema } from "@open-maintainer/shared";
 import { generateModelBackedReview } from "./model";
@@ -107,6 +108,48 @@ export type ReviewPublicationIntent =
 export type ReviewOutputIntent = {
   markdownPath?: string;
   json?: boolean;
+};
+
+export type ReviewRepositoryRequest =
+  | { kind: "local"; repoRoot: string }
+  | { kind: "stored"; repoId: string }
+  | {
+      kind: "prepared";
+      profile: RepoProfile;
+      input: ReviewInput;
+      repoRoot?: string;
+    };
+
+export type ReviewTargetRequest =
+  | { kind: "diff"; baseRef?: string; headRef?: string }
+  | {
+      kind: "pullRequest";
+      number: number;
+      baseRef?: string;
+      headRef?: string;
+    };
+
+export type ReviewModelRequest =
+  | ReviewModelSelection
+  | { providerId: string }
+  | { providerConfig: ModelProviderConfig; provider: ModelProvider };
+
+export type ReviewPersistenceIntent =
+  | false
+  | {
+      run?: true;
+      review?: true;
+    };
+
+export type ReviewRequest = {
+  repository: ReviewRepositoryRequest;
+  target?: ReviewTargetRequest;
+  model: ReviewModelRequest;
+  intent?: "preview" | "apply";
+  output?: ReviewOutputIntent;
+  publication?: false | ReviewPublicationIntent;
+  persistence?: ReviewPersistenceIntent;
+  limits?: Partial<ReviewContentLimits>;
 };
 
 export type PullRequestReviewRequest = {
@@ -219,6 +262,119 @@ export type ReviewOutputResult = {
   written: boolean;
 };
 
+export type ReviewPreparedSource = {
+  profile: RepoProfile;
+  input: ReviewInput;
+  repoRoot: string | null;
+};
+
+export type ReviewRun = {
+  review: ReviewResult;
+  markdown: string;
+  source: {
+    profile: RepoProfile;
+    input: ReviewInput;
+    repoRoot: string | null;
+  };
+  output: ReviewOutputResult | null;
+  publication: PullRequestReviewRun["publication"];
+  persistence: {
+    run: RunRecord | null;
+    reviewStored: boolean;
+  };
+  diagnostics: {
+    promptContextPaths: string[];
+    skippedFiles: ReviewSkippedFile[];
+    changedFileCount: number;
+  };
+};
+
+export type ReviewSourcePort = {
+  prepareLocal(input: {
+    repoRoot: string;
+    target?: ReviewTargetRequest;
+    limits?: Partial<ReviewContentLimits>;
+  }): Promise<ReviewPreparedSource>;
+  prepareStored?(input: {
+    repoId: string;
+    target?: ReviewTargetRequest;
+    limits?: Partial<ReviewContentLimits>;
+  }): Promise<ReviewPreparedSource>;
+};
+
+export type ReviewPromptContextPort = {
+  load(input: {
+    repoRoot: string | null;
+    profile: RepoProfile;
+    reviewInput: ReviewInput;
+  }): Promise<{
+    context: ModelReviewPromptContext;
+    paths: string[];
+  }>;
+};
+
+export type ReviewModelProviderPort = {
+  resolve(input: {
+    model: ReviewModelRequest;
+    repoRoot: string | null;
+    profile: RepoProfile;
+    reviewInput: ReviewInput;
+  }):
+    | Promise<{
+        providerConfig: ModelProviderConfig;
+        provider: ModelProvider;
+      }>
+    | {
+        providerConfig: ModelProviderConfig;
+        provider: ModelProvider;
+      };
+};
+
+export type ReviewPersistencePort = {
+  startRun(input: {
+    request: ReviewRequest;
+    source: ReviewPreparedSource;
+  }): Promise<RunRecord>;
+  succeedRun(input: {
+    run: RunRecord;
+    review: ReviewResult;
+    source: ReviewPreparedSource;
+  }): Promise<RunRecord>;
+  failRun(input: {
+    run: RunRecord;
+    error: unknown;
+    source: ReviewPreparedSource;
+  }): Promise<RunRecord>;
+  storeReview(input: { review: ReviewResult }): Promise<void>;
+};
+
+export type ReviewOrchestratorDeps = {
+  sources: ReviewSourcePort;
+  promptContext?: ReviewPromptContextPort;
+  modelProviders: ReviewModelProviderPort;
+  publisher?: PullRequestReviewWorkflowDeps["publisher"];
+  output?: PullRequestReviewWorkflowDeps["output"];
+  persistence?: ReviewPersistencePort;
+};
+
+export type ReviewOrchestrator = {
+  review(request: ReviewRequest): Promise<ReviewRun>;
+};
+
+export class ReviewOrchestratorError extends Error {
+  run: RunRecord | null;
+
+  constructor(
+    message: string,
+    run: RunRecord | null,
+    options?: { cause?: unknown },
+  ) {
+    super(message, options);
+    this.name = "ReviewOrchestratorError";
+    this.run = run;
+  }
+}
+
 export type PullRequestReviewWorkflow = {
   reviewPullRequest(
     request: PullRequestReviewRequest,
@@ -315,74 +471,227 @@ export const reviewTriageLabelNames = new Set(
 export function createPullRequestReviewWorkflow(
   deps: PullRequestReviewWorkflowDeps,
 ): PullRequestReviewWorkflow {
+  const orchestrator = createReviewOrchestrator({
+    sources: {
+      async prepareLocal(input) {
+        if (input.target?.kind !== "pullRequest") {
+          throw new Error(
+            "Pull request review workflow requires a pull request target.",
+          );
+        }
+        const profile = await deps.repoProfile.load(input.repoRoot);
+        const reviewInput = await deps.pullRequests.fetchReviewInput({
+          repoId: profile.repoId,
+          owner: profile.owner,
+          repo: profile.name,
+          pullNumber: input.target.number,
+          ...(input.limits ? { limits: input.limits } : {}),
+        });
+        return { profile, input: reviewInput, repoRoot: input.repoRoot };
+      },
+    },
+    promptContext: {
+      async load(input) {
+        if (!input.repoRoot) {
+          return { context: {}, paths: [] };
+        }
+        return deps.promptContext.load({
+          repoRoot: input.repoRoot,
+          profile: input.profile,
+        });
+      },
+    },
+    modelProviders: {
+      resolve(input) {
+        if (!("provider" in input.model) || "providerConfig" in input.model) {
+          throw new Error(
+            "Pull request review workflow requires a CLI model selection.",
+          );
+        }
+        if (!input.repoRoot) {
+          throw new Error(
+            "Pull request review workflow requires a local repository root.",
+          );
+        }
+        return deps.modelProviders.create({
+          ...input.model,
+          repoRoot: input.repoRoot,
+        });
+      },
+    },
+    publisher: deps.publisher,
+    ...(deps.output ? { output: deps.output } : {}),
+  });
   return {
     async reviewPullRequest(request) {
-      assertReviewModelConsent(request.model);
-      const profile = await deps.repoProfile.load(request.repoRoot);
-      const reviewInput = await deps.pullRequests.fetchReviewInput({
-        repoId: profile.repoId,
-        owner: profile.owner,
-        repo: profile.name,
-        pullNumber: request.pullNumber,
+      const run = await orchestrator.review({
+        repository: { kind: "local", repoRoot: request.repoRoot },
+        target: { kind: "pullRequest", number: request.pullNumber },
+        model: request.model,
+        intent: request.publication?.mode === "plan" ? "preview" : "apply",
+        ...(request.publication ? { publication: request.publication } : {}),
+        ...(request.output ? { output: request.output } : {}),
         ...(request.limits ? { limits: request.limits } : {}),
       });
-      const promptContext = await deps.promptContext.load({
-        repoRoot: request.repoRoot,
-        profile,
-      });
-      const providerReview = deps.modelProviders.create({
-        ...request.model,
-        repoRoot: request.repoRoot,
-      });
-      const review = await generateReview({
-        profile,
-        input: reviewInput,
-        rules: profile.reviewRuleCandidates,
-        providerConfig: providerReview.providerConfig,
-        provider: providerReview.provider,
-        ...(Object.keys(promptContext.context).length > 0
-          ? { promptContext: promptContext.context }
-          : {}),
-      });
-      const markdown = renderReviewMarkdown(review);
-      const target = reviewTargetFromInput(reviewInput);
-      const output = await runReviewOutput({
-        intent: request.output,
-        publicationIntent: request.publication,
-        deps,
-        repoRoot: request.repoRoot,
-        markdown,
-      });
-      const publication = await runReviewPublication({
-        intent: request.publication,
-        deps,
-        review,
-        markdown,
-        target,
-        reviewInput,
-      });
-
       return {
-        review,
-        markdown,
-        target,
-        output,
-        publication,
-        diagnostics: {
-          promptContextPaths: promptContext.paths,
-          skippedFiles: reviewInput.skippedFiles,
-          changedFileCount: reviewInput.changedFiles.length,
-        },
+        review: run.review,
+        markdown: run.markdown,
+        target: reviewTargetFromInput(run.source.input),
+        output: run.output,
+        publication: run.publication,
+        diagnostics: run.diagnostics,
       };
     },
   };
 }
 
+export function createReviewOrchestrator(
+  deps: ReviewOrchestratorDeps,
+  defaults: Partial<ReviewRequest> = {},
+): ReviewOrchestrator {
+  return {
+    async review(request) {
+      const resolvedRequest = { ...defaults, ...request } as ReviewRequest;
+      assertReviewRequestModelConsent(resolvedRequest.model);
+      const source = await prepareReviewSource(deps.sources, resolvedRequest);
+      let activeRun: RunRecord | null = null;
+      if (shouldPersistRun(resolvedRequest.persistence)) {
+        if (!deps.persistence) {
+          throw new Error(
+            "Review run persistence requires a persistence port.",
+          );
+        }
+        activeRun = await deps.persistence.startRun({
+          request: resolvedRequest,
+          source,
+        });
+      }
+      try {
+        const promptContext = deps.promptContext
+          ? await deps.promptContext.load({
+              repoRoot: source.repoRoot,
+              profile: source.profile,
+              reviewInput: source.input,
+            })
+          : { context: {}, paths: [] };
+        const providerReview = await deps.modelProviders.resolve({
+          model: resolvedRequest.model,
+          repoRoot: source.repoRoot,
+          profile: source.profile,
+          reviewInput: source.input,
+        });
+        const review = await generateReview({
+          profile: source.profile,
+          input: source.input,
+          rules: source.profile.reviewRuleCandidates,
+          providerConfig: providerReview.providerConfig,
+          provider: providerReview.provider,
+          ...(Object.keys(promptContext.context).length > 0
+            ? { promptContext: promptContext.context }
+            : {}),
+        });
+        const markdown = renderReviewMarkdown(review);
+        const output = await runReviewOutput({
+          intent: resolvedRequest.output,
+          reviewIntent: resolvedRequest.intent,
+          publicationIntent: resolvedRequest.publication,
+          deps,
+          repoRoot: source.repoRoot,
+          markdown,
+        });
+        const publication = await runReviewPublication({
+          intent: resolvedRequest.publication,
+          deps,
+          review,
+          markdown,
+          target: resolvedRequest.publication
+            ? reviewTargetFromInput(source.input)
+            : null,
+          reviewInput: source.input,
+        });
+        let reviewStored = false;
+        if (shouldPersistReview(resolvedRequest.persistence)) {
+          if (!deps.persistence) {
+            throw new Error("Review storage requires a persistence port.");
+          }
+          await deps.persistence.storeReview({ review });
+          reviewStored = true;
+        }
+        if (activeRun && deps.persistence) {
+          activeRun = await deps.persistence.succeedRun({
+            run: activeRun,
+            review,
+            source,
+          });
+        }
+        return {
+          review,
+          markdown,
+          source: {
+            profile: source.profile,
+            input: source.input,
+            repoRoot: source.repoRoot,
+          },
+          output,
+          publication,
+          persistence: { run: activeRun, reviewStored },
+          diagnostics: {
+            promptContextPaths: promptContext.paths,
+            skippedFiles: source.input.skippedFiles,
+            changedFileCount: source.input.changedFiles.length,
+          },
+        };
+      } catch (error) {
+        if (activeRun && deps.persistence) {
+          const failedRun = await deps.persistence.failRun({
+            run: activeRun,
+            error,
+            source,
+          });
+          throw new ReviewOrchestratorError(errorMessage(error), failedRun, {
+            cause: error,
+          });
+        }
+        throw error;
+      }
+    },
+  };
+}
+
+async function prepareReviewSource(
+  sources: ReviewSourcePort,
+  request: ReviewRequest,
+): Promise<ReviewPreparedSource> {
+  if (request.repository.kind === "prepared") {
+    return {
+      profile: request.repository.profile,
+      input: request.repository.input,
+      repoRoot: request.repository.repoRoot ?? null,
+    };
+  }
+  if (request.repository.kind === "local") {
+    return sources.prepareLocal({
+      repoRoot: request.repository.repoRoot,
+      ...(request.target ? { target: request.target } : {}),
+      ...(request.limits ? { limits: request.limits } : {}),
+    });
+  }
+  if (!sources.prepareStored) {
+    throw new Error("Stored repository review requires a stored source port.");
+  }
+  return sources.prepareStored({
+    repoId: request.repository.repoId,
+    ...(request.target ? { target: request.target } : {}),
+    ...(request.limits ? { limits: request.limits } : {}),
+  });
+}
+
 async function runReviewOutput(input: {
   intent: ReviewOutputIntent | undefined;
-  publicationIntent: ReviewPublicationIntent | undefined;
-  deps: PullRequestReviewWorkflowDeps;
-  repoRoot: string;
+  reviewIntent: ReviewRequest["intent"];
+  publicationIntent: ReviewRequest["publication"];
+  deps: Pick<ReviewOrchestratorDeps, "output">;
+  repoRoot: string | null;
   markdown: string;
 }): Promise<ReviewOutputResult | null> {
   if (!input.intent?.markdownPath) {
@@ -390,10 +699,16 @@ async function runReviewOutput(input: {
   }
   const result = {
     markdownPath: input.intent.markdownPath,
-    written: input.publicationIntent?.mode !== "plan",
+    written:
+      input.reviewIntent !== "preview" &&
+      input.publicationIntent !== false &&
+      input.publicationIntent?.mode !== "plan",
   };
   if (!result.written) {
     return result;
+  }
+  if (!input.repoRoot) {
+    throw new Error("Review markdown output requires a repository root.");
   }
   if (!input.deps.output) {
     throw new Error("Review markdown output requires an output writer port.");
@@ -423,15 +738,21 @@ export async function generateReview(
 }
 
 async function runReviewPublication(input: {
-  intent: ReviewPublicationIntent | undefined;
-  deps: PullRequestReviewWorkflowDeps;
+  intent: ReviewRequest["publication"];
+  deps: Pick<ReviewOrchestratorDeps, "publisher">;
   review: ReviewResult;
   markdown: string;
-  target: PullRequestReviewTarget;
+  target: PullRequestReviewTarget | null;
   reviewInput: ReviewInput;
 }): Promise<PullRequestReviewRun["publication"]> {
   if (!input.intent) {
     return { mode: "skipped" };
+  }
+  if (!input.target) {
+    throw new Error("Review publication requires a pull request target.");
+  }
+  if (!input.deps.publisher) {
+    throw new Error("Review publication requires a publisher port.");
   }
   const options = normalizeReviewPublishOptions(input.intent.options);
   assertReviewPublicationAllowed({
@@ -478,12 +799,34 @@ function normalizeReviewPublishOptions(
   };
 }
 
+function assertReviewRequestModelConsent(model: ReviewModelRequest): void {
+  if ("consent" in model) {
+    assertReviewModelConsent(model);
+  }
+}
+
 function assertReviewModelConsent(model: ReviewModelSelection): void {
   if (model.consent.repositoryContentTransfer !== true) {
     throw new Error(
       "PR review requires explicit repository-content transfer consent before model invocation.",
     );
   }
+}
+
+function shouldPersistRun(
+  intent: ReviewPersistenceIntent | undefined,
+): boolean {
+  return intent !== false && intent?.run === true;
+}
+
+function shouldPersistReview(
+  intent: ReviewPersistenceIntent | undefined,
+): boolean {
+  return intent !== false && intent?.review === true;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function assertReviewPublicationAllowed(input: {
