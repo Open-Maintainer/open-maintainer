@@ -32,13 +32,33 @@ import {
 import {
   type GitHubRepositoryClient,
   createGitHubIssueTriageEvidencePort,
+  planInlineReviewComments,
+  planReviewSummaryComment,
+  publishInlineReviewComments,
+  upsertReviewSummaryComment,
 } from "@open-maintainer/github";
 import {
   assembleLocalReviewInput,
+  createPullRequestReviewWorkflow,
   generateReview,
-  renderInlineReviewComment,
   renderReviewMarkdown,
-  renderReviewSummaryComment,
+  reviewTriageLabelDefinitions,
+  reviewTriageLabelNames,
+} from "@open-maintainer/review";
+import type {
+  PullRequestReviewRun,
+  PullRequestReviewWorkflowDeps,
+  ReviewInlineCommentPlan,
+  ReviewInlineCommentResult,
+  ReviewModelSelection,
+  ReviewPromptContext,
+  ReviewPublicationInput,
+  ReviewPublicationPlan,
+  ReviewPublicationResult,
+  ReviewPublishOptions,
+  ReviewSummaryCommentResult,
+  ReviewTriageLabelPlan,
+  ReviewTriageLabelResult,
 } from "@open-maintainer/review";
 import type {
   IssueTriageEvidence,
@@ -48,9 +68,7 @@ import type {
   IssueTriageSignal,
   ModelProviderConfig,
   ReviewCheckStatus,
-  ReviewContributionTriageCategory,
   ReviewExistingComment,
-  ReviewResult,
 } from "@open-maintainer/shared";
 import {
   IssueTriageInputSchema,
@@ -2040,18 +2058,19 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
       "--review-inline-cap requires --review-inline-comments or --pr.",
     );
   }
+  if (options.pr !== null) {
+    await reviewPullRequest(repoRoot, options);
+    return;
+  }
+
   const files = await scanRepository(repoRoot, { maxFiles: 800 });
   const profile = await createProfileFromFiles(repoRoot, files);
-  const pullRequest = options.pr
-    ? await preparePullRequestReview(repoRoot, options.pr)
-    : null;
   const baseRef =
-    pullRequest?.baseRef ??
     options.baseRef ??
     (await detectDefaultBranch(repoRoot)) ??
     profile.defaultBranch ??
     "main";
-  const headRef = pullRequest?.headRef ?? options.headRef ?? "HEAD";
+  const headRef = options.headRef ?? "HEAD";
   const input = await assembleLocalReviewInput({
     repoRoot,
     repoId: profile.repoId,
@@ -2065,33 +2084,13 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
   });
   const reviewInput = {
     ...input,
-    ...(pullRequest
-      ? {
-          prNumber: pullRequest.number,
-          owner: pullRequest.owner,
-          repo: pullRequest.repo,
-          title: pullRequest.title,
-          body: pullRequest.body,
-          url: pullRequest.url,
-          author: pullRequest.author,
-          isDraft: pullRequest.isDraft,
-          mergeable: pullRequest.mergeable,
-          mergeStateStatus: pullRequest.mergeStateStatus,
-          reviewDecision: pullRequest.reviewDecision,
-          baseSha: pullRequest.baseSha,
-          headSha: pullRequest.headSha,
-          checkStatuses: pullRequest.checkStatuses,
-          existingComments: pullRequest.existingComments,
-        }
-      : {
-          prNumber: options.prNumber,
-          owner: profile.owner,
-          repo: profile.name,
-          isDraft: null,
-          mergeable: null,
-          mergeStateStatus: null,
-          reviewDecision: null,
-        }),
+    prNumber: options.prNumber,
+    owner: profile.owner,
+    repo: profile.name,
+    isDraft: null,
+    mergeable: null,
+    mergeStateStatus: null,
+    reviewDecision: null,
   };
   const providerReview = buildReviewProvider({
     repoRoot,
@@ -2139,7 +2138,7 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
     provider: providerReview.provider,
     ...(Object.keys(promptContext).length > 0 ? { promptContext } : {}),
   });
-  if (!options.json && (options.outputPath || pullRequest)) {
+  if (!options.json && options.outputPath) {
     printLines(
       commandHeader({
         title: "review",
@@ -2165,81 +2164,70 @@ async function review(repoRoot: string, options: CliOptions): Promise<void> {
   }
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));
-  } else if (!options.outputPath && !pullRequest) {
+  } else if (!options.outputPath) {
     console.log(renderReviewMarkdown(result));
   }
-  if (pullRequest && options.dryRun && !options.json) {
+}
+
+async function reviewPullRequest(
+  repoRoot: string,
+  options: CliOptions,
+): Promise<void> {
+  if (options.pr === null) {
+    throw new Error("Pull request review requires --pr <number>.");
+  }
+  const workflow = createPullRequestReviewWorkflow(
+    createCliPullRequestReviewWorkflowDeps(repoRoot),
+  );
+  const run = await workflow.reviewPullRequest({
+    repoRoot,
+    pullNumber: options.pr,
+    model: buildReviewWorkflowModelSelection(options),
+    publication: {
+      mode: options.dryRun ? "plan" : "publish",
+      options: buildReviewPublishOptions(options),
+    },
+    output: {
+      ...(options.outputPath ? { markdownPath: options.outputPath } : {}),
+      json: options.json,
+    },
+  });
+  if (!options.json) {
     printLines(
-      renderBox("Pull request review", [
-        `Review generated for pull request #${pullRequest.number}.`,
-        "Dry run: no PR comments posted.",
-      ]),
+      commandHeader({
+        title: "review",
+        repoRoot,
+        dryRun: options.dryRun,
+      }),
     );
   }
-  if (pullRequest && !options.dryRun) {
-    const explicitPosting =
-      options.reviewPostSummary || options.reviewInlineComments;
-    const posted = await postPullRequestReview(repoRoot, result, {
-      prNumber: pullRequest.number,
-      postSummary: explicitPosting ? options.reviewPostSummary : true,
-      postInline: explicitPosting ? options.reviewInlineComments : true,
-      inlineCap: options.reviewInlineCap ?? 5,
-      applyTriageLabel: options.reviewApplyTriageLabel,
-      createTriageLabels: options.reviewCreateTriageLabels,
-      pullRequestState: pullRequest,
-    });
+  if (options.outputPath) {
+    const outputPath = path.resolve(
+      repoRoot,
+      run.output?.markdownPath ?? options.outputPath,
+    );
     if (!options.json) {
       printLines(
-        renderBox("Pull request review", [
-          `Review generated for pull request #${pullRequest.number}.`,
-          formatPullRequestPostStatus(posted),
+        renderBox("Review output", [
+          `Review: ${path.relative(repoRoot, outputPath)}${run.output?.written === false ? " (planned)" : ""}`,
+          ...(run.output?.written === false
+            ? ["Dry run: no review file written."]
+            : []),
         ]),
       );
     }
   }
+  if (options.json) {
+    console.log(JSON.stringify(run.review, null, 2));
+    return;
+  }
+  printLines(
+    renderBox("Pull request review", [
+      `Review generated for pull request #${run.target.pullNumber}.`,
+      formatPullRequestPublicationStatus(run.publication),
+    ]),
+  );
 }
-
-type PullRequestReviewPostResult = {
-  summaryComment: boolean;
-  inlineComments: number;
-  triageLabel: string | null;
-  triageLabelsCreated: number;
-};
-
-const reviewTriageLabelDefinitions: Record<
-  ReviewContributionTriageCategory,
-  { name: string; color: string; description: string }
-> = {
-  ready_for_review: {
-    name: "open-maintainer/ready-for-review",
-    color: "2da44e",
-    description: "Open Maintainer: PR appears ready for human review.",
-  },
-  needs_author_input: {
-    name: "open-maintainer/needs-author-input",
-    color: "d29922",
-    description: "Open Maintainer: PR needs author information before review.",
-  },
-  needs_maintainer_design: {
-    name: "open-maintainer/needs-maintainer-design",
-    color: "8250df",
-    description: "Open Maintainer: PR needs maintainer design judgment.",
-  },
-  not_agent_ready: {
-    name: "open-maintainer/not-agent-ready",
-    color: "bf8700",
-    description: "Open Maintainer: PR is not ready for agent-assisted review.",
-  },
-  possible_spam: {
-    name: "open-maintainer/possible-spam",
-    color: "cf222e",
-    description: "Open Maintainer: PR may be spam-like contribution noise.",
-  },
-};
-
-const reviewTriageLabelNames = new Set(
-  Object.values(reviewTriageLabelDefinitions).map((label) => label.name),
-);
 
 type PreparedPullRequestReview = {
   number: number;
@@ -2368,172 +2356,339 @@ async function preparePullRequestReview(
   };
 }
 
-async function postPullRequestReview(
+function createCliPullRequestReviewWorkflowDeps(
   repoRoot: string,
-  review: ReviewResult,
-  options: {
-    prNumber: number;
-    postSummary: boolean;
-    postInline: boolean;
-    inlineCap: number;
-    applyTriageLabel: boolean;
-    createTriageLabels: boolean;
-    pullRequestState: PreparedPullRequestReview;
-  },
-): Promise<PullRequestReviewPostResult> {
-  const repo = await ghJson<GhRepositoryView>(repoRoot, [
-    "repo",
-    "view",
-    "--json",
-    "owner,name",
-  ]);
-  const owner = repo.owner?.login;
-  const repoName = repo.name;
-  if (!owner || !repoName) {
-    throw new Error("Unable to read repository owner/name from gh.");
-  }
-  const posted: PullRequestReviewPostResult = {
-    summaryComment: false,
-    inlineComments: 0,
-    triageLabel: null,
-    triageLabelsCreated: 0,
+): PullRequestReviewWorkflowDeps {
+  return {
+    repoProfile: {
+      async load(targetRoot) {
+        const files = await scanRepository(targetRoot, { maxFiles: 800 });
+        return createProfileFromFiles(targetRoot, files);
+      },
+    },
+    pullRequests: {
+      async fetchReviewInput(input) {
+        return fetchCliPullRequestReviewInput(repoRoot, input.pullNumber, {
+          repoId: input.repoId,
+          ...(input.limits ? { limits: input.limits } : {}),
+        });
+      },
+    },
+    promptContext: {
+      load: loadReviewPromptContext,
+    },
+    modelProviders: {
+      create(input) {
+        return buildReviewProvider({
+          repoRoot: input.repoRoot,
+          provider: input.provider,
+          model: "model" in input ? (input.model ?? null) : null,
+          allowModelContentTransfer: true,
+        });
+      },
+    },
+    publisher: createGhReviewPublisher(repoRoot),
+    output: {
+      async writeMarkdown(input) {
+        const outputPath = path.resolve(input.repoRoot, input.path);
+        await mkdir(path.dirname(outputPath), { recursive: true });
+        await writeFile(outputPath, input.markdown);
+      },
+    },
   };
-  if (options.applyTriageLabel) {
-    assertReadyTriageLabelAllowed(review, options.pullRequestState);
-    const applied = await applyReviewTriageLabel(
-      repoRoot,
-      owner,
-      repoName,
-      review,
-      {
-        createMissingLabels: options.createTriageLabels,
-      },
-    );
-    posted.triageLabel = applied.label;
-    posted.triageLabelsCreated = applied.created;
-  }
-  if (options.postSummary) {
-    await upsertReviewSummaryComment(repoRoot, owner, repoName, review);
-    posted.summaryComment = true;
-  }
-  if (options.postInline && options.inlineCap > 0) {
-    posted.inlineComments = await createInlineReviewComments(
-      repoRoot,
-      owner,
-      repoName,
-      review,
-      {
-        prNumber: options.prNumber,
-        cap: options.inlineCap,
-      },
-    );
-  }
-  return posted;
 }
 
-function assertReadyTriageLabelAllowed(
-  review: ReviewResult,
-  pullRequest: PreparedPullRequestReview,
-): void {
-  if (review.contributionTriage.category !== "ready_for_review") {
-    return;
-  }
-  const blockers = blockingPullRequestStateReasons(pullRequest);
-  if (blockers.length === 0) {
-    return;
-  }
-  throw new Error(
-    `Refusing to apply open-maintainer/ready-for-review because GitHub reports this PR is blocked: ${blockers.join("; ")}.`,
-  );
-}
-
-function blockingPullRequestStateReasons(
-  pullRequest: PreparedPullRequestReview,
-): string[] {
-  const reasons = [];
-  if (pullRequest.isDraft === true) {
-    reasons.push("PR is draft");
-  }
-  if (normalizeGhState(pullRequest.mergeable) === "CONFLICTING") {
-    reasons.push("PR has merge conflicts");
-  }
-  if (normalizeGhState(pullRequest.mergeStateStatus) === "DIRTY") {
-    reasons.push("merge state is dirty");
-  }
-  if (normalizeGhState(pullRequest.reviewDecision) === "CHANGES_REQUESTED") {
-    reasons.push("changes are requested");
-  }
-  const blockingChecks = pullRequest.checkStatuses.filter((check) =>
-    isBlockingCheckStatus(check),
-  );
-  if (blockingChecks.length > 0) {
-    reasons.push(
-      `blocking checks: ${blockingChecks.map((check) => check.name).join(", ")}`,
-    );
-  }
-  return reasons;
-}
-
-function isBlockingCheckStatus(check: ReviewCheckStatus): boolean {
-  const status = normalizeGhState(check.status);
-  const conclusion = normalizeGhState(check.conclusion);
-  if (status && status !== "COMPLETED") {
-    return true;
-  }
-  return (
-    conclusion === "FAILURE" ||
-    conclusion === "TIMED_OUT" ||
-    conclusion === "CANCELLED" ||
-    conclusion === "ACTION_REQUIRED"
-  );
-}
-
-function normalizeGhState(value: string | null | undefined): string | null {
-  return value ? value.trim().toUpperCase() : null;
-}
-
-async function applyReviewTriageLabel(
+async function fetchCliPullRequestReviewInput(
   repoRoot: string,
-  owner: string,
-  repo: string,
-  review: ReviewResult,
+  prNumber: number,
+  options: {
+    repoId: string;
+    limits?: Partial<{
+      maxFiles: number;
+      maxFileBytes: number;
+      maxTotalBytes: number;
+    }>;
+  },
+) {
+  const pullRequest = await preparePullRequestReview(repoRoot, prNumber);
+  const input = await assembleLocalReviewInput({
+    repoRoot,
+    repoId: options.repoId,
+    baseRef: pullRequest.baseRef,
+    headRef: pullRequest.headRef,
+    ...(options.limits ? options.limits : {}),
+  }).catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Unable to assemble review diff for ${pullRequest.baseRef}...${pullRequest.headRef}. Verify --pr ${prNumber}. ${message}`,
+    );
+  });
+  return {
+    ...input,
+    prNumber: pullRequest.number,
+    owner: pullRequest.owner,
+    repo: pullRequest.repo,
+    title: pullRequest.title,
+    body: pullRequest.body,
+    url: pullRequest.url,
+    author: pullRequest.author,
+    isDraft: pullRequest.isDraft,
+    mergeable: pullRequest.mergeable,
+    mergeStateStatus: pullRequest.mergeStateStatus,
+    reviewDecision: pullRequest.reviewDecision,
+    baseSha: pullRequest.baseSha,
+    headSha: pullRequest.headSha,
+    checkStatuses: pullRequest.checkStatuses,
+    existingComments: pullRequest.existingComments,
+  };
+}
+
+async function loadReviewPromptContext(input: {
+  repoRoot: string;
+  profile: Awaited<ReturnType<typeof createProfileFromFiles>>;
+}): Promise<{ context: ReviewPromptContext; paths: string[] }> {
+  const candidates = [
+    { key: "openMaintainerConfig", path: ".open-maintainer.yml" },
+    { key: "agentsMd", path: "AGENTS.md" },
+    { key: "generatedContext", path: ".open-maintainer/report.md" },
+    {
+      key: "repoPrReviewSkill",
+      path: `.agents/skills/${input.profile.name}-pr-review/SKILL.md`,
+    },
+    {
+      key: "repoTestingWorkflowSkill",
+      path: `.agents/skills/${input.profile.name}-testing-workflow/SKILL.md`,
+    },
+    {
+      key: "repoOverviewSkill",
+      path: `.agents/skills/${input.profile.name}-start-task/SKILL.md`,
+    },
+  ] as const;
+  const entries = await Promise.all(
+    candidates.map(async (candidate) => ({
+      ...candidate,
+      content: await readOptionalRepoFile(input.repoRoot, candidate.path),
+    })),
+  );
+  const context: ReviewPromptContext = {};
+  const paths: string[] = [];
+  for (const entry of entries) {
+    if (!entry.content) {
+      continue;
+    }
+    context[entry.key] = entry.content;
+    paths.push(entry.path);
+  }
+  return { context, paths };
+}
+
+function buildReviewWorkflowModelSelection(
+  options: CliOptions,
+): ReviewModelSelection {
+  const provider = resolveReviewProvider(options);
+  const model = resolveReviewModel(options);
+  if (!provider) {
+    throw new Error(
+      "review requires --model codex or --model claude because PR reviews are LLM-backed only.",
+    );
+  }
+  if (!options.allowModelContentTransfer) {
+    throw new Error(
+      "--model requires --allow-model-content-transfer because PR review sends repository content to the selected CLI backend.",
+    );
+  }
+  return {
+    provider,
+    ...(model ? { model } : {}),
+    consent: { repositoryContentTransfer: true },
+  };
+}
+
+function buildReviewPublishOptions(options: CliOptions): ReviewPublishOptions {
+  const explicitPosting =
+    options.reviewPostSummary || options.reviewInlineComments;
+  return {
+    summary: explicitPosting ? options.reviewPostSummary : true,
+    inline: explicitPosting
+      ? options.reviewInlineComments
+        ? { cap: options.reviewInlineCap ?? 5 }
+        : false
+      : { cap: options.reviewInlineCap ?? 5 },
+    triageLabel: options.reviewApplyTriageLabel
+      ? {
+          apply: true,
+          createMissingLabels: options.reviewCreateTriageLabels,
+        }
+      : false,
+  };
+}
+
+function createGhReviewPublisher(
+  repoRoot: string,
+): PullRequestReviewWorkflowDeps["publisher"] {
+  return {
+    async plan(input) {
+      return planGhReviewPublication(repoRoot, input);
+    },
+    async publish(input) {
+      return publishGhReviewPublication(repoRoot, input);
+    },
+  };
+}
+
+async function planGhReviewPublication(
+  repoRoot: string,
+  input: ReviewPublicationInput,
+): Promise<ReviewPublicationPlan> {
+  const client = createGhReviewClient(repoRoot);
+  return {
+    summary: input.options.summary
+      ? planReviewSummaryComment({
+          markdown: input.markdown,
+          existingComments: input.reviewInput.existingComments.filter(
+            (comment) => comment.kind === "summary",
+          ),
+        })
+      : null,
+    inline:
+      input.options.inline === false
+        ? null
+        : await planGhInlineReviewComments(client, input),
+    triageLabel: input.options.triageLabel
+      ? await planReviewTriageLabel(repoRoot, input, {
+          createMissingLabels: input.options.triageLabel.createMissingLabels,
+        })
+      : null,
+  };
+}
+
+async function publishGhReviewPublication(
+  repoRoot: string,
+  input: ReviewPublicationInput,
+): Promise<ReviewPublicationResult> {
+  const client = createGhReviewClient(repoRoot);
+  return {
+    summary: input.options.summary
+      ? await upsertReviewSummaryComment({
+          owner: input.target.owner,
+          repo: input.target.repo,
+          pullNumber: input.target.pullNumber,
+          markdown: input.markdown,
+          client,
+        })
+      : null,
+    inline:
+      input.options.inline === false
+        ? null
+        : await publishInlineReviewComments({
+            owner: input.target.owner,
+            repo: input.target.repo,
+            pullNumber: input.target.pullNumber,
+            review: input.review,
+            cap: input.options.inline.cap,
+            client,
+          }),
+    triageLabel: input.options.triageLabel
+      ? await applyReviewTriageLabel(repoRoot, input, {
+          createMissingLabels: input.options.triageLabel.createMissingLabels,
+        })
+      : null,
+  };
+}
+
+async function planGhInlineReviewComments(
+  client: GitHubRepositoryClient,
+  input: ReviewPublicationInput,
+): Promise<ReviewInlineCommentPlan> {
+  if (input.options.inline === false) {
+    return { comments: [], skipped: [] };
+  }
+  const comments = await client.pulls.listReviewComments?.({
+    owner: input.target.owner,
+    repo: input.target.repo,
+    pull_number: input.target.pullNumber,
+    per_page: 100,
+  });
+  return planInlineReviewComments({
+    review: input.review,
+    existingComments: comments?.data ?? [],
+    cap: input.options.inline.cap,
+  });
+}
+
+async function planReviewTriageLabel(
+  repoRoot: string,
+  input: ReviewPublicationInput,
   options: { createMissingLabels: boolean },
-): Promise<{ label: string; created: number }> {
-  const category = review.contributionTriage.category;
-  if (review.contributionTriage.status !== "evaluated" || !category) {
+): Promise<ReviewTriageLabelPlan> {
+  const category = input.review.contributionTriage.category;
+  if (input.review.contributionTriage.status !== "evaluated" || !category) {
     throw new Error(
       "--review-apply-triage-label requires an evaluated contribution-triage category.",
     );
   }
-  if (typeof review.prNumber !== "number") {
-    throw new Error(
-      "--review-apply-triage-label requires a pull request number.",
-    );
-  }
-  const target = reviewTriageLabelDefinitions[category].name;
+  const label = reviewTriageLabelDefinitions[category].name;
+  const existingIssueLabels = await ghApiJson<Array<{ name?: string | null }>>(
+    repoRoot,
+    `repos/${input.target.owner}/${input.target.repo}/issues/${input.target.pullNumber}/labels?per_page=100`,
+  );
+  const existingIssueNames = new Set(
+    existingIssueLabels.flatMap((item) => (item.name ? [item.name] : [])),
+  );
+  const repoLabels = options.createMissingLabels
+    ? await ghApiJson<Array<{ name?: string | null }>>(
+        repoRoot,
+        `repos/${input.target.owner}/${input.target.repo}/labels?per_page=100`,
+      )
+    : [];
+  const existingRepoNames = new Set(
+    repoLabels.flatMap((item) => (item.name ? [item.name] : [])),
+  );
+  return {
+    label,
+    apply: !existingIssueNames.has(label),
+    createMissingLabels: options.createMissingLabels,
+    labelsToCreate: options.createMissingLabels
+      ? Object.values(reviewTriageLabelDefinitions)
+          .filter((definition) => !existingRepoNames.has(definition.name))
+          .map((definition) => definition.name)
+      : [],
+    labelsToRemove: [...existingIssueNames].filter(
+      (name) => reviewTriageLabelNames.has(name) && name !== label,
+    ),
+  };
+}
+
+async function applyReviewTriageLabel(
+  repoRoot: string,
+  input: ReviewPublicationInput,
+  options: { createMissingLabels: boolean },
+): Promise<ReviewTriageLabelResult> {
+  const plan = await planReviewTriageLabel(repoRoot, input, options);
+  const owner = input.target.owner;
+  const repo = input.target.repo;
+  const pullNumber = input.target.pullNumber;
   const created = options.createMissingLabels
     ? await createMissingReviewTriageLabels(repoRoot, owner, repo)
     : 0;
-  const existingLabels = await ghApiJson<Array<{ name?: string | null }>>(
-    repoRoot,
-    `repos/${owner}/${repo}/issues/${review.prNumber}/labels?per_page=100`,
-  );
-  const existingNames = new Set(
-    existingLabels.flatMap((label) => (label.name ? [label.name] : [])),
-  );
-  for (const existingName of existingNames) {
-    if (reviewTriageLabelNames.has(existingName) && existingName !== target) {
-      await editGitHubIssueLabels(repoRoot, owner, repo, review.prNumber, {
-        removeLabel: existingName,
-      });
-    }
+  const removed: string[] = [];
+  for (const label of plan.labelsToRemove) {
+    await editGitHubIssueLabels(repoRoot, owner, repo, pullNumber, {
+      removeLabel: label,
+    });
+    removed.push(label);
   }
-  if (!existingNames.has(target)) {
-    await editGitHubIssueLabels(repoRoot, owner, repo, review.prNumber, {
-      addLabel: target,
+  if (plan.apply) {
+    await editGitHubIssueLabels(repoRoot, owner, repo, pullNumber, {
+      addLabel: plan.label,
     });
   }
-  return { label: target, created };
+  return {
+    ...plan,
+    applied: plan.apply,
+    created,
+    removed,
+  };
 }
 
 async function createMissingReviewTriageLabels(
@@ -2561,138 +2716,150 @@ async function createMissingReviewTriageLabels(
   return created;
 }
 
-async function upsertReviewSummaryComment(
-  repoRoot: string,
-  owner: string,
-  repo: string,
-  review: ReviewResult,
-): Promise<void> {
-  const marker = "<!-- open-maintainer-review-summary -->";
-  const body = renderReviewSummaryComment(review);
-  const comments = await ghApiJson<
-    Array<{ id?: number | string | null; body?: string | null }>
-  >(
-    repoRoot,
-    `repos/${owner}/${repo}/issues/${review.prNumber}/comments?per_page=100`,
-  );
-  const existing = comments.find((comment) => comment.body?.includes(marker));
-  if (existing?.id) {
-    await ghApiWithJsonBody(
-      repoRoot,
-      `repos/${owner}/${repo}/issues/comments/${existing.id}`,
-      "PATCH",
-      { body },
-    );
-    return;
-  }
-  await ghApiWithJsonBody(
-    repoRoot,
-    `repos/${owner}/${repo}/issues/${review.prNumber}/comments`,
-    "POST",
-    { body },
-  );
-}
-
-async function createInlineReviewComments(
-  repoRoot: string,
-  owner: string,
-  repo: string,
-  review: ReviewResult,
-  options: { prNumber: number; cap: number },
-): Promise<number> {
-  const marker = "open-maintainer-review-inline";
-  const existing = await ghApiJson<
-    Array<{
-      body?: string | null;
-      path?: string | null;
-      line?: number | null;
-    }>
-  >(
-    repoRoot,
-    `repos/${owner}/${repo}/pulls/${options.prNumber}/comments?per_page=100`,
-  );
-  const existingFingerprints = new Set(
-    existing.flatMap((comment) => {
-      const match = comment.body?.match(
-        /open-maintainer-review-inline fingerprint="([^"]+)"/,
-      );
-      if (match?.[1]) {
-        return [match[1]];
-      }
-      return comment.path && comment.line
-        ? [`legacy:${comment.path}:${comment.line}`]
-        : [];
-    }),
-  );
-  const changedFiles = new Map(
-    review.changedFiles.map((file) => [file.path, file]),
-  );
-  const comments = [];
-  for (const finding of [...review.findings].sort(compareReviewFindings)) {
-    if (comments.length >= options.cap) {
-      break;
-    }
-    if (!finding.path || !finding.line) {
-      continue;
-    }
-    const changedFile = changedFiles.get(finding.path);
-    if (!changedFile?.patch) {
-      continue;
-    }
-    const fingerprint = `${finding.id}:${finding.path}:${finding.line}`;
-    if (
-      existingFingerprints.has(fingerprint) ||
-      existingFingerprints.has(`legacy:${finding.path}:${finding.line}`)
-    ) {
-      continue;
-    }
-    comments.push({
-      path: finding.path,
-      line: finding.line,
-      side: "RIGHT",
-      body: [
-        `<!-- ${marker} fingerprint="${fingerprint}" -->`,
-        renderInlineReviewComment(finding),
-      ].join("\n"),
-    });
-  }
-  if (comments.length === 0) {
-    return 0;
-  }
-  await ghApiWithJsonBody(
-    repoRoot,
-    `repos/${owner}/${repo}/pulls/${options.prNumber}/reviews`,
-    "POST",
-    {
-      event: "COMMENT",
-      body: "Open Maintainer inline review comments.",
-      comments,
+function createGhReviewClient(repoRoot: string): GitHubRepositoryClient {
+  return {
+    repos: {
+      async getContent() {
+        throw new Error("Repository content reads are not used by CLI review.");
+      },
+      async createOrUpdateFileContents() {
+        throw new Error("Repository writes are not used by CLI review.");
+      },
     },
-  );
-  return comments.length;
+    git: {
+      async getRef() {
+        throw new Error("Git ref reads are not used by CLI review publisher.");
+      },
+      async createRef() {
+        throw new Error("Git ref writes are not used by CLI review.");
+      },
+      async updateRef() {
+        throw new Error("Git ref writes are not used by CLI review.");
+      },
+    },
+    pulls: {
+      async list() {
+        throw new Error("Pull request listing is not used by CLI review.");
+      },
+      async create() {
+        throw new Error("Pull request creation is not used by CLI review.");
+      },
+      async update() {
+        throw new Error("Pull request updates are not used by CLI review.");
+      },
+      async listReviewComments(input) {
+        return {
+          data: await ghApiJson(
+            repoRoot,
+            `repos/${input.owner}/${input.repo}/pulls/${input.pull_number}/comments?per_page=${input.per_page ?? 100}`,
+          ),
+        };
+      },
+      async createReview(input) {
+        const response = await ghApiWithJsonBody<{
+          id?: number;
+          html_url?: string | null;
+        }>(
+          repoRoot,
+          `repos/${input.owner}/${input.repo}/pulls/${input.pull_number}/reviews`,
+          "POST",
+          {
+            event: input.event,
+            body: input.body,
+            comments: input.comments,
+          },
+        );
+        return {
+          data: {
+            id: response.id ?? 0,
+            html_url: response.html_url ?? null,
+          },
+        };
+      },
+    },
+    issues: {
+      async listComments(input) {
+        return {
+          data: await ghApiJson(
+            repoRoot,
+            `repos/${input.owner}/${input.repo}/issues/${input.issue_number}/comments?per_page=${input.per_page ?? 100}`,
+          ),
+        };
+      },
+      async createComment(input) {
+        const response = await ghApiWithJsonBody<{
+          id?: number;
+          html_url?: string | null;
+        }>(
+          repoRoot,
+          `repos/${input.owner}/${input.repo}/issues/${input.issue_number}/comments`,
+          "POST",
+          { body: input.body },
+        );
+        return {
+          data: {
+            id: response.id ?? 0,
+            html_url: response.html_url ?? null,
+          },
+        };
+      },
+      async updateComment(input) {
+        const response = await ghApiWithJsonBody<{
+          id?: number;
+          html_url?: string | null;
+        }>(
+          repoRoot,
+          `repos/${input.owner}/${input.repo}/issues/comments/${input.comment_id}`,
+          "PATCH",
+          { body: input.body },
+        );
+        return {
+          data: {
+            id: response.id ?? input.comment_id,
+            html_url: response.html_url ?? null,
+          },
+        };
+      },
+    },
+  };
 }
 
-function formatPullRequestPostStatus(
-  posted: PullRequestReviewPostResult,
+function formatPullRequestPublicationStatus(
+  publication: PullRequestReviewRun["publication"],
 ): string {
+  if (publication.mode === "skipped") {
+    return "PR comments posted: none.";
+  }
+  if (publication.mode === "planned") {
+    return "Dry run: no PR comments posted.";
+  }
+  return formatPublishedReviewStatus(publication);
+}
+
+function formatPublishedReviewStatus(input: {
+  summary: ReviewSummaryCommentResult | null;
+  inline: ReviewInlineCommentResult | null;
+  triageLabel: ReviewTriageLabelResult | null;
+}): string {
   const parts = [];
-  if (posted.summaryComment) {
+  if (input.summary) {
     parts.push("summary comment");
   }
-  if (posted.inlineComments > 0) {
+  const inlineCount = input.inline?.comments.length ?? 0;
+  if (inlineCount > 0) {
     parts.push(
-      `${posted.inlineComments} inline ${posted.inlineComments === 1 ? "comment" : "comments"}`,
+      `${inlineCount} inline ${inlineCount === 1 ? "comment" : "comments"}`,
     );
   }
-  if (posted.triageLabel) {
-    parts.push(`triage label ${posted.triageLabel}`);
+  if (input.triageLabel) {
+    parts.push(`triage label ${input.triageLabel.label}`);
   }
   if (parts.length === 0) {
     return "PR comments posted: none.";
   }
   const labelNote =
-    posted.triageLabelsCreated > 0
-      ? ` Created ${posted.triageLabelsCreated} triage labels.`
+    (input.triageLabel?.created ?? 0) > 0
+      ? ` Created ${input.triageLabel?.created} triage labels.`
       : "";
   return `PR comments posted: ${parts.join(", ")}.${labelNote}`;
 }
@@ -2771,17 +2938,17 @@ async function ghApiJson<T>(
   return JSON.parse(output || "null") as T;
 }
 
-async function ghApiWithJsonBody(
+async function ghApiWithJsonBody<T = unknown>(
   repoRoot: string,
   endpoint: string,
   method: "PATCH" | "POST",
   body: unknown,
-): Promise<void> {
+): Promise<T> {
   const directory = await mkdtemp(path.join(tmpdir(), "open-maintainer-gh-"));
   const inputPath = path.join(directory, "body.json");
   try {
     await writeFile(inputPath, JSON.stringify(body));
-    await execGh(repoRoot, [
+    const output = await execGh(repoRoot, [
       "api",
       endpoint,
       "--method",
@@ -2789,6 +2956,7 @@ async function ghApiWithJsonBody(
       "--input",
       inputPath,
     ]);
+    return JSON.parse(output || "null") as T;
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -2898,16 +3066,6 @@ function parseGhExistingComments(
       },
     ];
   });
-}
-
-function compareReviewFindings(
-  left: ReviewResult["findings"][number],
-  right: ReviewResult["findings"][number],
-) {
-  const severityRank = { blocker: 0, major: 1, minor: 2, note: 3 };
-  const severityDelta =
-    severityRank[left.severity] - severityRank[right.severity];
-  return severityDelta === 0 ? left.id.localeCompare(right.id) : severityDelta;
 }
 
 function buildReviewProvider(input: {
