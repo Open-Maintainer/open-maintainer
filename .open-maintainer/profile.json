@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_04a7e8fd-edf8-455a-83b2-2c0124384e13",
+  "id": "repo_profile_8b53f628-e533-4849-97a3-266aa5a49bc8",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -328,6 +328,7 @@
   ],
   "testFilePaths": [
     "apps/api/tests/api.test.ts",
+    "apps/api/tests/repository-source-analysis.test.ts",
     "packages/ai/tests/provider.test.ts",
     "packages/analyzer/tests/analyzer.test.ts",
     "packages/config/tests/config.test.ts",
@@ -721,6 +722,10 @@
       "reason": "detected repository context"
     },
     {
+      "path": "apps/api/tests/repository-source-analysis.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "packages/ai/tests/provider.test.ts",
       "reason": "detected repository context"
     },
@@ -1017,7 +1022,7 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "59e579222a1217c9"
+      "hash": "75e2e0e974cb1efa"
     },
     {
       "path": ".open-maintainer/report.md",
@@ -1033,7 +1038,11 @@
     },
     {
       "path": "apps/api/tests/api.test.ts",
-      "hash": "4f15c810162f8fe1"
+      "hash": "0726598a421313fb"
+    },
+    {
+      "path": "apps/api/tests/repository-source-analysis.test.ts",
+      "hash": "91e12276b01e6dcb"
     },
     {
       "path": "apps/api/tsconfig.json",
@@ -1429,7 +1438,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-04T00:44:33.544Z",
+  "createdAt": "2026-05-04T01:13:56.599Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1792,6 +1801,10 @@
             "reason": "detected repository context"
           },
           {
+            "path": "apps/api/tests/repository-source-analysis.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "packages/ai/tests/provider.test.ts",
             "reason": "detected repository context"
           },
@@ -2113,6 +2126,10 @@
           },
           {
             "path": "apps/api/tests/api.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "apps/api/tests/repository-source-analysis.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2639,7 +2656,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-04T00:44:33.544Z"
+    "generatedAt": "2026-05-04T01:13:56.600Z"
   },
-  "openMaintainerProfileHash": "9d44896638a71fcc"
+  "openMaintainerProfileHash": "5957351024e96cce"
 }
