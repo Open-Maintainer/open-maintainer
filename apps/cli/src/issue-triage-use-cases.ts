@@ -46,6 +46,21 @@ export type IssueTriageUseCases = {
   briefIssue(input: BriefIssueInput): Promise<BriefIssueResult>;
 };
 
+export type IssueTriageSession = {
+  triageOne(
+    input: Omit<TriageOneIssueInput, "repoRoot" | "model">,
+  ): Promise<TriageOneIssueResult>;
+  triageBatch(
+    input: Omit<TriageIssueBatchInput, "repoRoot" | "model">,
+  ): Promise<TriageIssueBatchResult>;
+};
+
+export type IssueTriageBriefSession = {
+  briefIssue(
+    input: Omit<BriefIssueInput, "repoRoot">,
+  ): Promise<BriefIssueResult>;
+};
+
 export type IssueTriageUseCaseDeps = {
   repository: IssueTriageRepositoryPort;
   modelProviders: IssueTriageModelProviderPort;
@@ -158,18 +173,85 @@ export function createIssueTriageUseCases(
   return {
     async triageOne(input) {
       validateIssueTriageWriteIntent(input.writeIntent);
-      const context = await prepareModelBackedWorkflow(deps, input);
-      const preview = await context.workflow.preview(input.issueNumber, {
-        createMissingLabels: input.writeIntent.createMissingLabels,
+      const session = await createModelBackedIssueTriageSession(deps, {
+        repoRoot: input.repoRoot,
+        model: input.model,
       });
-      const applied = await context.workflow.apply(preview.writePlan, {
-        labels: input.writeIntent.labels,
-        createMissingLabels: input.writeIntent.createMissingLabels,
-        comment: input.writeIntent.comment,
-        close: input.writeIntent.close,
-        onlySignals: input.writeIntent.onlySignals,
-        minConfidence: input.writeIntent.minConfidence,
-        dryRun: input.writeIntent.dryRun,
+      return session.triageOne({
+        issueNumber: input.issueNumber,
+        writeIntent: input.writeIntent,
+      });
+    },
+    async triageBatch(input) {
+      validateIssueTriageWriteIntent(input.writeIntent);
+      const session = await createModelBackedIssueTriageSession(deps, {
+        repoRoot: input.repoRoot,
+        model: input.model,
+      });
+      return session.triageBatch({
+        state: input.state,
+        limit: input.limit,
+        label: input.label,
+        includeLabels: input.includeLabels,
+        excludeLabels: input.excludeLabels,
+        format: input.format,
+        outputPath: input.outputPath,
+        writeIntent: input.writeIntent,
+      });
+    },
+    async briefIssue(input) {
+      const session = await createIssueTriageBriefSession(deps, {
+        repoRoot: input.repoRoot,
+      });
+      return session.briefIssue({
+        issueNumber: input.issueNumber,
+        allowNonAgentReady: input.allowNonAgentReady,
+        dryRun: input.dryRun,
+        outputPath: input.outputPath,
+      });
+    },
+  };
+}
+
+export async function createModelBackedIssueTriageSession(
+  deps: IssueTriageUseCaseDeps,
+  input: {
+    repoRoot: string;
+    model: IssueTriageModelSelection;
+  },
+): Promise<IssueTriageSession> {
+  assertIssueTriageModelSelection(input.model);
+  const repository = await deps.repository.prepare(input.repoRoot);
+  const model = await deps.modelProviders.create({
+    repoRoot: input.repoRoot,
+    model: input.model,
+  });
+  const github = await deps.github.create({
+    repoRoot: input.repoRoot,
+    context: repository,
+  });
+  const artifacts = await deps.artifacts.create(input.repoRoot);
+  const workflow = createIssueTriageWorkflow({
+    repo: repository.repo,
+    github,
+    model,
+    artifacts,
+  });
+
+  return {
+    async triageOne(sessionInput) {
+      validateIssueTriageWriteIntent(sessionInput.writeIntent);
+      const preview = await workflow.preview(sessionInput.issueNumber, {
+        createMissingLabels: sessionInput.writeIntent.createMissingLabels,
+      });
+      const applied = await workflow.apply(preview.writePlan, {
+        labels: sessionInput.writeIntent.labels,
+        createMissingLabels: sessionInput.writeIntent.createMissingLabels,
+        comment: sessionInput.writeIntent.comment,
+        close: sessionInput.writeIntent.close,
+        onlySignals: sessionInput.writeIntent.onlySignals,
+        minConfidence: sessionInput.writeIntent.minConfidence,
+        dryRun: sessionInput.writeIntent.dryRun,
       });
       return {
         evidence: applied.evidence,
@@ -177,32 +259,31 @@ export function createIssueTriageUseCases(
         artifactPath: applied.artifactPath,
       };
     },
-    async triageBatch(input) {
-      validateIssueTriageWriteIntent(input.writeIntent);
-      const context = await prepareModelBackedWorkflow(deps, input);
-      const batch = await context.workflow.batch({
-        state: input.state,
-        limit: input.limit,
-        label: input.label,
-        includeLabels: input.includeLabels,
-        excludeLabels: input.excludeLabels,
-        format: input.format,
-        labels: input.writeIntent.labels,
-        createMissingLabels: input.writeIntent.createMissingLabels,
-        comment: input.writeIntent.comment,
-        close: input.writeIntent.close,
-        onlySignals: input.writeIntent.onlySignals,
-        minConfidence: input.writeIntent.minConfidence,
-        dryRun: input.writeIntent.dryRun,
+    async triageBatch(sessionInput) {
+      validateIssueTriageWriteIntent(sessionInput.writeIntent);
+      const batch = await workflow.batch({
+        state: sessionInput.state,
+        limit: sessionInput.limit,
+        label: sessionInput.label,
+        includeLabels: sessionInput.includeLabels,
+        excludeLabels: sessionInput.excludeLabels,
+        format: sessionInput.format,
+        labels: sessionInput.writeIntent.labels,
+        createMissingLabels: sessionInput.writeIntent.createMissingLabels,
+        comment: sessionInput.writeIntent.comment,
+        close: sessionInput.writeIntent.close,
+        onlySignals: sessionInput.writeIntent.onlySignals,
+        minConfidence: sessionInput.writeIntent.minConfidence,
+        dryRun: sessionInput.writeIntent.dryRun,
       });
-      if (!input.outputPath) {
+      if (!sessionInput.outputPath) {
         return { ...batch, output: null };
       }
-      const format = input.format === "json" ? "json" : "markdown";
-      if (!input.writeIntent.dryRun) {
+      const format = sessionInput.format === "json" ? "json" : "markdown";
+      if (!sessionInput.writeIntent.dryRun) {
         await deps.output?.write(
           input.repoRoot,
-          input.outputPath,
+          sessionInput.outputPath,
           format === "json"
             ? `${JSON.stringify(batch.report, null, 2)}\n`
             : batch.markdown,
@@ -211,22 +292,30 @@ export function createIssueTriageUseCases(
       return {
         ...batch,
         output: {
-          path: input.outputPath,
-          written: !input.writeIntent.dryRun,
+          path: sessionInput.outputPath,
+          written: !sessionInput.writeIntent.dryRun,
           format,
         },
       };
     },
-    async briefIssue(input) {
-      const artifacts = await deps.artifacts.create(input.repoRoot);
-      const artifactPath = issueTriageArtifactPath(input.issueNumber);
+  };
+}
+
+export async function createIssueTriageBriefSession(
+  deps: IssueTriageUseCaseDeps,
+  input: { repoRoot: string },
+): Promise<IssueTriageBriefSession> {
+  const artifacts = await deps.artifacts.create(input.repoRoot);
+  return {
+    async briefIssue(sessionInput) {
+      const artifactPath = issueTriageArtifactPath(sessionInput.issueNumber);
       const artifact = await artifacts.readIssue(artifactPath);
       if (
         artifact.result.agentReadiness !== "agent_ready" &&
-        !input.allowNonAgentReady
+        !sessionInput.allowNonAgentReady
       ) {
         throw new Error(
-          `Issue #${input.issueNumber} is ${artifact.result.agentReadiness}; pass --allow-non-agent-ready to generate an override brief.`,
+          `Issue #${sessionInput.issueNumber} is ${artifact.result.agentReadiness}; pass --allow-non-agent-ready to generate an override brief.`,
         );
       }
       const repo = await deps.repository.prepareBrief(input.repoRoot);
@@ -236,10 +325,10 @@ export function createIssueTriageUseCases(
         model: createUnavailableIssueTriageModelPort(),
         artifacts,
       });
-      return workflow.brief(input.issueNumber, {
-        allowNonAgentReady: input.allowNonAgentReady,
-        dryRun: input.dryRun,
-        outputPath: input.outputPath,
+      return workflow.brief(sessionInput.issueNumber, {
+        allowNonAgentReady: sessionInput.allowNonAgentReady,
+        dryRun: sessionInput.dryRun,
+        outputPath: sessionInput.outputPath,
       });
     },
   };
@@ -265,38 +354,6 @@ function validateIssueTriageWriteIntent(intent: IssueTriageWriteIntent): void {
   if (intent.createMissingLabels && !intent.labels) {
     throw new Error("--create-labels requires --apply-labels.");
   }
-}
-
-async function prepareModelBackedWorkflow(
-  deps: IssueTriageUseCaseDeps,
-  input: {
-    repoRoot: string;
-    model: IssueTriageModelSelection;
-  },
-): Promise<{
-  repository: IssueTriageRepositoryContext;
-  workflow: ReturnType<typeof createIssueTriageWorkflow>;
-}> {
-  assertIssueTriageModelSelection(input.model);
-  const repository = await deps.repository.prepare(input.repoRoot);
-  const model = await deps.modelProviders.create({
-    repoRoot: input.repoRoot,
-    model: input.model,
-  });
-  const github = await deps.github.create({
-    repoRoot: input.repoRoot,
-    context: repository,
-  });
-  const artifacts = await deps.artifacts.create(input.repoRoot);
-  return {
-    repository,
-    workflow: createIssueTriageWorkflow({
-      repo: repository.repo,
-      github,
-      model,
-      artifacts,
-    }),
-  };
 }
 
 function assertIssueTriageModelSelection(

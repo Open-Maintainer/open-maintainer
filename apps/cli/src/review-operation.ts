@@ -19,9 +19,12 @@ import {
 } from "@open-maintainer/github";
 import {
   assembleLocalReviewInput,
+  createCliReviewOperationModelRequest,
   createReviewOperation,
   createReviewOperationDeps,
   loadReviewPromptContext,
+  reviewOperationOutputFromShortcut,
+  reviewOperationPublicationFromShortcut,
   reviewTriageLabelDefinitions,
   reviewTriageLabelNames,
 } from "@open-maintainer/review";
@@ -30,8 +33,6 @@ import type {
   ReviewInlineCommentPlan,
   ReviewInlineCommentResult,
   ReviewOperationDeps,
-  ReviewOperationPublicationRequest,
-  ReviewOutputShortcut,
   ReviewPromptContext,
   ReviewPublicationInput,
   ReviewPublicationPlan,
@@ -177,7 +178,14 @@ export function createReviewOperationRuntime(
       const operation = createReviewOperation(
         createCliReviewOperationDeps(resolvedPorts),
       );
-      const output = reviewOutputShortcut(input.output);
+      const output = reviewOperationOutputFromShortcut(
+        input.output?.markdownPath
+          ? { markdownPath: input.output.markdownPath }
+          : undefined,
+      );
+      const publication = reviewOperationPublicationFromShortcut(
+        input.publication,
+      );
       const result = await operation.run({
         source: {
           kind: "local",
@@ -198,21 +206,15 @@ export function createReviewOperationRuntime(
                     : {}),
                 },
         },
-        model: {
-          kind: "cli",
+        model: createCliReviewOperationModelRequest({
           provider: input.model.provider,
-          ...(input.model.model ? { model: input.model.model } : {}),
-          consent: {
-            repositoryContentTransfer:
-              input.model.consent.repositoryContentTransfer,
-            grantedBy: "cli-flag",
-            grantedAt: new Date().toISOString(),
-          },
-        },
+          consent: input.model.consent,
+          ...(input.model.model !== undefined
+            ? { model: input.model.model }
+            : {}),
+        }),
         mode: input.intent,
-        ...(input.publication !== undefined
-          ? { publish: reviewPublicationShortcut(input.publication) }
-          : {}),
+        ...(publication !== undefined ? { publish: publication } : {}),
         ...(output ? { output } : {}),
       });
       if (!result.ok) {
@@ -341,35 +343,6 @@ function createCliReviewOperationDeps(
     publisher: ports.publisher,
     output: ports.output,
   });
-}
-
-function reviewPublicationShortcut(
-  publication: Exclude<ReviewOperationRequest["publication"], undefined>,
-): false | ReviewOperationPublicationRequest {
-  if (publication === false) {
-    return publication;
-  }
-  return {
-    mode: publication.mode,
-    ...(publication.summary !== undefined
-      ? { summary: publication.summary }
-      : {}),
-    ...(publication.inline !== undefined ? { inline: publication.inline } : {}),
-    ...(publication.triageLabel !== undefined
-      ? { triageLabel: publication.triageLabel }
-      : {}),
-  };
-}
-
-function reviewOutputShortcut(
-  output: ReviewOperationRequest["output"] | undefined,
-): ReviewOutputShortcut | undefined {
-  if (!output?.markdownPath) {
-    return undefined;
-  }
-  return {
-    markdownPath: output.markdownPath,
-  };
 }
 
 type PreparedPullRequestReview = {

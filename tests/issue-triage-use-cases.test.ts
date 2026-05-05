@@ -2,6 +2,10 @@ import type {
   IssueTriageInput,
   IssueTriageResult,
 } from "@open-maintainer/shared";
+import {
+  IssueTriageInputSchema,
+  IssueTriageResultSchema,
+} from "@open-maintainer/shared";
 import type {
   IssueTriageArtifactPort,
   IssueTriageGitHubPort,
@@ -12,7 +16,9 @@ import { buildIssueTriageEvidence } from "@open-maintainer/triage";
 import { describe, expect, it } from "vitest";
 import {
   type IssueTriageUseCaseDeps,
+  createIssueTriageBriefSession,
   createIssueTriageUseCases,
+  createModelBackedIssueTriageSession,
 } from "../apps/cli/src/issue-triage-use-cases";
 
 const repoContext: IssueTriageRepoContextPort = {
@@ -443,6 +449,62 @@ describe("issue triage use cases", () => {
     ]);
   });
 
+  it("runs issue and batch triage through one prepared model-backed session", async () => {
+    const { deps, calls } = createDeps();
+    const session = await createModelBackedIssueTriageSession(deps, {
+      repoRoot: "/tmp/repo",
+      model: {
+        provider: "codex",
+        model: "gpt-test",
+        consent: { repositoryContentTransfer: true },
+      },
+    });
+
+    const issue = await session.triageOne({
+      issueNumber: 1,
+      writeIntent: {
+        dryRun: true,
+        labels: true,
+        createMissingLabels: false,
+        comment: true,
+        close: false,
+        onlySignals: [],
+        minConfidence: null,
+      },
+    });
+    const batch = await session.triageBatch({
+      state: "open",
+      limit: 2,
+      label: null,
+      includeLabels: [],
+      excludeLabels: [],
+      format: null,
+      outputPath: null,
+      writeIntent: {
+        dryRun: true,
+        labels: false,
+        createMissingLabels: false,
+        comment: false,
+        close: false,
+        onlySignals: [],
+        minConfidence: null,
+      },
+    });
+
+    expect(issue.result.issueNumber).toBe(1);
+    expect(batch.output).toBeNull();
+    expect(calls.listIssues).toEqual([
+      expect.objectContaining({
+        state: "open",
+        limit: 2,
+        includeLabels: [],
+      }),
+    ]);
+    expect(calls.repositoryPrepare).toBe(1);
+    expect(calls.modelCreate).toBe(1);
+    expect(calls.githubCreate).toBe(1);
+  });
+
   it("maps batch filters, continues through model failures, and writes reports and explicit output", async () => {
     const { deps, calls } = createDeps({
       modelResult(issueNumber) {
@@ -551,5 +613,67 @@ describe("issue triage use cases", () => {
       artifacts.get(".open-maintainer/triage/issues/1.json")?.result.taskBrief
         .status,
     ).toBe("generated");
+  });
+
+  it("creates a brief session from local artifacts without GitHub or model ports", async () => {
+    const { deps, artifacts, calls } = createDeps({
+      initialArtifacts: new Map([
+        [
+          ".open-maintainer/triage/issues/9.json",
+          {
+            input: IssueTriageInputSchema.parse({
+              repoId: repoContext.repoId,
+              owner: repoContext.owner,
+              repo: repoContext.repo,
+              issueNumber: 9,
+              evidence: createEvidence(9),
+              modelProvider: "Fake model",
+              model: "fake-triage",
+              consentMode: "explicit_repository_content_transfer",
+              createdAt: "2026-05-03T00:00:00.000Z",
+            }),
+            result: IssueTriageResultSchema.parse({
+              ...readyModelResult(9),
+              id: "issue_triage_9",
+              repoId: repoContext.repoId,
+              issueNumber: 9,
+              commentPreview: {
+                marker: "<!-- open-maintainer:issue-triage -->",
+                summary: "Ready for maintainer review.",
+                body: "Ready for maintainer review.",
+                artifactPath: ".open-maintainer/triage/issues/9.json",
+              },
+              resolvedLabels: [],
+              writeActions: [],
+              modelProvider: "Fake model",
+              model: "fake-triage",
+              consentMode: "explicit_repository_content_transfer",
+              sourceProfileVersion: 1,
+              contextArtifactVersion: null,
+              createdAt: "2026-05-03T00:02:00.000Z",
+            }),
+          },
+        ],
+      ]),
+    });
+    const session = await createIssueTriageBriefSession(deps, {
+      repoRoot: "/tmp/repo",
+    });
+
+    const result = await session.briefIssue({
+      issueNumber: 9,
+      allowNonAgentReady: false,
+      dryRun: true,
+      outputPath: ".open-maintainer/triage/issues/9-brief.md",
+    });
+
+    expect(result.brief.status).toBe("generated");
+    expect(calls.githubCreate).toBe(0);
+    expect(calls.modelCreate).toBe(0);
+    expect(calls.writeBriefMarkdown).toEqual([]);
+    expect(
+      artifacts.get(".open-maintainer/triage/issues/9.json")?.result.taskBrief
+        .status,
+    ).toBe("not_generated");
   });
 });
