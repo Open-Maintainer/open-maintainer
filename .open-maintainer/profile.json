@@ -1,5 +1,5 @@
 {
-  "id": "repo_profile_ea50e1a9-1913-4f1e-9e8a-c9905c0d1d91",
+  "id": "repo_profile_325d5dc6-b8f8-4e40-9a2a-1d78034029e7",
   "repoId": "local",
   "version": 1,
   "owner": "Open-Maintainer",
@@ -240,8 +240,10 @@
     ".agents/skills/open-maintainer-update-web-dashboard-flow/SKILL.md",
     "AGENTS.md",
     "CONTRIBUTING.md",
+    "apps/api/tests/context-pr-service.test.ts",
     "apps/web/next-env.d.ts",
     "packages/analyzer/tests/analyzer.test.ts",
+    "packages/shared/tests/artifact-registry.test.ts",
     "tests/cli-doctor.test.ts"
   ],
   "existingContextFiles": [
@@ -330,7 +332,9 @@
   ],
   "testFilePaths": [
     "apps/api/tests/api.test.ts",
+    "apps/api/tests/context-pr-service.test.ts",
     "apps/api/tests/repository-source-analysis.test.ts",
+    "apps/api/tests/review-service.test.ts",
     "packages/ai/tests/provider.test.ts",
     "packages/analyzer/tests/analyzer.test.ts",
     "packages/config/tests/config.test.ts",
@@ -343,6 +347,7 @@
     "packages/review/tests/prompt-context.test.ts",
     "packages/review/tests/render.test.ts",
     "packages/review/tests/workflow.test.ts",
+    "packages/shared/tests/artifact-registry.test.ts",
     "packages/shared/tests/schemas.test.ts",
     "packages/triage/tests/index.test.ts",
     "tests/action-mvp.test.ts",
@@ -353,6 +358,7 @@
     "tests/cli-review-operation.test.ts",
     "tests/cli-review.test.ts",
     "tests/cli-triage.test.ts",
+    "tests/dashboard-contracts.test.ts",
     "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
     "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-start-task/SKILL.md",
     "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-testing-workflow/SKILL.md",
@@ -699,11 +705,19 @@
       "reason": "detected repository context"
     },
     {
+      "path": "apps/api/tests/context-pr-service.test.ts",
+      "reason": "detected repository context"
+    },
+    {
       "path": "apps/web/next-env.d.ts",
       "reason": "detected repository context"
     },
     {
       "path": "packages/analyzer/tests/analyzer.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "packages/shared/tests/artifact-registry.test.ts",
       "reason": "detected repository context"
     },
     {
@@ -732,6 +746,10 @@
     },
     {
       "path": "apps/api/tests/repository-source-analysis.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "apps/api/tests/review-service.test.ts",
       "reason": "detected repository context"
     },
     {
@@ -812,6 +830,10 @@
     },
     {
       "path": "tests/cli-triage.test.ts",
+      "reason": "detected repository context"
+    },
+    {
+      "path": "tests/dashboard-contracts.test.ts",
       "reason": "detected repository context"
     },
     {
@@ -1059,11 +1081,11 @@
     },
     {
       "path": ".open-maintainer/profile.json",
-      "hash": "b25eacf9cd2054c0"
+      "hash": "3a5acd292061a6ee"
     },
     {
       "path": ".open-maintainer/report.md",
-      "hash": "80800e5a77c5baa5"
+      "hash": "ccc93c4ea140f416"
     },
     {
       "path": "AGENTS.md",
@@ -1078,8 +1100,16 @@
       "hash": "0726598a421313fb"
     },
     {
+      "path": "apps/api/tests/context-pr-service.test.ts",
+      "hash": "18bdf116e103489e"
+    },
+    {
       "path": "apps/api/tests/repository-source-analysis.test.ts",
       "hash": "0a406b27e447d3f3"
+    },
+    {
+      "path": "apps/api/tests/review-service.test.ts",
+      "hash": "26cccf56859f6c91"
     },
     {
       "path": "apps/api/tsconfig.json",
@@ -1258,6 +1288,10 @@
       "hash": "76311579f7619c94"
     },
     {
+      "path": "packages/shared/tests/artifact-registry.test.ts",
+      "hash": "aa02276f1d8a2971"
+    },
+    {
       "path": "packages/shared/tests/schemas.test.ts",
       "hash": "58399099683d8f49"
     },
@@ -1316,6 +1350,10 @@
     {
       "path": "tests/cli-triage.test.ts",
       "hash": "cf666c3d6e72a9d8"
+    },
+    {
+      "path": "tests/dashboard-contracts.test.ts",
+      "hash": "50d4e1b7e71da8f1"
     },
     {
       "path": "tests/fixtures/high-readiness-ts/.agents/skills/high-readiness-ts-pr-review/SKILL.md",
@@ -1467,7 +1505,7 @@
     },
     {
       "path": "tests/issue-triage-use-cases.test.ts",
-      "hash": "ff23a5a9683f3c59"
+      "hash": "7c2c9dd708a1e28b"
     },
     {
       "path": "tests/mvp-golden.test.ts",
@@ -1507,7 +1545,7 @@
     }
   ],
   "contextArtifactHashes": [],
-  "createdAt": "2026-05-04T22:25:05.583Z",
+  "createdAt": "2026-05-05T00:48:25.491Z",
   "agentReadiness": {
     "score": 100,
     "categories": [
@@ -1846,11 +1884,19 @@
             "reason": "detected repository context"
           },
           {
+            "path": "apps/api/tests/context-pr-service.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "apps/web/next-env.d.ts",
             "reason": "detected repository context"
           },
           {
             "path": "packages/analyzer/tests/analyzer.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/shared/tests/artifact-registry.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -1871,6 +1917,10 @@
           },
           {
             "path": "apps/api/tests/repository-source-analysis.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "apps/api/tests/review-service.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -1951,6 +2001,10 @@
           },
           {
             "path": "tests/cli-triage.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/dashboard-contracts.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2206,7 +2260,15 @@
             "reason": "detected repository context"
           },
           {
+            "path": "apps/api/tests/context-pr-service.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "packages/analyzer/tests/analyzer.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/shared/tests/artifact-registry.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2227,6 +2289,10 @@
           },
           {
             "path": "apps/api/tests/repository-source-analysis.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "apps/api/tests/review-service.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2307,6 +2373,10 @@
           },
           {
             "path": "tests/cli-triage.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "tests/dashboard-contracts.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2694,11 +2764,19 @@
             "reason": "detected repository context"
           },
           {
+            "path": "apps/api/tests/context-pr-service.test.ts",
+            "reason": "detected repository context"
+          },
+          {
             "path": "apps/web/next-env.d.ts",
             "reason": "detected repository context"
           },
           {
             "path": "packages/analyzer/tests/analyzer.test.ts",
+            "reason": "detected repository context"
+          },
+          {
+            "path": "packages/shared/tests/artifact-registry.test.ts",
             "reason": "detected repository context"
           },
           {
@@ -2781,7 +2859,7 @@
       }
     ],
     "missingItems": [],
-    "generatedAt": "2026-05-04T22:25:05.583Z"
+    "generatedAt": "2026-05-05T00:48:25.492Z"
   },
-  "openMaintainerProfileHash": "b6d7ab326bd9f785"
+  "openMaintainerProfileHash": "bbd1ac79d60841ba"
 }
