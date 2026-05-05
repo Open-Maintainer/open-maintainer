@@ -1,19 +1,7 @@
 import type { NextRequest } from "next/server";
 import { dashboardApi } from "../dashboard-api";
+import { providerPreset } from "../dashboard-contracts";
 import { redirectToDashboard } from "../redirect";
-
-const providerPresets = {
-  codex: {
-    kind: "codex-cli",
-    displayName: "Codex CLI",
-    model: "gpt-5.5",
-  },
-  claude: {
-    kind: "claude-cli",
-    displayName: "Claude CLI",
-    model: "claude-cli",
-  },
-} as const;
 
 type ProviderListResponse = {
   providers?: Array<{ id?: unknown; kind?: unknown; model?: unknown }>;
@@ -24,7 +12,7 @@ export async function POST(request: NextRequest) {
   const repoId = String(form.get("repoId") ?? "").trim();
   const providerId = String(form.get("providerId") ?? "").trim();
   const providerType = String(form.get("providerType") ?? "");
-  const preset = providerPresets[providerType as keyof typeof providerPresets];
+  const preset = providerPreset(providerType);
   const requestedModel = String(form.get("model") ?? "").trim();
   const repoContentConsent = form.get("repoContentConsent") === "on";
   const targetModel = requestedModel || preset?.model;

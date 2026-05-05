@@ -1,13 +1,12 @@
 import type { NextRequest } from "next/server";
 import { dashboardApi } from "../dashboard-api";
+import {
+  repoActionPathByType,
+  repoActionPayload,
+  repoActionRequiresProvider,
+  repoActionType,
+} from "../dashboard-contracts";
 import { redirectToDashboard } from "../redirect";
-
-const actionPathByType = {
-  analyze: "analyze",
-  generateContext: "generate-context",
-  openContextPr: "open-context-pr",
-  createReview: "reviews",
-} as const;
 
 export async function POST(request: NextRequest) {
   const form = await request.formData();
@@ -18,36 +17,26 @@ export async function POST(request: NextRequest) {
   const baseRef = String(form.get("baseRef") ?? "").trim();
   const headRef = String(form.get("headRef") ?? "").trim();
   const prNumber = String(form.get("prNumber") ?? "").trim();
-  const actionType = String(form.get("actionType") ?? "");
-  const actionPath =
-    actionPathByType[actionType as keyof typeof actionPathByType];
+  const actionType = repoActionType(String(form.get("actionType") ?? ""));
   let actionError: string | undefined;
 
-  if (!repoId || !actionPath) {
+  if (!repoId || !actionType) {
     actionError = "invalid-action";
-  } else if (
-    (actionType === "generateContext" || actionType === "createReview") &&
-    !providerId
-  ) {
+  } else if (repoActionRequiresProvider(actionType) && !providerId) {
     actionError = "missing-provider";
   } else {
+    const actionPath = repoActionPathByType[actionType];
     const result = await dashboardApi.postJson(
       `/repos/${encodeURIComponent(repoId)}/${actionPath}`,
-      actionType === "generateContext"
-        ? {
-            ...(providerId ? { providerId } : {}),
-            async: true,
-            ...(context ? { context } : {}),
-            ...(skills ? { skills } : {}),
-          }
-        : actionType === "createReview"
-          ? {
-              ...(baseRef ? { baseRef } : {}),
-              ...(headRef ? { headRef } : {}),
-              ...(prNumber ? { prNumber: Number(prNumber) } : {}),
-              ...(providerId ? { providerId } : {}),
-            }
-          : {},
+      repoActionPayload({
+        actionType,
+        ...(providerId ? { providerId } : {}),
+        ...(context ? { context } : {}),
+        ...(skills ? { skills } : {}),
+        ...(baseRef ? { baseRef } : {}),
+        ...(headRef ? { headRef } : {}),
+        ...(prNumber ? { prNumber } : {}),
+      }),
     );
     if (!result.ok) {
       actionError = result.actionError;

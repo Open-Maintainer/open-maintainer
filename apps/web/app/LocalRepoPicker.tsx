@@ -1,11 +1,12 @@
 "use client";
 
+import {
+  type RepositoryUploadFile,
+  repositoryUploadLimits,
+  shouldAlwaysSkipRepositoryUploadPath,
+  shouldReadRepositoryUploadPath,
+} from "@open-maintainer/shared";
 import { useRef, useState } from "react";
-
-type UploadFile = {
-  path: string;
-  content: string;
-};
 
 type GitignoreRule = {
   pattern: string;
@@ -13,60 +14,6 @@ type GitignoreRule = {
   directoryOnly: boolean;
   anchored: boolean;
 };
-
-const maxFiles = 800;
-const maxFileBytes = 128_000;
-const ignoredPathParts = new Set([
-  ".git",
-  ".next",
-  ".turbo",
-  ".cache",
-  ".vercel",
-  "coverage",
-  "dist",
-  "build",
-  "node_modules",
-  "out",
-  "target",
-  "vendor",
-]);
-const readableExtensions = new Set([
-  ".cairo",
-  ".css",
-  ".go",
-  ".html",
-  ".js",
-  ".json",
-  ".jsx",
-  ".lock",
-  ".md",
-  ".nr",
-  ".rs",
-  ".sol",
-  ".sum",
-  ".toml",
-  ".ts",
-  ".tsx",
-  ".txt",
-  ".yml",
-  ".yaml",
-]);
-const readableNames = new Set([
-  ".env.example",
-  ".gitignore",
-  "bun.lock",
-  "bun.lockb",
-  "Cargo.lock",
-  "Dockerfile",
-  "go.sum",
-  "Makefile",
-  "package-lock.json",
-  "pnpm-lock.yaml",
-  "README",
-  "Scarb.lock",
-  "uv.lock",
-  "yarn.lock",
-]);
 
 export function LocalRepoPicker({ error }: { error?: string | undefined }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -81,18 +28,18 @@ export function LocalRepoPicker({ error }: { error?: string | undefined }) {
       const selected = Array.from(files);
       const rootName = rootDirectoryName(selected);
       const gitignoreRules = await readRootGitignoreRules(selected, rootName);
-      const uploaded: UploadFile[] = [];
+      const uploaded: RepositoryUploadFile[] = [];
       for (const file of selected) {
-        if (uploaded.length >= maxFiles) {
+        if (uploaded.length >= repositoryUploadLimits.maxFiles) {
           break;
         }
         const relativePath = repoRelativePath(file);
         const repoPath = stripRootDirectory(relativePath, rootName);
         if (
           !repoPath ||
-          file.size > maxFileBytes ||
+          file.size > repositoryUploadLimits.maxFileBytes ||
           shouldSkipPath(repoPath, gitignoreRules) ||
-          !shouldReadPath(repoPath)
+          !shouldReadRepositoryUploadPath(repoPath)
         ) {
           continue;
         }
@@ -200,26 +147,9 @@ function shouldSkipPath(
   gitignoreRules: GitignoreRule[],
 ): boolean {
   return (
-    relativePath
-      .split("/")
-      .some(
-        (part) => ignoredPathParts.has(part) || part.endsWith(".tsbuildinfo"),
-      ) || isIgnoredByGitignore(relativePath, gitignoreRules)
+    shouldAlwaysSkipRepositoryUploadPath(relativePath) ||
+    isIgnoredByGitignore(relativePath, gitignoreRules)
   );
-}
-
-function shouldReadPath(relativePath: string): boolean {
-  const fileName = relativePath.split("/").at(-1) ?? "";
-  if (
-    readableNames.has(fileName) ||
-    readableNames.has(fileName.split(".")[0] ?? "")
-  ) {
-    return true;
-  }
-  const extensionStart = fileName.lastIndexOf(".");
-  const extension =
-    extensionStart >= 0 ? fileName.slice(extensionStart).toLowerCase() : "";
-  return readableExtensions.has(extension);
 }
 
 function parseGitignore(content: string): GitignoreRule[] {

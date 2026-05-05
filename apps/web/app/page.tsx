@@ -1,101 +1,35 @@
-import type {
-  GeneratedArtifact,
-  Health,
-  ModelProviderConfig,
-  Repo,
-  RepoProfile,
-  ReviewResult,
-  RunRecord,
-} from "@open-maintainer/shared";
+import type { ReviewResult, RunRecord } from "@open-maintainer/shared";
 import { LocalRepoPicker } from "./LocalRepoPicker";
-import { dashboardApi } from "./dashboard-api";
-
-type SearchParams = Record<string, string | string[] | undefined>;
+import {
+  type RunWithContext,
+  type SearchParams,
+  findPrUrl,
+  loadDashboardViewModel,
+} from "./dashboard-view-model";
 
 type DashboardProps = {
   searchParams?: Promise<SearchParams>;
 };
 
-type ProviderSummary = Omit<ModelProviderConfig, "encryptedApiKey"> & {
-  encryptedApiKey?: string;
-};
-
-type ReadinessProfile = RepoProfile & {
-  readiness?: {
-    score?: unknown;
-    missingItems?: unknown;
-    missing?: unknown;
-  };
-  readinessScore?: unknown;
-  missingItems?: unknown;
-  readinessMissingItems?: unknown;
-};
-
-type RunWithContext = RunRecord & {
-  contextPr?: {
-    prUrl?: unknown;
-  };
-  context?: {
-    prUrl?: unknown;
-    pullRequestUrl?: unknown;
-  };
-  prUrl?: unknown;
-};
-
 export default async function Dashboard({ searchParams }: DashboardProps) {
   const params: SearchParams = searchParams ? await searchParams : {};
-  const requestedRepo = singleParam(params.repo ?? params.repoId);
-  const repoQuery = singleParam(params.q)?.trim().toLowerCase() ?? "";
-  const localRepoError = singleParam(params.localRepoError);
-  const actionError = singleParam(params.actionError);
-  const providerError = singleParam(params.providerError);
-  const requestedProviderId = singleParam(params.providerId);
-
-  const [health, reposResponse, providersResponse] = await Promise.all([
-    dashboardApi.fetchJson<Health>("/health"),
-    dashboardApi.fetchJson<{ repos: Repo[] }>("/repos"),
-    dashboardApi.fetchJson<{ providers: ProviderSummary[] }>(
-      "/model-providers",
-    ),
-  ]);
-  const repos = reposResponse?.repos ?? [];
-  const repo = selectRepo({ repos, requestedRepo, repoQuery });
-  const profileResponse = repo
-    ? await dashboardApi.fetchJson<{ profile: ReadinessProfile }>(
-        `/repos/${repo.id}/profile`,
-      )
-    : null;
-  const artifactsResponse = repo
-    ? await dashboardApi.fetchJson<{ artifacts: GeneratedArtifact[] }>(
-        `/repos/${repo.id}/artifacts`,
-      )
-    : null;
-  const runsResponse = repo
-    ? await dashboardApi.fetchJson<{ runs: RunWithContext[] }>(
-        `/repos/${repo.id}/runs`,
-      )
-    : null;
-  const reviewsResponse = repo
-    ? await dashboardApi.fetchJson<{ reviews: ReviewResult[] }>(
-        `/repos/${repo.id}/reviews`,
-      )
-    : null;
-  const profile = profileResponse?.profile ?? null;
-  const artifacts = artifactsResponse?.artifacts ?? [];
-  const runs = runsResponse?.runs ?? [];
-  const reviews = reviewsResponse?.reviews ?? [];
-  const latestReview = reviews.at(-1) ?? null;
-  const providers = providersResponse?.providers ?? [];
-  const selectedProvider =
-    providers.find((provider) => provider.id === requestedProviderId) ??
-    providers.find((provider) => provider.repoContentConsent) ??
-    null;
-  const defaultArtifactSelection =
-    artifactSelectionForProvider(selectedProvider);
-  const readiness = profile ? getReadiness(profile) : null;
-  const prStatus = getPrStatus(runs);
-  const contextActionLabel =
-    repo?.owner === "local" ? "Open PR with gh" : "Open context PR";
+  const view = await loadDashboardViewModel({ searchParams: params });
+  const {
+    health,
+    repos,
+    repo,
+    profile,
+    artifacts,
+    runs,
+    latestReview,
+    providers,
+    selectedProvider,
+    defaultArtifactSelection,
+    readiness,
+    prStatus,
+    contextActionLabel,
+  } = view;
+  const { localRepoError, actionError, providerError } = view.errors;
 
   return (
     <main>
@@ -1014,71 +948,6 @@ function countReviewFeedback(review: ReviewResult) {
   return counts;
 }
 
-function singleParam(value: string | string[] | undefined): string | undefined {
-  return Array.isArray(value) ? value[0] : value;
-}
-
-function selectRepo({
-  repos,
-  requestedRepo,
-  repoQuery,
-}: {
-  repos: Repo[];
-  requestedRepo: string | undefined;
-  repoQuery: string;
-}): Repo | null {
-  if (requestedRepo) {
-    const match = repos.find(
-      (repo) =>
-        repo.id === requestedRepo ||
-        repo.fullName === requestedRepo ||
-        repo.name === requestedRepo,
-    );
-    if (match) {
-      return match;
-    }
-  }
-  if (repoQuery) {
-    return (
-      repos.find((repo) => repo.fullName.toLowerCase().includes(repoQuery)) ??
-      null
-    );
-  }
-  return null;
-}
-
-function getReadiness(profile: ReadinessProfile): {
-  score: number | undefined;
-  missingItems: string[];
-} {
-  const readiness = profile.readiness;
-  const agentReadiness = profile.agentReadiness;
-  return {
-    score: numberValue(
-      profile.readinessScore ?? readiness?.score ?? agentReadiness.score,
-    ),
-    missingItems: stringArray(
-      profile.missingItems ??
-        profile.readinessMissingItems ??
-        readiness?.missingItems ??
-        readiness?.missing ??
-        agentReadiness.missingItems,
-    ),
-  };
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === "number" && Number.isFinite(value)
-    ? value
-    : undefined;
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
-}
-
 function formatReadinessScore(score: number | undefined): string {
   if (score === undefined) {
     return "pending";
@@ -1130,62 +999,6 @@ function parseStatusError(error: string): { status: string; detail: string } {
     status: error.slice(0, separator),
     detail: error.slice(separator + 1),
   };
-}
-
-function artifactSelectionForProvider(
-  provider: ProviderSummary | null,
-): "codex" | "claude" {
-  return provider?.kind === "claude-cli" ? "claude" : "codex";
-}
-
-function getPrStatus(runs: RunWithContext[]): {
-  label: string;
-  message: string;
-  url: string | null;
-} {
-  const contextRuns = runs
-    .filter((run) => run.type === "context_pr")
-    .slice()
-    .reverse();
-  const runWithUrl = contextRuns.find((run) => findPrUrl(run));
-  const url = runWithUrl ? findPrUrl(runWithUrl) : null;
-  if (url) {
-    return { label: "opened", message: "Context PR opened.", url };
-  }
-  const latest = contextRuns[0];
-  if (!latest) {
-    return {
-      label: "not opened",
-      message:
-        "Open a context PR after artifacts have been generated. Local repositories use the authenticated gh CLI in the API environment.",
-      url: null,
-    };
-  }
-  return {
-    label: latest.status,
-    message:
-      latest.safeMessage ??
-      (latest.status === "succeeded"
-        ? "Context PR run succeeded, but no PR URL was returned."
-        : latest.inputSummary),
-    url: null,
-  };
-}
-
-function findPrUrl(run: RunWithContext): string | null {
-  const candidates = [
-    run.externalId,
-    run.prUrl,
-    run.contextPr?.prUrl,
-    run.context?.prUrl,
-    run.context?.pullRequestUrl,
-  ];
-  const url = candidates.find(
-    (candidate): candidate is string =>
-      typeof candidate === "string" &&
-      /^https?:\/\/\S+\/pull\/\d+/.test(candidate),
-  );
-  return url ?? null;
 }
 
 function formatDate(value: string): string {
