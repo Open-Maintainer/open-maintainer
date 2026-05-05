@@ -1,6 +1,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import type { GeneratedArtifact, RepoProfile } from "@open-maintainer/shared";
+import {
+  ArtifactTypeSchema,
+  type GeneratedArtifact,
+  type RepoProfile,
+  contextArtifactPathOrSelf,
+  contextArtifactPathsForTargets,
+  contextArtifactSlug,
+} from "@open-maintainer/shared";
 import type { ReviewPromptContext } from "./model";
 
 type ReviewPromptContextKey = keyof ReviewPromptContext;
@@ -94,11 +101,16 @@ export async function loadReviewPromptContext(
 
   const generatedContext = (
     await Promise.all(
-      (input.generatedContextPaths ?? [".open-maintainer/report.md"]).map(
-        (artifactPath) =>
-          readContext(artifactPath, {
-            source: input.generatedContextSource ?? "repo",
-          }),
+      (
+        input.generatedContextPaths ??
+        contextArtifactPathsForTargets({
+          repoName: input.profile.name,
+          targets: ["report"],
+        })
+      ).map((artifactPath) =>
+        readContext(artifactPath, {
+          source: input.generatedContextSource ?? "repo",
+        }),
       ),
     )
   )
@@ -119,11 +131,14 @@ function reviewPromptContextCandidates(
     | "includeGenericSkillFallbacks"
   >,
 ): ReviewPromptContextCandidate[] {
+  const repoSlug = contextArtifactSlug(input.profile.name);
+  const artifactPath = (type: string) =>
+    contextArtifactPathOrSelf(ArtifactTypeSchema.parse(type));
   const skillPath = (name: string) =>
-    `.agents/skills/${input.profile.name}-${name}/SKILL.md`;
+    artifactPath(`.agents/skills/${repoSlug}-${name}/SKILL.md`);
   const genericSkillPath = (name: string) =>
     input.includeGenericSkillFallbacks
-      ? `.agents/skills/${name}/SKILL.md`
+      ? artifactPath(`.agents/skills/${name}/SKILL.md`)
       : undefined;
   const skillCandidate = (
     key: ReviewPromptContextKey,
@@ -133,9 +148,18 @@ function reviewPromptContextCandidates(
     fallbackPath
       ? { key, path: repoPath, fallbackPath }
       : { key, path: repoPath };
+  const generatedInstructionPaths = contextArtifactPathsForTargets({
+    repoName: input.profile.name,
+    targets: ["copilot", "cursor"],
+  });
+  const copilotInstructionsPath = generatedInstructionPaths[0];
+  const cursorRulePath = generatedInstructionPaths[1];
+  if (!copilotInstructionsPath || !cursorRulePath) {
+    throw new Error("Generated review instruction artifact paths are missing.");
+  }
   return [
-    { key: "openMaintainerConfig", path: ".open-maintainer.yml" },
-    { key: "agentsMd", path: "AGENTS.md" },
+    { key: "openMaintainerConfig", path: artifactPath(".open-maintainer.yml") },
+    { key: "agentsMd", path: artifactPath("AGENTS.md") },
     skillCandidate(
       "repoPrReviewSkill",
       skillPath("pr-review"),
@@ -155,11 +179,11 @@ function reviewPromptContextCandidates(
       ? [
           {
             key: "copilotInstructions" as const,
-            path: ".github/copilot-instructions.md",
+            path: copilotInstructionsPath,
           },
           {
             key: "cursorRule" as const,
-            path: ".cursor/rules/open-maintainer.md",
+            path: cursorRulePath,
           },
         ]
       : []),

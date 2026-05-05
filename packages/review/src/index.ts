@@ -12,7 +12,7 @@ import type {
   ReviewValidationExpectation,
   RunRecord,
 } from "@open-maintainer/shared";
-import { ReviewResultSchema } from "@open-maintainer/shared";
+import { ReviewResultSchema, nowIso } from "@open-maintainer/shared";
 import { generateModelBackedReview } from "./model";
 import type { ReviewPromptContext as ModelReviewPromptContext } from "./model";
 export { assembleLocalReviewInput } from "./local-git";
@@ -626,6 +626,69 @@ export type ReviewOperation = {
     },
   ): Promise<ReviewOperationResult>;
 };
+
+export function createCliReviewOperationModelRequest(input: {
+  provider: ReviewModelSelection["provider"];
+  model?: string | null;
+  consent: { repositoryContentTransfer: true };
+  grantedAt?: string;
+  grantedBy?: RepositoryContentConsent["grantedBy"];
+}): Extract<ReviewOperationModelRequest, { kind: "cli" }> {
+  return {
+    kind: "cli",
+    provider: input.provider,
+    ...(input.model ? { model: input.model } : {}),
+    consent: {
+      repositoryContentTransfer: input.consent.repositoryContentTransfer,
+      grantedBy: input.grantedBy ?? "cli-flag",
+      grantedAt: input.grantedAt ?? nowIso(),
+    },
+  };
+}
+
+export function createStoredProviderReviewOperationModelRequest(input: {
+  providerId: string;
+  consent: RepositoryContentConsent;
+}): Extract<ReviewOperationModelRequest, { kind: "stored-provider" }> {
+  return {
+    kind: "stored-provider",
+    providerId: input.providerId,
+    consent: input.consent,
+  };
+}
+
+export function reviewOperationTargetFromShortcut(
+  target: ReviewTargetShortcut | undefined,
+): ReviewOperationTarget | undefined {
+  return target ? normalizeReviewTargetShortcut(target) : undefined;
+}
+
+export function reviewOperationOutputFromShortcut(
+  output: ReviewOutputShortcut | undefined,
+): ReviewOutputIntent | undefined {
+  return normalizeOutputShortcut(output);
+}
+
+export function reviewOperationPublicationFromShortcut(
+  publication: false | ReviewPublicationShortcut | undefined,
+): false | ReviewOperationPublicationRequest | undefined {
+  if (publication === undefined || publication === false) {
+    return publication;
+  }
+  if (publication === "plan" || publication === "publish") {
+    return { mode: publication };
+  }
+  return {
+    mode: publication.mode,
+    ...(publication.summary !== undefined
+      ? { summary: publication.summary }
+      : {}),
+    ...(publication.inline !== undefined ? { inline: publication.inline } : {}),
+    ...(publication.triageLabel !== undefined
+      ? { triageLabel: publication.triageLabel }
+      : {}),
+  };
+}
 
 export class ReviewOrchestratorError extends Error {
   run: RunRecord | null;

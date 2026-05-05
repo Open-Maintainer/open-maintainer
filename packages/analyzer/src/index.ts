@@ -8,7 +8,13 @@ import type {
   EvidenceReference,
   RepoProfile,
 } from "@open-maintainer/shared";
-import { newId, nowIso } from "@open-maintainer/shared";
+import {
+  newId,
+  nowIso,
+  optionalContextArtifactHints,
+  recognizedContextArtifactHints,
+  requiredContextArtifactHints,
+} from "@open-maintainer/shared";
 
 export type AnalyzerFile = {
   path: string;
@@ -165,29 +171,9 @@ const environmentFilePatterns = [
   /^\.envrc$/,
 ];
 
-const contextArtifactPaths = [
-  "AGENTS.md",
-  ".agents/skills/<repo>-start-task/SKILL.md",
-  ".agents/skills/<repo>-testing-workflow/SKILL.md",
-  ".agents/skills/<repo>-pr-review/SKILL.md",
-  ".open-maintainer/profile.json",
-  ".open-maintainer/report.md",
-  ".open-maintainer.yml",
-];
-
-const optionalContextArtifactPaths = [
-  "CLAUDE.md",
-  ".github/copilot-instructions.md",
-  ".cursor/rules/open-maintainer.md",
-  ".claude/skills/<repo>-start-task/SKILL.md",
-  ".claude/skills/<repo>-testing-workflow/SKILL.md",
-  ".claude/skills/<repo>-pr-review/SKILL.md",
-];
-
-const recognizedContextArtifactPaths = [
-  ...contextArtifactPaths,
-  ...optionalContextArtifactPaths,
-];
+const contextArtifactPaths = [...requiredContextArtifactHints];
+const optionalContextArtifactPaths = [...optionalContextArtifactHints];
+const recognizedContextArtifactPaths = [...recognizedContextArtifactHints];
 
 export async function scanRepository(
   repoRoot: string,
@@ -763,7 +749,7 @@ export function analyzeRepo(input: AnalyzeRepoInput): RepoProfile {
   );
   const existingContextFiles = paths.filter(
     (repoPath) =>
-      recognizedContextArtifactPaths.includes(repoPath) ||
+      recognizedContextArtifactPaths.some((hint) => hint === repoPath) ||
       repoPath.startsWith(".agents/skills/") ||
       repoPath.startsWith(".claude/skills/"),
   );

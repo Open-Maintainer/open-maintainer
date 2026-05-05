@@ -112,6 +112,236 @@ export const ArtifactTypeSchema = z.union([
 ]);
 export type ArtifactType = z.infer<typeof ArtifactTypeSchema>;
 
+export type ContextArtifactTarget =
+  | "agents"
+  | "claude"
+  | "copilot"
+  | "cursor"
+  | "skills"
+  | "claude-skills"
+  | "profile"
+  | "report"
+  | "config";
+
+export type ContextArtifactPreset = "codex" | "claude" | "both";
+
+export const availableContextArtifactTargets = [
+  "agents",
+  "claude",
+  "copilot",
+  "cursor",
+  "skills",
+  "claude-skills",
+  "profile",
+  "report",
+  "config",
+] as const satisfies readonly ContextArtifactTarget[];
+
+export const defaultContextArtifactTargets = [
+  "agents",
+  "skills",
+  "profile",
+  "report",
+  "config",
+] as const satisfies readonly ContextArtifactTarget[];
+
+export const requiredContextArtifactHints = [
+  "AGENTS.md",
+  ".agents/skills/<repo>-start-task/SKILL.md",
+  ".agents/skills/<repo>-testing-workflow/SKILL.md",
+  ".agents/skills/<repo>-pr-review/SKILL.md",
+  ".open-maintainer/profile.json",
+  ".open-maintainer/report.md",
+  ".open-maintainer.yml",
+] as const;
+
+export const optionalContextArtifactHints = [
+  "CLAUDE.md",
+  ".github/copilot-instructions.md",
+  ".cursor/rules/open-maintainer.md",
+  ".claude/skills/<repo>-start-task/SKILL.md",
+  ".claude/skills/<repo>-testing-workflow/SKILL.md",
+  ".claude/skills/<repo>-pr-review/SKILL.md",
+] as const;
+
+export const recognizedContextArtifactHints = [
+  ...requiredContextArtifactHints,
+  ...optionalContextArtifactHints,
+] as const;
+
+export type WritableContextArtifact = {
+  artifact: GeneratedArtifact;
+  path: string;
+};
+
+export function contextArtifactSlug(value: string): string {
+  let slug = "";
+  let needsSeparator = false;
+
+  for (const character of value.toLowerCase()) {
+    const isAsciiLetter = character >= "a" && character <= "z";
+    const isDigit = character >= "0" && character <= "9";
+    if (isAsciiLetter || isDigit) {
+      if (needsSeparator && slug.length > 0) {
+        slug += "-";
+      }
+      slug += character;
+      needsSeparator = false;
+    } else {
+      needsSeparator = slug.length > 0;
+    }
+  }
+
+  return slug || "repo";
+}
+
+export function expectedContextArtifactTypes(input: {
+  repoName: string;
+  targets?: readonly ContextArtifactTarget[];
+}): ArtifactType[] {
+  const targets = new Set(input.targets ?? defaultContextArtifactTargets);
+  const repoSlug = contextArtifactSlug(input.repoName);
+  const types: ArtifactType[] = [];
+  if (targets.has("agents")) {
+    types.push("AGENTS.md");
+  }
+  if (targets.has("claude")) {
+    types.push("CLAUDE.md");
+  }
+  if (targets.has("config")) {
+    types.push(".open-maintainer.yml");
+  }
+  if (targets.has("copilot")) {
+    types.push(".github/copilot-instructions.md");
+  }
+  if (targets.has("cursor")) {
+    types.push(".cursor/rules/open-maintainer.md");
+  }
+  if (targets.has("skills")) {
+    types.push(
+      ArtifactTypeSchema.parse(
+        `.agents/skills/${repoSlug}-start-task/SKILL.md`,
+      ),
+      ArtifactTypeSchema.parse(
+        `.agents/skills/${repoSlug}-testing-workflow/SKILL.md`,
+      ),
+      ArtifactTypeSchema.parse(`.agents/skills/${repoSlug}-pr-review/SKILL.md`),
+    );
+  }
+  if (targets.has("claude-skills")) {
+    types.push(
+      ArtifactTypeSchema.parse(
+        `.claude/skills/${repoSlug}-start-task/SKILL.md`,
+      ),
+      ArtifactTypeSchema.parse(
+        `.claude/skills/${repoSlug}-testing-workflow/SKILL.md`,
+      ),
+      ArtifactTypeSchema.parse(`.claude/skills/${repoSlug}-pr-review/SKILL.md`),
+    );
+  }
+  if (targets.has("profile")) {
+    types.push(".open-maintainer/profile.json");
+  }
+  if (targets.has("report")) {
+    types.push(".open-maintainer/report.md");
+  }
+  return types;
+}
+
+export function contextArtifactPath(type: ArtifactType): string | null {
+  return type === "repo_profile" ? null : type;
+}
+
+export function contextArtifactPathOrSelf(type: ArtifactType): string {
+  return contextArtifactPath(type) ?? type;
+}
+
+export function contextArtifactPathsForTargets(input: {
+  repoName: string;
+  targets: readonly ContextArtifactTarget[];
+}): string[] {
+  return expectedContextArtifactTypes(input).map(contextArtifactPathOrSelf);
+}
+
+export function isContextArtifactPath(path: string): boolean {
+  const parsed = ArtifactTypeSchema.safeParse(path);
+  return parsed.success && parsed.data !== "repo_profile";
+}
+
+export function isWritableContextArtifactType(type: ArtifactType): boolean {
+  return contextArtifactPath(type) !== null;
+}
+
+export function selectWritableContextArtifacts(
+  artifacts: readonly GeneratedArtifact[],
+): WritableContextArtifact[] {
+  return artifacts.flatMap((artifact) => {
+    const path = contextArtifactPath(artifact.type);
+    return path ? [{ artifact, path }] : [];
+  });
+}
+
+export function isOpenMaintainerGeneratedContent(content: string): boolean {
+  return (
+    content.includes("generated by open-maintainer") ||
+    content.includes("by: open-maintainer") ||
+    content.includes("artifactVersion:") ||
+    content.includes('"openMaintainerProfileHash"') ||
+    content.includes("# Open Maintainer Readiness Report") ||
+    content.includes("# Open Maintainer Report:")
+  );
+}
+
+export function contextArtifactTargetsForSelection(input: {
+  context: ContextArtifactPreset;
+  skills: ContextArtifactPreset;
+}): ContextArtifactTarget[] {
+  const targets: ContextArtifactTarget[] = [];
+  if (input.context === "codex" || input.context === "both") {
+    targets.push("agents");
+  }
+  if (input.context === "claude" || input.context === "both") {
+    targets.push("claude");
+  }
+  if (input.skills === "codex" || input.skills === "both") {
+    targets.push("skills");
+  }
+  if (input.skills === "claude" || input.skills === "both") {
+    targets.push("claude-skills");
+  }
+  targets.push("profile", "report", "config");
+  return targets;
+}
+
+export function defaultContextArtifactPresetForProviderKind(
+  providerKind: string,
+): ContextArtifactPreset {
+  return providerKind === "claude-cli" ? "claude" : "codex";
+}
+
+export function obsoleteGeneratedContextArtifactPaths(input: {
+  generatedPaths: Set<string>;
+  artifactPaths: Set<string>;
+  targets: readonly ContextArtifactTarget[];
+}): string[] {
+  const targetRoots = new Set<string>();
+  if (input.targets.includes("skills")) {
+    targetRoots.add(".agents/skills/");
+  }
+  if (input.targets.includes("claude-skills")) {
+    targetRoots.add(".claude/skills/");
+  }
+  if (targetRoots.size === 0) {
+    return [];
+  }
+  return [...input.generatedPaths]
+    .filter((generatedPath) =>
+      [...targetRoots].some((root) => generatedPath.startsWith(root)),
+    )
+    .filter((generatedPath) => !input.artifactPaths.has(generatedPath))
+    .sort();
+}
+
 export const GeneratedArtifactSchema = z.object({
   id: z.string(),
   repoId: z.string(),
@@ -124,6 +354,111 @@ export const GeneratedArtifactSchema = z.object({
   createdAt: z.string(),
 });
 export type GeneratedArtifact = z.infer<typeof GeneratedArtifactSchema>;
+
+export const repositoryUploadLimits = {
+  maxFiles: 800,
+  maxFileBytes: 128_000,
+  maxPathLength: 1_000,
+  maxNameLength: 120,
+} as const;
+
+export const repositoryUploadIgnoredPathParts = [
+  ".git",
+  ".next",
+  ".turbo",
+  ".cache",
+  ".vercel",
+  "coverage",
+  "dist",
+  "build",
+  "node_modules",
+  "out",
+  "target",
+  "vendor",
+] as const;
+
+export const repositoryUploadReadableExtensions = [
+  ".cairo",
+  ".css",
+  ".go",
+  ".html",
+  ".js",
+  ".json",
+  ".jsx",
+  ".lock",
+  ".md",
+  ".nr",
+  ".rs",
+  ".sol",
+  ".sum",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".yml",
+  ".yaml",
+] as const;
+
+export const repositoryUploadReadableNames = [
+  ".env.example",
+  ".gitignore",
+  "bun.lock",
+  "bun.lockb",
+  "Cargo.lock",
+  "Dockerfile",
+  "go.sum",
+  "Makefile",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "README",
+  "Scarb.lock",
+  "uv.lock",
+  "yarn.lock",
+] as const;
+
+export const RepositoryUploadFileSchema = z.object({
+  path: z.string().min(1).max(repositoryUploadLimits.maxPathLength),
+  content: z.string().max(repositoryUploadLimits.maxFileBytes),
+});
+export type RepositoryUploadFile = z.infer<typeof RepositoryUploadFileSchema>;
+
+export const RepositoryUploadRequestSchema = z.object({
+  name: z.string().min(1).max(repositoryUploadLimits.maxNameLength).optional(),
+  files: z
+    .array(RepositoryUploadFileSchema)
+    .min(1)
+    .max(repositoryUploadLimits.maxFiles),
+});
+export type RepositoryUploadRequest = z.infer<
+  typeof RepositoryUploadRequestSchema
+>;
+
+export function shouldAlwaysSkipRepositoryUploadPath(
+  repoPath: string,
+): boolean {
+  const ignoredParts = new Set<string>(repositoryUploadIgnoredPathParts);
+  return repoPath
+    .split("/")
+    .some((part) => ignoredParts.has(part) || part.endsWith(".tsbuildinfo"));
+}
+
+export function shouldReadRepositoryUploadPath(repoPath: string): boolean {
+  const fileName = repoPath.split("/").at(-1) ?? "";
+  const readableNames = new Set<string>(repositoryUploadReadableNames);
+  if (
+    readableNames.has(fileName) ||
+    readableNames.has(fileName.split(".")[0] ?? "")
+  ) {
+    return true;
+  }
+  const readableExtensions = new Set<string>(
+    repositoryUploadReadableExtensions,
+  );
+  const extensionStart = fileName.lastIndexOf(".");
+  const extension =
+    extensionStart >= 0 ? fileName.slice(extensionStart).toLowerCase() : "";
+  return readableExtensions.has(extension);
+}
 
 export const RunRecordSchema = z.object({
   id: z.string(),

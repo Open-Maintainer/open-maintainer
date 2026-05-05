@@ -4,14 +4,25 @@ import path from "node:path";
 import { stringifyOpenMaintainerConfig } from "@open-maintainer/config";
 import type {
   ArtifactType,
+  ContextArtifactPreset,
+  ContextArtifactTarget,
   GeneratedArtifact,
   RepoProfile,
 } from "@open-maintainer/shared";
 import {
   ArtifactTypeSchema,
   RepoProfileSchema,
+  availableContextArtifactTargets,
+  contextArtifactSlug,
+  contextArtifactTargetsForSelection,
+  defaultContextArtifactPresetForProviderKind,
+  defaultContextArtifactTargets,
+  expectedContextArtifactTypes,
+  isContextArtifactPath,
+  isOpenMaintainerGeneratedContent,
   newId,
   nowIso,
+  obsoleteGeneratedContextArtifactPaths,
 } from "@open-maintainer/shared";
 import { z } from "zod";
 
@@ -312,91 +323,25 @@ export type ContextSourceFile = {
   content: string;
 };
 
-export type ContextArtifactTarget =
-  | "agents"
-  | "claude"
-  | "copilot"
-  | "cursor"
-  | "skills"
-  | "claude-skills"
-  | "profile"
-  | "report"
-  | "config";
+export type { ContextArtifactPreset, ContextArtifactTarget };
 
-export const availableArtifactTargets: ContextArtifactTarget[] = [
-  "agents",
-  "claude",
-  "copilot",
-  "cursor",
-  "skills",
-  "claude-skills",
-  "profile",
-  "report",
-  "config",
-];
+export const availableArtifactTargets = [...availableContextArtifactTargets];
 
-export const defaultArtifactTargets: ContextArtifactTarget[] = [
-  "agents",
-  "skills",
-  "profile",
-  "report",
-  "config",
-];
+export const defaultArtifactTargets = [...defaultContextArtifactTargets];
+export {
+  contextArtifactTargetsForSelection,
+  defaultContextArtifactPresetForProviderKind,
+  isOpenMaintainerGeneratedContent,
+};
 
 export function expectedArtifactTypes(input: {
   profile: RepoProfile;
   targets?: ContextArtifactTarget[];
 }): ArtifactType[] {
-  const targets = new Set(input.targets ?? defaultArtifactTargets);
-  const types: ArtifactType[] = [];
-  if (targets.has("agents")) {
-    types.push("AGENTS.md");
-  }
-  if (targets.has("claude")) {
-    types.push("CLAUDE.md");
-  }
-  if (targets.has("config")) {
-    types.push(".open-maintainer.yml");
-  }
-  if (targets.has("copilot")) {
-    types.push(".github/copilot-instructions.md");
-  }
-  if (targets.has("cursor")) {
-    types.push(".cursor/rules/open-maintainer.md");
-  }
-  if (targets.has("skills")) {
-    types.push(
-      ArtifactTypeSchema.parse(
-        `.agents/skills/${slugify(input.profile.name)}-start-task/SKILL.md`,
-      ),
-      ArtifactTypeSchema.parse(
-        `.agents/skills/${slugify(input.profile.name)}-testing-workflow/SKILL.md`,
-      ),
-      ArtifactTypeSchema.parse(
-        `.agents/skills/${slugify(input.profile.name)}-pr-review/SKILL.md`,
-      ),
-    );
-  }
-  if (targets.has("claude-skills")) {
-    types.push(
-      ArtifactTypeSchema.parse(
-        `.claude/skills/${slugify(input.profile.name)}-start-task/SKILL.md`,
-      ),
-      ArtifactTypeSchema.parse(
-        `.claude/skills/${slugify(input.profile.name)}-testing-workflow/SKILL.md`,
-      ),
-      ArtifactTypeSchema.parse(
-        `.claude/skills/${slugify(input.profile.name)}-pr-review/SKILL.md`,
-      ),
-    );
-  }
-  if (targets.has("profile")) {
-    types.push(".open-maintainer/profile.json");
-  }
-  if (targets.has("report")) {
-    types.push(".open-maintainer/report.md");
-  }
-  return types;
+  return expectedContextArtifactTypes({
+    repoName: input.profile.name,
+    ...(input.targets ? { targets: input.targets } : {}),
+  });
 }
 
 export type ArtifactModel = "codex" | "claude";
@@ -970,7 +915,7 @@ export function createContextArtifacts(input: {
   targets?: ContextArtifactTarget[];
 }): GeneratedArtifact[] {
   const createdAt = nowIso();
-  const targets = new Set(input.targets ?? defaultArtifactTargets);
+  const targets = new Set(input.targets ?? defaultContextArtifactTargets);
   const definitions: Array<{ type: ArtifactType; content: string }> = [];
   if (targets.has("agents")) {
     if (!input.modelArtifacts) {
@@ -1110,10 +1055,11 @@ function skillDefinitionsForTarget(
   if (!modelSkills || modelSkills.skills.length === 0) {
     throw new Error("Skill generation requires model skill content.");
   }
-  const repoSlug = slugify(repoName);
+  const repoSlug = contextArtifactSlug(repoName);
   const seen = new Set<string>();
   return modelSkills.skills.flatMap((skill) => {
-    const rawSlug = skillSlugFromPath(skill.path) ?? slugify(skill.name);
+    const rawSlug =
+      skillSlugFromPath(skill.path) ?? contextArtifactSlug(skill.name);
     const slug = canonicalSkillSlug(rawSlug, repoSlug);
     const path = ArtifactTypeSchema.parse(
       `${targetRoot}/skills/${slug}/SKILL.md`,
@@ -2064,7 +2010,7 @@ async function buildContextGenerationWritePlan(input: {
     input.artifacts.map((artifact) => artifact.type),
   );
   const obsoleteGeneratedPaths = input.writePolicy.removeObsoleteGenerated
-    ? obsoleteGeneratedArtifactPaths({
+    ? obsoleteGeneratedContextArtifactPaths({
         generatedPaths: existingGeneratedPaths,
         artifactPaths,
         targets: input.targets,
@@ -2092,16 +2038,6 @@ async function buildContextGenerationWritePlan(input: {
   };
 }
 
-export function isOpenMaintainerGeneratedContent(content: string): boolean {
-  return (
-    content.includes("generated by open-maintainer") ||
-    content.includes("by: open-maintainer") ||
-    content.includes('"openMaintainerProfileHash"') ||
-    content.includes("# Open Maintainer Readiness Report") ||
-    content.includes("# Open Maintainer Report:")
-  );
-}
-
 export function contextArtifactInventoryFromFiles(input: {
   files: ContextSourceFile[];
   nextArtifactVersion: number;
@@ -2123,58 +2059,6 @@ export function contextArtifactInventoryFromFiles(input: {
       return existingGeneratedPaths;
     },
   };
-}
-
-export function obsoleteGeneratedArtifactPaths(input: {
-  generatedPaths: Set<string>;
-  artifactPaths: Set<string>;
-  targets: ContextArtifactTarget[];
-}): string[] {
-  const targetRoots = new Set<string>();
-  if (input.targets.includes("skills")) {
-    targetRoots.add(".agents/skills/");
-  }
-  if (input.targets.includes("claude-skills")) {
-    targetRoots.add(".claude/skills/");
-  }
-  if (targetRoots.size === 0) {
-    return [];
-  }
-  return [...input.generatedPaths]
-    .filter((generatedPath) =>
-      [...targetRoots].some((root) => generatedPath.startsWith(root)),
-    )
-    .filter((generatedPath) => !input.artifactPaths.has(generatedPath))
-    .sort();
-}
-
-export type ContextArtifactPreset = "codex" | "claude" | "both";
-
-export function contextArtifactTargetsForSelection(input: {
-  context: ContextArtifactPreset;
-  skills: ContextArtifactPreset;
-}): ContextArtifactTarget[] {
-  const targets: ContextArtifactTarget[] = [];
-  if (input.context === "codex" || input.context === "both") {
-    targets.push("agents");
-  }
-  if (input.context === "claude" || input.context === "both") {
-    targets.push("claude");
-  }
-  if (input.skills === "codex" || input.skills === "both") {
-    targets.push("skills");
-  }
-  if (input.skills === "claude" || input.skills === "both") {
-    targets.push("claude-skills");
-  }
-  targets.push("profile", "report", "config");
-  return targets;
-}
-
-export function defaultContextArtifactPresetForProviderKind(
-  providerKind: string,
-): ContextArtifactPreset {
-  return providerKind === "claude-cli" ? "claude" : "codex";
 }
 
 function parseStageOutput<T>(
@@ -2209,48 +2093,11 @@ function uniqueStrings(items: string[]): string[] {
   return [...new Set(items.filter((item) => item.trim().length > 0))];
 }
 
-function slugify(value: string): string {
-  let slug = "";
-  let needsSeparator = false;
-
-  for (const character of value.toLowerCase()) {
-    const isAsciiLetter = character >= "a" && character <= "z";
-    const isDigit = character >= "0" && character <= "9";
-    if (isAsciiLetter || isDigit) {
-      if (needsSeparator && slug.length > 0) {
-        slug += "-";
-      }
-      slug += character;
-      needsSeparator = false;
-    } else {
-      needsSeparator = slug.length > 0;
-    }
-  }
-
-  return slug || "repo";
-}
-
 function skillSlugFromPath(path: string): string | null {
   return (
     /^\.(?:agents|claude)\/skills\/(?<slug>[a-z0-9][a-z0-9-]*)\/SKILL\.md$/.exec(
       path,
     )?.groups?.slug ?? null
-  );
-}
-
-function isContextArtifactPath(path: string): boolean {
-  return (
-    [
-      "AGENTS.md",
-      "CLAUDE.md",
-      ".open-maintainer.yml",
-      ".github/copilot-instructions.md",
-      ".cursor/rules/open-maintainer.md",
-      ".open-maintainer/profile.json",
-      ".open-maintainer/report.md",
-    ].includes(path) ||
-    path.startsWith(".agents/skills/") ||
-    path.startsWith(".claude/skills/")
   );
 }
 
